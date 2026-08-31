@@ -66,7 +66,11 @@ export default function LoginClient() {
         return;
       }
       storeToken(data.session.access_token, data.session.expires_in);
-      window.location.href = "/chat";
+      // Return to where the visitor was headed, if the front door recorded it.
+      // Relative paths only — anything else is ignored (no open redirects).
+      const next = new URLSearchParams(window.location.search).get("next");
+      window.location.href =
+        next && next.startsWith("/") && !next.startsWith("//") ? next : "/chat";
     } catch {
       setError("Something went wrong while signing in. Please try again.");
       setBusy(false);

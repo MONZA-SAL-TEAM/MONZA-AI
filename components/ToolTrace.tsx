@@ -49,7 +49,7 @@ const CONNECTOR_LABELS: Record<string, string> = {
 /** What one row means, per system, in a salesperson's words. */
 const CONNECTOR_NOUNS: Record<string, [string, string]> = {
   crm: ["customer", "customers"],
-  installments: ["customer", "customers"],
+  installments: ["record", "records"],
   garage: ["job", "jobs"],
   inventory: ["item", "items"],
   finance: ["record", "records"],

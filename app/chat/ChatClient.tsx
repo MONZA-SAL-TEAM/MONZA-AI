@@ -19,8 +19,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { AnswerTable, ChatTurnResponse, RecommendedChat } from "@/lib/chat/contract";
 import { RECOMMENDED_CHATS } from "@/lib/chat/demo-answers";
+import { DEPARTMENTS } from "@/lib/chat/departments";
 import ToolTrace from "@/components/ToolTrace";
 import DataTable from "@/components/DataTable";
 import FollowupChips from "@/components/FollowupChips";
@@ -305,6 +308,22 @@ function asMessages(data: unknown): ChatMessage[] {
 
 /* ---------------------------------------------------------------- the ui --- */
 
+/** Where a welcome card's header links to. Every key in RECOMMENDED_CHATS has
+ *  a department (DEPARTMENTS is built from it), so the fallback never fires. */
+function departmentHref(key: RecommendedChat["key"]): string {
+  const d = DEPARTMENTS.find((dep) => dep.key === key);
+  return d ? `/departments/${d.slug}` : "/chat";
+}
+
+/* The welcome-card header is now a link to its department page. The rules for
+   this file forbid raw <style> children (hydration), so the one hover rule it
+   needs rides in via dangerouslySetInnerHTML, tokens only. At rest the header
+   looks exactly as before; the negative margin means the hover pad adds no
+   layout shift. */
+const headLinkCss =
+  ".reco-head-link{margin:-6px;padding:6px;border-radius:10px;transition:background .12s ease;}" +
+  ".reco-head-link:hover{background:var(--sunk);}";
+
 export default function ChatClient() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -312,12 +331,20 @@ export default function ChatClient() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [needsLogin, setNeedsLogin] = useState(false);
+  /** A question that arrived via /chat?ask= — kept so a stale session's 401
+   *  can send the visitor through sign-in and back WITH the question. */
+  const pendingAsk = useRef<string | null>(null);
   const [demoMode, setDemoMode] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Deep link: /chat?ask=<question> asks it once on arrival (see effect below).
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const askedFromUrl = useRef(false);
 
   const guard = useCallback((res: Response): boolean => {
     if (res.status === 401) {
@@ -450,6 +477,20 @@ export default function ChatClient() {
     [activeId, sending, refreshConversations]
   );
 
+  // Arriving at /chat?ask=<question> sends the question exactly as if the
+  // user had tapped a suggestion — exactly once (the ref survives re-renders
+  // and Strict Mode's double effect run) — then cleans the URL so a refresh
+  // doesn't re-ask.
+  useEffect(() => {
+    if (askedFromUrl.current) return;
+    const ask = searchParams.get("ask");
+    if (!ask || ask.trim() === "") return;
+    askedFromUrl.current = true;
+    pendingAsk.current = ask;
+    send(ask);
+    router.replace("/chat");
+  }, [searchParams, send, router]);
+
   const onComposerKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -465,7 +506,14 @@ export default function ChatClient() {
       <div className="empty" style={{ flex: 1 }}>
         <p className="h2">Please sign in</p>
         <p className="cap">You need to be signed in to ask Monza AI.</p>
-        <a className="btn primary" href="/login">
+        <a
+          className="btn primary"
+          href={
+            pendingAsk.current
+              ? `/login?next=${encodeURIComponent(`/chat?ask=${encodeURIComponent(pendingAsk.current)}`)}`
+              : "/login"
+          }
+        >
           Go to sign in
         </a>
       </div>
@@ -529,6 +577,8 @@ export default function ChatClient() {
         <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
           {messages.length === 0 && !sending ? (
             <div className="chat-welcome">
+              {/* Static constant CSS (tokens only) — nothing user-supplied. */}
+              <style dangerouslySetInnerHTML={{ __html: headLinkCss }} />
               <p className="h1">Hi! What do you want to know?</p>
               <p className="lede" style={{ maxWidth: 460 }}>
                 Tap a question to ask it, or type your own below. Every answer shows exactly which
@@ -537,12 +587,16 @@ export default function ChatClient() {
               <div className="welcome-grid">
                 {RECOMMENDED_CHATS.map((rc) => (
                   <section key={rc.key} className="reco-card" aria-label={rc.label}>
-                    <div className="reco-head">
+                    <Link
+                      className="reco-head reco-head-link"
+                      href={departmentHref(rc.key)}
+                      aria-label={`Open the ${rc.label} page`}
+                    >
                       <span className="reco-icon">
                         <ConnectorIcon k={rc.key} />
                       </span>
                       <span className="reco-label">{rc.label}</span>
-                    </div>
+                    </Link>
                     <p className="reco-blurb">{rc.blurb}</p>
                     <div className="reco-qs">
                       {rc.questions.map((q) => (

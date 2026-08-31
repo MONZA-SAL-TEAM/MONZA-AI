@@ -406,6 +406,65 @@ hr.rule { border: none; border-top: 1px solid var(--line-soft); margin: 0; }
   color: var(--ink-3); font-size: var(--t-xs);
 }
 
+/* --- nav "Departments" dropdown --------------------------------------------
+   A plain <details>/<summary> in the topbar: no JS, opens on click or
+   Enter/Space, closes the standard way. The summary wears the navlink look;
+   the open panel is a small card anchored underneath. */
+.nav-dd { position: relative; }
+.nav-dd > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--t-sm); font-weight: 520; color: var(--ink-2);
+  padding: 6px 10px; border-radius: var(--radius-sm);
+  white-space: nowrap;
+  transition: background .12s ease, color .12s ease;
+}
+.nav-dd > summary::-webkit-details-marker { display: none; }
+.nav-dd > summary:hover,
+.nav-dd[open] > summary { background: var(--sunk); color: var(--ink); }
+/* Small chevron, drawn in currentColor so it follows the theme. */
+.nav-dd > summary::after {
+  content: "";
+  width: 6px; height: 6px; flex: none;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  margin-top: -3px;
+  transition: transform .12s ease;
+}
+.nav-dd[open] > summary::after { transform: rotate(-135deg); margin-top: 3px; }
+
+.nav-dd-panel {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
+  min-width: 220px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.nav-dd-item {
+  display: block;
+  font-size: var(--t-sm); font-weight: 520; color: var(--ink-2);
+  padding: 8px 10px; border-radius: var(--radius-sm);
+  white-space: nowrap;
+  transition: background .12s ease, color .12s ease;
+}
+.nav-dd-item:hover { background: var(--sunk); color: var(--ink); }
+@media (max-width: 480px) {
+  /* The topbar nav scrolls horizontally on small screens, which would clip an
+     absolutely-positioned panel — so the panel goes fixed, full-width, just
+     under the 52px topbar. */
+  .nav-dd-panel {
+    position: fixed;
+    left: 8px; right: 8px; top: 58px;
+    min-width: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }

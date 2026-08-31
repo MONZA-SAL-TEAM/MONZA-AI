@@ -1,0 +1,113 @@
+/* =============================================================================
+   Department pages — one calm column a first-time visitor understands in five
+   seconds. Everything is built on the theme tokens from app/globals.css;
+   nothing here defines a colour of its own, so light and dark both just work.
+   ============================================================================= */
+
+.dept-page {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.dept-wrap {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+/* --- back link ------------------------------------------------------------- */
+.dept-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-sm);
+  font-weight: 520;
+  color: var(--ink-2);
+  padding: 6px 10px;
+  margin-left: -10px;
+  border-radius: var(--radius-sm);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.dept-back:hover {
+  background: var(--sunk);
+  color: var(--ink);
+}
+.dept-back svg {
+  flex: none;
+  color: var(--ink-3);
+}
+
+/* --- header: icon, label, blurb -------------------------------------------- */
+.dept-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.dept-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  flex: none;
+  background: var(--sunk);
+  color: var(--ink-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.dept-head .lede {
+  margin-top: 6px;
+  max-width: 46ch;
+}
+
+/* --- sections -------------------------------------------------------------- */
+.dept-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dept-hint {
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+  margin: 0;
+}
+
+/* --- "Ask about this": three big tappable rows ------------------------------ */
+.dept-qs {
+  margin-top: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.dept-q {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--t-md);
+  color: var(--ink-2);
+  padding: 15px 16px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.dept-q + .dept-q {
+  border-top: 1px solid var(--line-soft);
+}
+.dept-q:hover {
+  background: var(--sunk);
+  color: var(--ink);
+}
+.dept-q svg {
+  flex: none;
+  color: var(--ink-3);
+}
+
+/* --- "At a glance": the table gets a little air under its heading ----------- */
+.dept-section .dtable-wrap {
+  margin-top: 8px;
+}

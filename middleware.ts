@@ -25,14 +25,18 @@ export function middleware(request: NextRequest) {
   if (token) return NextResponse.next();
 
   const login = request.nextUrl.clone();
+  const wanted = request.nextUrl.pathname + request.nextUrl.search;
   login.pathname = "/login";
-  login.search = "";
+  // Carry the intended destination (a relative path only) through sign-in so
+  // a deep link like /chat?ask=... survives the front door.
+  login.search = wanted && wanted.startsWith("/") ? `?next=${encodeURIComponent(wanted)}` : "";
   return NextResponse.redirect(login);
 }
 
 export const config = {
   matcher: [
     "/chat/:path*",
+    "/departments/:path*",
     "/dashboard/:path*",
     "/connections/:path*",
     "/automations/:path*",

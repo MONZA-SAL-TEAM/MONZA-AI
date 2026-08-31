@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
+import NavDepartments from "@/components/NavDepartments";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -51,6 +52,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <Link className="navlink" href="/chat">
               Chat
             </Link>
+            {/* Pure-HTML dropdown: <details> opens/closes with no JS, works
+                with keyboard (Enter/Space on the summary), and inherits the
+                navlink look. */}
+            <NavDepartments />
             <Link className="navlink" href="/dashboard">
               Overview
             </Link>
