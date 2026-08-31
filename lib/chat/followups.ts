@@ -22,7 +22,7 @@ const FOLLOWUPS_BY_CONNECTOR: Record<string, string[]> = {
     "How are our payment plans doing overall?",
   ],
   crm: [
-    "Where are our leads coming from?",
+    "Where are our new customers coming from?",
     "Which customers have overdue installments over $2,000?",
   ],
   garage: [

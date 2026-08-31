@@ -23,8 +23,8 @@ export interface DemoAnswer {
 
 const Q = {
   // Customers & Sales
-  newLeads: "Which new leads came in this month?",
-  leadSources: "Where are our leads coming from?",
+  newLeads: "Which new customers came in this month?",
+  leadSources: "Where are our new customers coming from?",
   ramiSummary: "Give me a summary of Rami Kanaan's account.",
   // Installments & Payments (two of Samer's flagship questions live here)
   overdue: "Which customers have overdue installments over $2,000?",
@@ -72,7 +72,7 @@ export const RECOMMENDED_CHATS: RecommendedChat[] = [
   {
     key: "finance",
     label: "Money & Reports",
-    blurb: "Sales, spending, and what is still owed to the company.",
+    blurb: "Sales orders, company costs, and what payment plans are still owed — each answer says which records it used.",
     questions: [Q.sales, Q.costs, Q.owed],
   },
 ];
@@ -204,10 +204,10 @@ const ANSWER_JOB_STATUS: DemoAnswer = {
 
 const ANSWER_NEW_LEADS: DemoAnswer = {
   text:
-    "5 new customer enquiries came in recently — 4 during August plus one from the very end of July. Instagram is doing the heaviest lifting with 2 of the 5. George Sassine is the freshest lead (25 August, a referral), so he's the one to call first.",
+    "5 new customer enquiries came in recently — 4 during August plus one from the very end of July. Instagram is doing the heaviest lifting with 2 of the 5. George Sassine is the freshest enquiry (25 August, a referral), so he's the one to call first.",
   tables: [
     {
-      title: "Recent leads",
+      title: "New customer enquiries",
       columns: ["Customer", "Came from", "First contact"],
       rows: [
         ["George Sassine", "Referral", "25 Aug 2026"],
@@ -227,7 +227,7 @@ const ANSWER_LEAD_SOURCES: DemoAnswer = {
     "Instagram is our strongest channel right now — 2 of the last 5 enquiries started there. The rest came one each from a showroom walk-in, a referral, and the website. If you're deciding where to put marketing effort, Instagram is earning its keep.",
   tables: [
     {
-      title: "Where recent leads came from",
+      title: "Where new customers came from",
       columns: ["Source", "New customers", "Share"],
       rows: [
         ["Instagram", 2, "40%"],

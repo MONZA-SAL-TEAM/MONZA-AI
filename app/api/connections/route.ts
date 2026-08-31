@@ -20,12 +20,37 @@ interface ConnectorMeta {
   description: string;
 }
 
+/**
+ * Where each connector's answers come from. All five point at the Monza CRM
+ * today; when a system becomes its own application later, only this string
+ * (and the connector's internals) change — the contract stays put.
+ */
+const SOURCE_BY_KEY: Record<string, string> = {
+  crm: "Monza CRM (the Monza SAL system)",
+  installments: "Monza CRM (the Monza SAL system)",
+  finance: "Monza CRM (the Monza SAL system)",
+  garage: "Monza CRM (the Monza SAL system)",
+  inventory: "Monza CRM (the Monza SAL system)",
+};
+
+/** Plain-word overrides where a prettified tool name would mislead. */
+const TOOL_LABEL_OVERRIDES: Record<string, string> = {
+  recent_leads: "New customer enquiries",
+};
+
+function toolLabel(name: string): string {
+  const override = TOOL_LABEL_OVERRIDES[name];
+  if (override) return override;
+  const words = name.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 /** The closed set, mirroring lib/permissions/kernel.ts. Labels are staff words. */
 const CONNECTORS: ConnectorMeta[] = [
   {
     key: "crm",
     label: "Customers & Sales",
-    description: "Customers, leads, vehicles and the sales pipeline.",
+    description: "Customer records, new enquiries, vehicles and sales orders.",
   },
   {
     key: "installments",
@@ -152,9 +177,17 @@ export async function GET(): Promise<NextResponse> {
         description: meta.description,
         connected,
         detail,
+        source: SOURCE_BY_KEY[meta.key] ?? "Not set",
+        tools: impl ? impl.tools.map((t) => toolLabel(t.name)) : [],
       };
     })
   );
 
-  return NextResponse.json({ demo, connectors, comingLater: COMING_LATER });
+  return NextResponse.json({
+    demo,
+    connectors,
+    comingLater: COMING_LATER,
+    signIn: "Your own Monza account — every answer follows your CRM permissions.",
+    checkedAt: new Date().toISOString(),
+  });
 }

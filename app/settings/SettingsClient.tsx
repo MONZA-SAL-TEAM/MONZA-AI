@@ -49,6 +49,12 @@ export default function SettingsClient({ view }: { view: SettingsView }) {
           administrator can switch individual abilities off per person, and
           every single lookup is recorded.
         </p>
+        <p className="cap" style={{ marginTop: 8 }}>
+          Monza AI&apos;s own database holds only conversations, permissions
+          and the activity record. It never holds customers, vehicles,
+          payments, garage jobs or any business records — those stay in the
+          Monza systems, and the assistant asks them fresh every time.
+        </p>
       </div>
 
       {/* Current configuration, plain words */}
