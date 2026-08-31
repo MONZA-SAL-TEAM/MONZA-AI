@@ -111,7 +111,8 @@ export default async function SettingsPage() {
           <div className="eyebrow">Settings</div>
           <h1 className="h1">How the assistant is set up</h1>
           <p className="lede">
-            Read-only for now — these values are managed by the administrator.
+            A plain-words look at the current setup. Nothing on this page can
+            be changed from here — your administrator manages these values.
           </p>
         </header>
         <SettingsClient view={view} />

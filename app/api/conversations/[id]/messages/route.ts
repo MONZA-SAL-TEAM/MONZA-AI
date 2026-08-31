@@ -41,7 +41,7 @@ export async function GET(
 
   const { data, error } = await db
     .from("messages")
-    .select("id, role, content, tool_trace, created_at")
+    .select("id, role, content, tool_trace, tables, followups, created_at")
     .eq("conversation_id", params.id)
     .order("created_at", { ascending: true })
     .limit(500);

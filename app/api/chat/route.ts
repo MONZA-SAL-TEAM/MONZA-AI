@@ -2,13 +2,15 @@
  * POST /api/chat — one question in, one assistant turn out.
  *
  * Body: { conversationId?: string, message: string }
- * Returns: { conversationId: string | null, text: string, trace: [...] }
+ * Returns: ChatTurnResponse (lib/chat/contract.ts) —
+ *   { conversationId, text, tables, followups, trace }
  *
  * Persistence (conversation + both messages) happens only when the AI's own
- * database is configured AND the caller is a real CRM identity. In demo mode
- * nothing is persisted, but the loop still runs — the connectors answer from
- * their labelled demo data. With no ANTHROPIC_API_KEY the route returns an
- * honest sentence saying the brain is not connected; it never fakes output.
+ * database is configured AND the caller is a real CRM identity. The demo
+ * identity is answered by the offline demo engine — labelled, invented data,
+ * nothing persisted. A REAL identity with no ANTHROPIC_API_KEY gets an honest
+ * sentence saying the brain is not connected; the route never fakes model
+ * output for a real user.
  */
 
 import { NextResponse } from "next/server";
@@ -16,6 +18,9 @@ import { requireStaff, isDemoIdentity } from "@/lib/auth";
 import { aiDb, loadSettings, loadUserRules } from "@/lib/db";
 import { buildMonzaRegistry } from "@/lib/tools/registry";
 import { runAssistantTurn } from "@/lib/ai/loop";
+import { demoAnswer } from "@/lib/chat/demo-answers";
+import { deriveFollowups } from "@/lib/chat/followups";
+import type { ChatTurnResponse } from "@/lib/chat/contract";
 import type { ClaudeMessage } from "@/lib/ai/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -101,16 +106,34 @@ export async function POST(request: Request) {
 
   const settings = await loadSettings();
   if (!settings.enabled) {
-    return NextResponse.json({
+    const off: ChatTurnResponse = {
       conversationId: requestedConversationId,
       text: "The assistant is currently switched off by an administrator.",
+      tables: [],
+      followups: [],
       trace: [],
-    });
+    };
+    return NextResponse.json(off);
   }
 
   const db = aiDb();
   const demo = isDemoIdentity(user);
   const persist = Boolean(db) && !demo;
+
+  // Demo identity: answered entirely by the offline demo engine — invented,
+  // labelled data, deterministic, nothing persisted, no external calls. The
+  // demo is a real conversation experience, not a "not connected" apology.
+  if (demo) {
+    const answer = demoAnswer(message);
+    const response: ChatTurnResponse = {
+      conversationId: requestedConversationId,
+      text: answer.text,
+      tables: answer.tables,
+      followups: answer.followups,
+      trace: answer.trace,
+    };
+    return NextResponse.json(response);
+  }
 
   // Resolve or create the conversation, and load prior turns.
   let conversationId: string | null = requestedConversationId;
@@ -149,7 +172,8 @@ export async function POST(request: Request) {
     });
   }
 
-  // No brain connected: say so honestly. Never fake model output.
+  // No brain connected: say so honestly. Never fake model output for a real
+  // identity.
   if (!process.env.ANTHROPIC_API_KEY) {
     const text =
       "The assistant's brain is not connected yet — no Anthropic API key is set on the server. " +
@@ -160,23 +184,35 @@ export async function POST(request: Request) {
         role: "assistant",
         content: text,
         tool_trace: [],
+        tables: [],
+        followups: [],
       });
     }
-    return NextResponse.json({ conversationId, text, trace: [] });
+    const notConnected: ChatTurnResponse = {
+      conversationId,
+      text,
+      tables: [],
+      followups: [],
+      trace: [],
+    };
+    return NextResponse.json(notConnected);
   }
 
   // Fail closed: a REAL identity with no AI database means live CRM queries
   // would run with every audit write silently dropped. That half-configured
   // state is refused, not tolerated — the audit trail is part of the product.
   if (!demo && !db) {
-    return NextResponse.json({
+    const unauditable: ChatTurnResponse = {
       conversationId,
       text:
         "Monza AI's own database is not configured on this server, so I can't " +
         "record an audit trail — and I won't run live lookups without one. " +
         "An administrator needs to set the AI database keys, then this will work.",
+      tables: [],
+      followups: [],
       trace: [],
-    });
+    };
+    return NextResponse.json(unauditable);
   }
 
   const userRules = demo ? [] : await loadUserRules(user.userId);
@@ -199,12 +235,16 @@ export async function POST(request: Request) {
     },
   });
 
+  const followups = deriveFollowups(result.trace);
+
   if (persist && db && conversationId) {
     await db.from("messages").insert({
       conversation_id: conversationId,
       role: "assistant",
       content: result.text,
       tool_trace: result.trace,
+      tables: result.tables,
+      followups,
       model: result.model,
     });
     await db
@@ -213,9 +253,12 @@ export async function POST(request: Request) {
       .eq("id", conversationId);
   }
 
-  return NextResponse.json({
+  const response: ChatTurnResponse = {
     conversationId,
     text: result.text,
+    tables: result.tables,
+    followups,
     trace: result.trace,
-  });
+  };
+  return NextResponse.json(response);
 }

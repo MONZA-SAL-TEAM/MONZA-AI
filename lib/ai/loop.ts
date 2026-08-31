@@ -33,9 +33,19 @@ import {
   type ClaudeToolUseBlock,
 } from "@/lib/ai/client";
 import { toAnthropicTools } from "@/lib/tools/registry";
+// Type-only on purpose: contract.ts imports ToolTraceEntry from this module,
+// so a value import here would be a runtime cycle. Types are erased; this is
+// safe both ways.
+import type { AnswerTable } from "@/lib/chat/contract";
 
 /** Cap on how much of one tool result is fed back to the model. */
 const RESULT_CHAR_LIMIT = 4000;
+
+/** At most this many data tables accompany one answer. */
+const MAX_TABLES_PER_TURN = 3;
+
+/** At most this many rows per table; the answer text carries the rest. */
+const MAX_TABLE_ROWS = 10;
 
 export interface ToolTraceEntry {
   qualifiedName: string;
@@ -69,7 +79,79 @@ export interface AssistantTurnArgs {
 export interface AssistantTurnResult {
   text: string;
   trace: ToolTraceEntry[];
+  /** Small data tables extracted from successful tool results. Max 3. */
+  tables: AnswerTable[];
   model: string;
+}
+
+/* ── Data tables from tool results ─────────────────────────────────────────
+ * When a tool returns an array of plain objects, the rows themselves are
+ * usually the answer the staff member wants to SEE, not just read about.
+ * These helpers turn such a result into a small AnswerTable. Pure shaping —
+ * no permission, audit, or trace behaviour lives here.
+ */
+
+/** Plain-words table headings per tool. Raw tool names never reach the UI. */
+const PLAIN_TITLES: Record<string, string> = {
+  crm__search_customers: "Matching customers",
+  crm__customer_summary: "Customer overview",
+  crm__recent_leads: "Recent leads",
+  installments__overdue_installments: "Overdue installments",
+  installments__collections_this_month: "Collected this month",
+  installments__plan_status_summary: "Payment plans at a glance",
+  garage__jobs_waiting_parts: "Jobs waiting for parts",
+  garage__open_jobs_summary: "Open garage jobs",
+  garage__job_lookup: "Job details",
+  inventory__cars_in_stock_summary: "Cars in stock",
+  inventory__low_stock_parts: "Parts running low",
+  inventory__car_lookup: "Car details",
+  finance__sales_this_month: "Sales this month",
+  finance__monthly_costs_summary: "Monthly costs",
+};
+
+/** snake_case (or spaced) key → "Title Case" column heading. */
+function prettifyKey(key: string): string {
+  return key
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Primitive values pass through; anything structured becomes null. */
+function toCellValue(value: unknown): string | number | null {
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return null;
+}
+
+/**
+ * Build an AnswerTable from one successful tool result whose data is a
+ * non-empty array of plain objects; anything else yields null. Column order
+ * follows the first object's key order; at most MAX_TABLE_ROWS rows.
+ */
+function tableFromToolResult(
+  qualified: string,
+  result: ToolResult
+): AnswerTable | null {
+  if (!result.ok) return null;
+  const data = result.data;
+  if (!Array.isArray(data) || data.length === 0) return null;
+  if (!data.every(isPlainObject)) return null;
+  const keys = Object.keys(data[0]);
+  if (keys.length === 0) return null;
+  return {
+    title: PLAIN_TITLES[qualified] ?? "What was found",
+    columns: keys.map(prettifyKey),
+    rows: data
+      .slice(0, MAX_TABLE_ROWS)
+      .map((row) => keys.map((key) => toCellValue(row[key]))),
+  };
 }
 
 function buildSystemPrompt(today: string): string {
@@ -270,6 +352,7 @@ export async function runAssistantTurn(
   const { identity, conversationId, userMessage, history, deps } = args;
   const model = deps.settings.model;
   const trace: ToolTraceEntry[] = [];
+  const tables: AnswerTable[] = [];
 
   try {
     const ctx: ExecutionContext = {
@@ -296,6 +379,7 @@ export async function runAssistantTurn(
         return {
           text: "I could not reach the assistant service just now. Nothing was changed; please try again in a moment.",
           trace,
+          tables,
           model,
         };
       }
@@ -313,6 +397,7 @@ export async function runAssistantTurn(
             text ||
             "I was unable to put together an answer for that. Please try rephrasing the question.",
           trace,
+          tables,
           model,
         };
       }
@@ -360,6 +445,10 @@ export async function runAssistantTurn(
           continue;
         }
         const result = await handleToolUse(block, ctx, deps, trace);
+        if (tables.length < MAX_TABLES_PER_TURN) {
+          const table = tableFromToolResult(block.name, result);
+          if (table) tables.push(table);
+        }
         resultBlocks.push({
           type: "tool_result",
           tool_use_id: block.id,
@@ -381,6 +470,7 @@ export async function runAssistantTurn(
           return {
             text: "I gathered some data but could not finish composing the answer. Please try again.",
             trace,
+            tables,
             model,
           };
         }
@@ -394,6 +484,7 @@ export async function runAssistantTurn(
             text ||
             "I gathered some data but could not finish composing the answer. Please try again.",
           trace,
+          tables,
           model,
         };
       }
@@ -403,6 +494,7 @@ export async function runAssistantTurn(
     return {
       text: "Something went wrong while answering that. Nothing was changed; please try again.",
       trace,
+      tables,
       model,
     };
   }

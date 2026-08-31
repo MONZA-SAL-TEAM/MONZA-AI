@@ -20,8 +20,9 @@ export default function ConnectionsPage() {
           <div className="eyebrow">Connections</div>
           <h1 className="h1">What the assistant can see</h1>
           <p className="lede">
-            Each system below answers questions with your own sign-in — the
-            assistant never sees more than you can.
+            Think of this as a checklist: each system below is one thing the
+            assistant can answer questions from. Everything runs with your own
+            sign-in — the assistant never sees more than you can.
           </p>
         </header>
         <ConnectionsClient />

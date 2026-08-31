@@ -40,8 +40,9 @@ export default function AutomationsPage() {
           <h1 className="h1">Questions that ask themselves</h1>
           <p className="lede">
             The plan: schedule a question once, and the assistant asks it for
-            you on time — same permissions, same record-keeping as asking by
-            hand. None of this exists yet.
+            you right on time — same permissions, same record-keeping as
+            asking by hand. None of this exists yet, and this page won&apos;t
+            pretend otherwise.
           </p>
         </header>
 
@@ -60,9 +61,9 @@ export default function AutomationsPage() {
         </div>
 
         <div className="note">
-          When this ships, a scheduled question will run with the access of the
-          person who scheduled it — never more — and every run will show up on
-          the dashboard like any other question.
+          When this ships, a scheduled question will run with the access of
+          the person who scheduled it — never more — and every run will show
+          up on the dashboard like any other question. No surprises.
         </div>
       </div>
     </main>

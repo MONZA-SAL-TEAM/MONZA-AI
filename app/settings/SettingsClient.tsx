@@ -31,8 +31,8 @@ export default function SettingsClient({ view }: { view: SettingsView }) {
     <div className="stack-lg">
       {view.demo && (
         <div className="note">
-          Demo mode — nothing is configured yet, so the values below are the
-          defaults the assistant ships with.
+          Demo mode — nothing is configured yet, so what you see below are
+          simply the defaults the assistant ships with.
         </div>
       )}
 
@@ -42,11 +42,12 @@ export default function SettingsClient({ view }: { view: SettingsView }) {
           Who sees what
         </div>
         <p style={{ margin: 0 }}>
-          Monza AI can only read what <strong>you</strong> can read — every
-          question runs with your own account&apos;s access. If the CRM would
-          not show you a customer&apos;s file, the assistant cannot show it to
-          you either. On top of that, the administrator can switch individual
-          abilities off per person, and every single lookup is recorded.
+          The short version: Monza AI can only read what <strong>you</strong>{" "}
+          can read. Every question runs with your own account&apos;s access,
+          so if the CRM wouldn&apos;t show you a customer&apos;s file, the
+          assistant can&apos;t show it to you either. On top of that, the
+          administrator can switch individual abilities off per person, and
+          every single lookup is recorded.
         </p>
       </div>
 
@@ -96,7 +97,8 @@ export default function SettingsClient({ view }: { view: SettingsView }) {
           <div>
             <div style={{ fontWeight: 600 }}>Setup checklist</div>
             <div className="cap">
-              What the server has been given. Values are never shown here.
+              What the server has been given so far — only whether each piece
+              is in place, never the value itself.
             </div>
           </div>
           {allEnvSet ? (

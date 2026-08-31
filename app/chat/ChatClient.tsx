@@ -5,18 +5,25 @@
  * the right. Everything staff-facing is in plain words (rule 8): no connector
  * keys, no model ids, no database vocabulary.
  *
- * Server API this client speaks (defensively — it tolerates both camelCase and
- * snake_case field spellings):
+ * Server API this client speaks:
  *   GET  /api/status                       → is the CRM configured? (demo banner)
  *   GET  /api/conversations                → the signed-in user's conversations
  *   GET  /api/conversations/:id/messages   → messages of one conversation
- *   POST /api/chat  { conversationId?, message } → assistant reply + tool trace
+ *                                            (rows may carry tables + followups)
+ *   POST /api/chat  { conversationId?, message } → ChatTurnResponse from
+ *                                            lib/chat/contract.ts — text,
+ *                                            tables, followups, trace. Exactly
+ *                                            those names.
  * Any 401 anywhere → a plain link to /login.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
+import type { AnswerTable, ChatTurnResponse, RecommendedChat } from "@/lib/chat/contract";
+import { RECOMMENDED_CHATS } from "@/lib/chat/demo-answers";
 import ToolTrace from "@/components/ToolTrace";
+import DataTable from "@/components/DataTable";
+import FollowupChips from "@/components/FollowupChips";
 
 /* ---------------------------------------------------------------- types --- */
 
@@ -31,14 +38,87 @@ interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   tool_trace?: unknown;
+  tables?: AnswerTable[];
+  followups?: string[];
 }
 
-const SUGGESTIONS = [
-  "Which customers have overdue installments over $2,000?",
-  "Which cars are waiting for repair, and do we have the parts for them?",
-  "How much did we collect this month?",
-  "What can I ask?",
-];
+/* ------------------------------------------------- icons, one per key ----- */
+/* Inline SVG only (no new dependencies). Keys never reach the screen; they
+   only pick a picture. */
+
+function ConnectorIcon({ k }: { k: RecommendedChat["key"] }) {
+  const common = {
+    width: 18,
+    height: 18,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+  switch (k) {
+    case "crm":
+      return (
+        <svg {...common}>
+          <path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" />
+          <circle cx="10" cy="7" r="4" />
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+      );
+    case "installments":
+      return (
+        <svg {...common}>
+          <rect x="3" y="4" width="18" height="18" rx="2" />
+          <line x1="16" y1="2" x2="16" y2="6" />
+          <line x1="8" y1="2" x2="8" y2="6" />
+          <line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
+      );
+    case "garage":
+      return (
+        <svg {...common}>
+          <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+        </svg>
+      );
+    case "inventory":
+      return (
+        <svg {...common}>
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+          <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+          <line x1="12" y1="22.08" x2="12" y2="12" />
+        </svg>
+      );
+    case "finance":
+      return (
+        <svg {...common}>
+          <line x1="12" y1="20" x2="12" y2="10" />
+          <line x1="18" y1="20" x2="18" y2="4" />
+          <line x1="6" y1="20" x2="6" y2="16" />
+        </svg>
+      );
+  }
+}
+
+function ArrowGlyph() {
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M9 18l6-6-6-6" />
+    </svg>
+  );
+}
 
 /* ------------------------------------------- tiny markdown-lite renderer --- */
 /* Dependency-free by design: **bold**, bullet lines, and simple pipe tables.
@@ -184,6 +264,26 @@ function asConversations(data: unknown): Conversation[] {
     }));
 }
 
+/** Keep only well-formed AnswerTable objects (stored rows can be old/partial). */
+function asTables(v: unknown): AnswerTable[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter(
+    (t): t is AnswerTable =>
+      typeof t === "object" &&
+      t !== null &&
+      typeof (t as AnswerTable).title === "string" &&
+      Array.isArray((t as AnswerTable).columns) &&
+      (t as AnswerTable).columns.every((c) => typeof c === "string") &&
+      Array.isArray((t as AnswerTable).rows) &&
+      (t as AnswerTable).rows.every((r) => Array.isArray(r))
+  );
+}
+
+function asFollowups(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((q): q is string => typeof q === "string" && q.trim() !== "").slice(0, 4);
+}
+
 function asMessages(data: unknown): ChatMessage[] {
   const list = Array.isArray(data)
     ? data
@@ -198,6 +298,8 @@ function asMessages(data: unknown): ChatMessage[] {
       role: m.role as "user" | "assistant",
       content: typeof m.content === "string" ? m.content : "",
       tool_trace: m.tool_trace ?? m.toolTrace ?? [],
+      tables: asTables(m.tables),
+      followups: asFollowups(m.followups),
     }));
 }
 
@@ -314,19 +416,24 @@ export default function ChatClient() {
           ]);
           return;
         }
-        const d: unknown = await res.json();
-        const o = (d && typeof d === "object" ? d : {}) as Record<string, unknown>;
-        const convId = o.conversationId ?? o.conversation_id;
-        if (typeof convId === "string" && convId !== activeId) setActiveId(convId);
 
-        // The chat API returns { conversationId, text, trace } — read exactly
-        // that. (The first build read fields the API never sent, so every
-        // successful answer rendered as a failure.)
-        const content = typeof o.text === "string" ? o.text : "";
-        const trace = Array.isArray(o.trace) ? o.trace : [];
+        // The response is ChatTurnResponse (lib/chat/contract.ts): read
+        // conversationId, text, tables, followups, trace — exactly those names.
+        const raw: unknown = await res.json();
+        const d = (raw && typeof raw === "object" ? raw : {}) as Partial<ChatTurnResponse>;
+        if (typeof d.conversationId === "string" && d.conversationId !== activeId) {
+          setActiveId(d.conversationId);
+        }
+        const content = typeof d.text === "string" ? d.text : "";
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: content || "I couldn't put an answer together for that.", tool_trace: trace },
+          {
+            role: "assistant",
+            content: content || "I couldn't put an answer together for that.",
+            tool_trace: Array.isArray(d.trace) ? d.trace : [],
+            tables: asTables(d.tables),
+            followups: asFollowups(d.followups),
+          },
         ]);
         refreshConversations();
       } catch {
@@ -364,28 +471,7 @@ export default function ChatClient() {
   }
 
   return (
-    <div className="chat-wrap" style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}>
-      <style dangerouslySetInnerHTML={{ __html: `
-        .chat-side {
-          width: 260px; flex: none; display: flex; flex-direction: column;
-          border-right: 1px solid var(--line); background: var(--panel);
-          min-height: 0;
-        }
-        .chat-side-toggle { display: none; }
-        @media (max-width: 760px) {
-          .chat-side {
-            position: absolute; inset: 0 auto 0 0; z-index: 20;
-            box-shadow: var(--shadow);
-            transform: translateX(-105%);
-            transition: transform .18s ease;
-          }
-          .chat-side[data-open="true"] { transform: translateX(0); }
-          .chat-side-toggle { display: inline-flex; }
-        }
-        @keyframes monza-pulse { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
-        .thinking { animation: monza-pulse 1.4s ease-in-out infinite; color: var(--ink-3); font-size: var(--t-sm); }
-      ` }} />
-
+    <div style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}>
       {/* left: conversations */}
       <aside className="chat-side" data-open={sideOpen}>
         <div className="row-between" style={{ padding: "12px 14px", borderBottom: "1px solid var(--line-soft)" }}>
@@ -440,47 +526,78 @@ export default function ChatClient() {
 
         <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
           {messages.length === 0 && !sending ? (
-            <div className="empty">
-              <p className="h2">Ask the Monza systems anything</p>
-              <p className="cap" style={{ maxWidth: 420 }}>
-                Plain questions, real answers — and under every answer you&apos;ll see exactly which
+            <div className="chat-welcome">
+              <p className="h1">Hi! What do you want to know?</p>
+              <p className="lede" style={{ maxWidth: 460 }}>
+                Tap a question to ask it, or type your own below. Every answer shows exactly which
                 systems were checked.
               </p>
-              <div className="row" style={{ flexWrap: "wrap", justifyContent: "center", gap: 8, marginTop: 8 }}>
-                {SUGGESTIONS.map((s) => (
-                  <button key={s} className="btn" onClick={() => send(s)}>
-                    {s}
-                  </button>
+              <div className="welcome-grid">
+                {RECOMMENDED_CHATS.map((rc) => (
+                  <section key={rc.key} className="reco-card" aria-label={rc.label}>
+                    <div className="reco-head">
+                      <span className="reco-icon">
+                        <ConnectorIcon k={rc.key} />
+                      </span>
+                      <span className="reco-label">{rc.label}</span>
+                    </div>
+                    <p className="reco-blurb">{rc.blurb}</p>
+                    <div className="reco-qs">
+                      {rc.questions.map((q) => (
+                        <button
+                          key={q}
+                          type="button"
+                          className="reco-q"
+                          onClick={() => send(q)}
+                          disabled={sending}
+                        >
+                          <span className="grow">{q}</span>
+                          <ArrowGlyph />
+                        </button>
+                      ))}
+                    </div>
+                  </section>
                 ))}
               </div>
             </div>
           ) : (
-            <div className="stack" style={{ maxWidth: 780, margin: "0 auto" }}>
+            <div className="chat-thread">
               {messages.map((m, i) =>
                 m.role === "user" ? (
-                  <div key={m.id ?? i} style={{ display: "flex", justifyContent: "flex-end" }}>
-                    <div className="bubble from-staff">{m.content}</div>
+                  <div key={m.id ?? i} className="chat-msg-user">
+                    <div className="chat-bubble user">{m.content}</div>
                   </div>
                 ) : (
-                  <div key={m.id ?? i} style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-                    <div
-                      className="bubble from-assistant"
-                      style={{ alignSelf: "flex-start", borderBottomRightRadius: 14, borderBottomLeftRadius: 4, whiteSpace: "normal" }}
-                    >
+                  <div key={m.id ?? i} className="chat-msg-ai">
+                    <div className="chat-bubble ai">
                       <MarkdownLite text={m.content} />
                     </div>
+                    {(m.tables ?? []).map((t, ti) => (
+                      <DataTable key={ti} table={t} />
+                    ))}
                     <ToolTrace trace={m.tool_trace} />
+                    <FollowupChips followups={m.followups ?? []} onPick={send} disabled={sending} />
                   </div>
                 )
               )}
-              {sending && <div className="thinking">Checking the systems…</div>}
+              {sending && (
+                <div className="chat-msg-ai" aria-live="polite">
+                  <div className="chat-bubble ai" aria-label="Checking the systems">
+                    <span className="dots">
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
 
         {/* composer */}
-        <div style={{ borderTop: "1px solid var(--line)", padding: "12px 16px", background: "var(--panel)" }}>
-          <div className="row" style={{ alignItems: "flex-end", maxWidth: 780, margin: "0 auto" }}>
+        <div className="composer-bar">
+          <div className="composer">
             <textarea
               ref={textareaRef}
               rows={2}
@@ -488,21 +605,17 @@ export default function ChatClient() {
               placeholder="Ask about customers, payments, the garage, cars, or parts…"
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onComposerKeyDown}
-              style={{ resize: "none" }}
               aria-label="Your question"
             />
             <button
               className="btn primary"
               onClick={() => send(input)}
               disabled={sending || input.trim() === ""}
-              style={{ flex: "none" }}
             >
               Send
             </button>
           </div>
-          <p className="cap" style={{ maxWidth: 780, margin: "6px auto 0", color: "var(--ink-3)", fontSize: "var(--t-xs)" }}>
-            Ctrl+Enter to send
-          </p>
+          <p className="composer-hint">Ctrl+Enter to send</p>
         </div>
       </section>
     </div>

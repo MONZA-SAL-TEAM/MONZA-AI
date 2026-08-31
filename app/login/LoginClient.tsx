@@ -87,10 +87,10 @@ export default function LoginClient() {
         <div className="stack-lg">
           <div className="stack" style={{ gap: 6 }}>
             <span className="eyebrow">Monza AI</span>
-            <h1 className="h1">Sign in</h1>
+            <h1 className="h1">{CONFIGURED ? "Welcome back" : "Welcome"}</h1>
             <p className="lede">
               {CONFIGURED
-                ? "Sign in with your Monza CRM account — the same email and password you use every day."
+                ? "Sign in with your Monza account — the same email and password you use for the CRM."
                 : "No systems are connected yet, so Monza AI is running on sample data."}
             </p>
           </div>

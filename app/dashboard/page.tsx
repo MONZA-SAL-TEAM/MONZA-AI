@@ -88,7 +88,7 @@ function StatCard({ label, value, hint }: { label: string; value: number; hint: 
     <div className="card pad grow">
       <div className="eyebrow">{label}</div>
       <div
-        style={{ fontSize: 32, fontWeight: 620, letterSpacing: "-.02em", marginTop: 6 }}
+        style={{ fontSize: 40, fontWeight: 640, letterSpacing: "-.025em", marginTop: 6 }}
       >
         {value}
       </div>
@@ -109,8 +109,9 @@ export default async function DashboardPage() {
           <div className="eyebrow">Dashboard</div>
           <h1 className="h1">Today at a glance</h1>
           <p className="lede">
-            What the assistant has been asked and what it looked at — every
-            single lookup is recorded, whether it was allowed or not.
+            A plain view of the assistant&apos;s day — every question it was
+            asked and every lookup it made, allowed or not. Nothing happens
+            off the record.
           </p>
         </header>
 
@@ -118,13 +119,13 @@ export default async function DashboardPage() {
           <div className="card">
             <div className="empty" style={{ height: "auto", padding: "56px 40px" }}>
               <div style={{ fontWeight: 600, color: "var(--ink-2)" }}>
-                No activity data yet
+                Nothing to show just yet
               </div>
               <p className="cap" style={{ margin: 0, maxWidth: 420 }}>
-                The assistant&apos;s own record-keeping is not connected, so
-                there is nothing real to show — this page never invents
-                numbers. Once it is connected, today&apos;s questions and
-                lookups appear here automatically.
+                The assistant&apos;s record-keeping isn&apos;t connected, so
+                this page stays honestly empty — it never invents numbers.
+                Once connected, you&apos;ll see today&apos;s questions and
+                lookups here on their own, nothing extra to set up.
               </p>
             </div>
           </div>
@@ -134,12 +135,12 @@ export default async function DashboardPage() {
               <StatCard
                 label="Questions"
                 value={stats.questions}
-                hint="asked today"
+                hint="asked so far today"
               />
               <StatCard
                 label="Lookups"
                 value={stats.lookups}
-                hint="checks across the systems"
+                hint="times the systems were checked"
               />
               <StatCard
                 label="Not permitted"
@@ -156,7 +157,8 @@ export default async function DashboardPage() {
               {stats.bySystem.length === 0 ? (
                 <div className="empty" style={{ height: "auto", padding: "40px" }}>
                   <p className="cap" style={{ margin: 0 }}>
-                    Quiet so far — no questions have needed a lookup today.
+                    All quiet so far — no question has needed a lookup yet
+                    today.
                   </p>
                 </div>
               ) : (
