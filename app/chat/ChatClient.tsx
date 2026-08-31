@@ -2,8 +2,8 @@
 
 /**
  * The chat — the product. Two panes: conversations on the left, the thread on
- * the right. Everything staff-facing is in plain words (rule 8): no connector
- * keys, no model ids, no database vocabulary.
+ * the right. Everything customer-facing is in plain words (rule 8): no
+ * connector keys, no model ids, no database vocabulary.
  *
  * Server API this client speaks:
  *   GET  /api/status                       → is the CRM configured? (demo banner)
@@ -464,7 +464,7 @@ export default function ChatClient() {
     return (
       <div className="empty" style={{ flex: 1 }}>
         <p className="h2">Please sign in</p>
-        <p className="cap">You need to be signed in to ask Monza AI.</p>
+        <p className="cap">You need to be signed in to use the Monza assistant.</p>
         <a className="btn primary" href="/login">
           Go to sign in
         </a>
@@ -517,7 +517,7 @@ export default function ChatClient() {
 
         {demoMode && (
           <div style={{ padding: "10px 16px 0" }}>
-            <div className="note">Example data — not connected to the Monza systems yet.</div>
+            <div className="note">Preview with example data — your real account isn&apos;t connected yet.</div>
           </div>
         )}
         {loadError && (
@@ -529,10 +529,10 @@ export default function ChatClient() {
         <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
           {messages.length === 0 && !sending ? (
             <div className="chat-welcome">
-              <p className="h1">Hi! What do you want to know?</p>
+              <p className="h1">Hi! How can we help with your Monza?</p>
               <p className="lede" style={{ maxWidth: 460 }}>
-                Tap a question to ask it, or type your own below. Every answer shows exactly which
-                systems were checked.
+                Tap a question to start, or type your own below. We can help with your car, your
+                payments, and the Voyah and MHERO range.
               </p>
               <div className="welcome-grid">
                 {RECOMMENDED_CHATS.map((rc) => (
@@ -584,7 +584,7 @@ export default function ChatClient() {
               )}
               {sending && (
                 <div className="chat-msg-ai" aria-live="polite">
-                  <div className="chat-bubble ai" aria-label="Checking the systems">
+                  <div className="chat-bubble ai" aria-label="Getting your answer">
                     <span className="dots">
                       <span />
                       <span />
@@ -604,7 +604,7 @@ export default function ChatClient() {
               ref={textareaRef}
               rows={2}
               value={input}
-              placeholder="Ask about customers, payments, the garage, cars, or parts…"
+              placeholder="Ask about your car, your payments, or our models…"
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onComposerKeyDown}
               aria-label="Your question"

@@ -1,30 +1,30 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Automations — Monza AI",
+  title: "Automations — Monza Assistant",
 };
 
 /**
  * /automations — an honest placeholder. Nothing here runs yet, and the page
  * says so plainly rather than pretending. It exists so the destination is
- * visible: scheduled questions, delivered like any other answer.
+ * visible: scheduled updates for customers, delivered like any other answer.
  */
 
 const PLANNED = [
   {
-    title: "Morning overdue summary",
+    title: "Installment reminders",
     example:
-      "“Every morning at 8:00 — who is overdue on installments, and by how much?” delivered to the owner.",
+      "A few days before an installment is due, the customer gets a friendly reminder — before it becomes a problem.",
   },
   {
-    title: "Weekly garage wrap-up",
+    title: "Garage updates",
     example:
-      "“Every Friday afternoon — job cards finished this week, and anything still waiting on parts.”",
+      "When a waiting part arrives and work on a customer's car resumes, they hear about it without having to call.",
   },
   {
-    title: "Stock watch",
+    title: "Service due notices",
     example:
-      "“Tell me when any fast-moving part drops below five on the shelf.”",
+      "When a customer's car comes up on its service interval, a gentle note invites them to book a visit.",
   },
 ];
 
@@ -33,16 +33,19 @@ export default function AutomationsPage() {
     <main style={{ maxWidth: 860, margin: "0 auto", padding: "32px 20px" }}>
       <div className="stack-lg">
         <header className="stack" style={{ gap: 6 }}>
+          <p className="cap" style={{ margin: 0, color: "var(--ink-3)" }}>
+            This page is for the Monza team — customers never see it.
+          </p>
           <div className="row" style={{ gap: 10 }}>
             <div className="eyebrow">Automations</div>
             <span className="tag">Not built yet</span>
           </div>
-          <h1 className="h1">Questions that ask themselves</h1>
+          <h1 className="h1">Updates that send themselves</h1>
           <p className="lede">
-            The plan: schedule a question once, and the assistant asks it for
-            you right on time — same permissions, same record-keeping as
-            asking by hand. None of this exists yet, and this page won&apos;t
-            pretend otherwise.
+            The plan: the assistant reaches out to customers on schedule —
+            the reminders and updates they would otherwise call to ask for.
+            Same permissions, same record-keeping as any answer. None of this
+            exists yet, and this page won&apos;t pretend otherwise.
           </p>
         </header>
 
@@ -61,9 +64,10 @@ export default function AutomationsPage() {
         </div>
 
         <div className="note">
-          When this ships, a scheduled question will run with the access of
-          the person who scheduled it — never more — and every run will show
-          up on the dashboard like any other question. No surprises.
+          When this ships, every scheduled update will use only that
+          customer&apos;s own records — never anyone else&apos;s — and every
+          run will show up on the dashboard like any other question. No
+          surprises.
         </div>
       </div>
     </main>

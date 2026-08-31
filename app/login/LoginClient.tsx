@@ -1,10 +1,11 @@
 "use client";
 
 /**
- * Sign-in against the Monza CRM project. Accounts are the CRM's own staff
- * accounts — nothing is created here. On success the access token is stored
- * in the 'monza-ai-token' cookie and passed through to every query the
- * assistant makes on the user's behalf.
+ * Sign-in against the Monza CRM project — for the Monza TEAM. Accounts are
+ * the CRM's own accounts — nothing is created here. On success the access
+ * token is stored in the 'monza-ai-token' cookie and passed through to every
+ * query the assistant makes on the user's behalf. Customers don't sign in:
+ * in the preview they use the chat directly, no account needed.
  *
  * With no CRM configured this becomes the demo door: one button, no password.
  */
@@ -86,12 +87,12 @@ export default function LoginClient() {
       <div className="card pad-lg" style={{ width: "100%", maxWidth: 380 }}>
         <div className="stack-lg">
           <div className="stack" style={{ gap: 6 }}>
-            <span className="eyebrow">Monza AI</span>
-            <h1 className="h1">{CONFIGURED ? "Welcome back" : "Welcome"}</h1>
+            <span className="eyebrow">Monza Assistant</span>
+            <h1 className="h1">{CONFIGURED ? "Monza team sign-in" : "Welcome"}</h1>
             <p className="lede">
               {CONFIGURED
-                ? "Sign in with your Monza account — the same email and password you use for the CRM."
-                : "No systems are connected yet, so Monza AI is running on sample data."}
+                ? "This sign-in is for the Monza team — the same email and password as the CRM. Customer access is being set up; until then, the team signs in here."
+                : "No systems are connected yet, so the assistant is running on sample data."}
             </p>
           </div>
 
@@ -131,11 +132,11 @@ export default function LoginClient() {
           ) : (
             <div className="stack">
               <div className="note">
-                Everything you see inside is invented sample data, clearly
-                labelled — nothing real is connected.
+                Everything inside is invented sample data, clearly labelled —
+                nothing real is connected, and no account is needed.
               </div>
               <a className="btn primary" href="/chat" style={{ textAlign: "center" }}>
-                Have a look around
+                Open the chat preview
               </a>
             </div>
           )}

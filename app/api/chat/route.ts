@@ -108,7 +108,7 @@ export async function POST(request: Request) {
   if (!settings.enabled) {
     const off: ChatTurnResponse = {
       conversationId: requestedConversationId,
-      text: "The assistant is currently switched off by an administrator.",
+      text: "The assistant is switched off at the moment. The Monza team will bring it back soon — sorry about that.",
       tables: [],
       followups: [],
       trace: [],
@@ -176,8 +176,8 @@ export async function POST(request: Request) {
   // identity.
   if (!process.env.ANTHROPIC_API_KEY) {
     const text =
-      "The assistant's brain is not connected yet — no Anthropic API key is set on the server. " +
-      "Once an administrator adds it, I can answer questions like this by consulting the connected Monza systems.";
+      "The assistant isn't fully switched on yet — a Monza team member needs to finish the setup on our side. " +
+      "Once that's done, I'll be happy to help with your car, your payments, and anything about our models.";
     if (persist && db && conversationId) {
       await db.from("messages").insert({
         conversation_id: conversationId,
@@ -205,9 +205,8 @@ export async function POST(request: Request) {
     const unauditable: ChatTurnResponse = {
       conversationId,
       text:
-        "Monza AI's own database is not configured on this server, so I can't " +
-        "record an audit trail — and I won't run live lookups without one. " +
-        "An administrator needs to set the AI database keys, then this will work.",
+        "The assistant isn't fully set up on our side yet, so I can't look anything up for you right now. " +
+        "A Monza team member needs to finish the setup — please check back soon.",
       tables: [],
       followups: [],
       trace: [],

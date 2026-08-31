@@ -4,8 +4,8 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Monza AI",
-  description: "Ask the Monza systems anything, in plain language.",
+  title: "Monza Assistant",
+  description: "Help with your Monza — your car, your payments, and our models.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -45,20 +45,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                 strokeLinejoin="round"
               />
             </svg>
-            Monza AI
+            Monza Assistant
           </Link>
           <nav className="row" style={{ gap: 4 }} aria-label="Main">
             <Link className="navlink" href="/chat">
               Chat
-            </Link>
-            <Link className="navlink" href="/dashboard">
-              Overview
-            </Link>
-            <Link className="navlink" href="/connections">
-              Connections
-            </Link>
-            <Link className="navlink" href="/settings">
-              Settings
             </Link>
           </nav>
         </header>

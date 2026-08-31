@@ -42,18 +42,18 @@ export default function SettingsClient({ view }: { view: SettingsView }) {
           Who sees what
         </div>
         <p style={{ margin: 0 }}>
-          The short version: Monza AI can only read what <strong>you</strong>{" "}
-          can read. Every question runs with your own account&apos;s access,
-          so if the CRM wouldn&apos;t show you a customer&apos;s file, the
-          assistant can&apos;t show it to you either. On top of that, the
-          administrator can switch individual abilities off per person, and
+          The short version: a customer can only ever see{" "}
+          <strong>their own</strong> records — their car, their payment plan,
+          their garage jobs — plus public information like our models and the
+          showroom. Every question runs with the signed-in account&apos;s own
+          access, the administrator can switch individual abilities off, and
           every single lookup is recorded.
         </p>
         <p className="cap" style={{ marginTop: 8 }}>
-          Monza AI&apos;s own database holds only conversations, permissions
-          and the activity record. It never holds customers, vehicles,
-          payments, garage jobs or any business records — those stay in the
-          Monza systems, and the assistant asks them fresh every time.
+          The assistant&apos;s own database holds only conversations,
+          permissions and the activity record. It never holds customers,
+          vehicles, payments, garage jobs or any business records — those stay
+          in the Monza systems, and the assistant asks them fresh every time.
         </p>
       </div>
 
@@ -79,7 +79,7 @@ export default function SettingsClient({ view }: { view: SettingsView }) {
           <div className="row-between">
             <div>
               <div style={{ fontWeight: 600 }}>Assistant model</div>
-              <div className="cap">Which brain answers your questions.</div>
+              <div className="cap">Which brain answers customer questions.</div>
             </div>
             <span className="tag">{view.modelLabel}</span>
           </div>

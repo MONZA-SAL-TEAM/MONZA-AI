@@ -4,7 +4,7 @@ import SettingsClient, { type SettingsView } from "./SettingsClient";
 import { FALLBACK_MODEL } from "@/lib/db";
 
 export const metadata: Metadata = {
-  title: "Settings — Monza AI",
+  title: "Settings — Monza Assistant",
 };
 
 export const dynamic = "force-dynamic";
@@ -29,11 +29,11 @@ const MODEL_LABELS: Record<string, string> = {
 const ENV_CHECKLIST: { name: string; purpose: string }[] = [
   {
     name: "NEXT_PUBLIC_CRM_SUPABASE_URL",
-    purpose: "Where the Monza CRM lives — staff sign in against it.",
+    purpose: "Where the Monza CRM lives — sign-ins are checked against it.",
   },
   {
     name: "NEXT_PUBLIC_CRM_SUPABASE_ANON_KEY",
-    purpose: "Lets the sign-in happen; every question then runs as that person.",
+    purpose: "Lets the sign-in happen; every question then runs as that account.",
   },
   {
     name: "NEXT_PUBLIC_AI_SUPABASE_URL",
@@ -49,7 +49,7 @@ const ENV_CHECKLIST: { name: string; purpose: string }[] = [
   },
 ];
 
-const ENV_TEMPLATE = `# Monza CRM — staff sign in here; every question runs with their own access
+const ENV_TEMPLATE = `# Monza CRM — sign-ins are checked here; every question runs with the account's own access
 NEXT_PUBLIC_CRM_SUPABASE_URL=
 NEXT_PUBLIC_CRM_SUPABASE_ANON_KEY=
 
@@ -108,6 +108,9 @@ export default async function SettingsPage() {
     <main style={{ maxWidth: 860, margin: "0 auto", padding: "32px 20px" }}>
       <div className="stack-lg">
         <header className="stack" style={{ gap: 6 }}>
+          <p className="cap" style={{ margin: 0, color: "var(--ink-3)" }}>
+            This page is for the Monza team — customers never see it.
+          </p>
           <div className="eyebrow">Settings</div>
           <h1 className="h1">How the assistant is set up</h1>
           <p className="lede">
