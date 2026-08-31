@@ -46,13 +46,12 @@ const CONNECTOR_LABELS: Record<string, string> = {
   finance: "Finance",
 };
 
-/** What one row means, per system, in the CUSTOMER's words — these describe
- *  the customer's own records, never anyone else's. */
+/** What one row means, per system, in a salesperson's words. */
 const CONNECTOR_NOUNS: Record<string, [string, string]> = {
-  crm: ["record", "records"],
-  installments: ["installment", "installments"],
-  garage: ["update", "updates"],
-  inventory: ["model", "models"],
+  crm: ["customer", "customers"],
+  installments: ["customer", "customers"],
+  garage: ["job", "jobs"],
+  inventory: ["item", "items"],
   finance: ["record", "records"],
 };
 

@@ -4,8 +4,7 @@ import type { Connector } from "@/lib/connectors/types";
 /**
  * GET /api/connections — the connector map, server-side.
  *
- * For every connector in the closed set we report a plain-words status for
- * the Monza team.
+ * For every connector in the closed set we report a staff-readable status.
  * When the connector module is present we call its own status(); when it is
  * not (or it throws), we fall back to environment presence, which is the
  * honest lower bound: no CRM credentials means nothing CRM-flavoured can be
@@ -46,7 +45,7 @@ function toolLabel(name: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/** The closed set, mirroring lib/permissions/kernel.ts. Labels are plain words. */
+/** The closed set, mirroring lib/permissions/kernel.ts. Labels are staff words. */
 const CONNECTORS: ConnectorMeta[] = [
   {
     key: "crm",
@@ -157,7 +156,7 @@ export async function GET(): Promise<NextResponse> {
     CONNECTORS.map(async (meta) => {
       let connected = crm;
       let detail = crm
-        ? "Ready — each customer's answers use their own sign-in."
+        ? "Ready — answers use your own sign-in."
         : "Waiting for connection details.";
 
       const impl = await loadConnector(meta.key);
@@ -188,7 +187,7 @@ export async function GET(): Promise<NextResponse> {
     demo,
     connectors,
     comingLater: COMING_LATER,
-    signIn: "Customers only ever see their own records — every answer follows the signed-in account's access.",
+    signIn: "Your own Monza account — every answer follows your CRM permissions.",
     checkedAt: new Date().toISOString(),
   });
 }

@@ -74,10 +74,9 @@ export default function ConnectionsClient() {
     <div className="stack-lg">
       {data.demo && (
         <div className="note">
-          Demo mode — nothing is connected yet, so the assistant answers
-          customers with clearly-labelled sample data. As each system is
-          connected, its card below turns green and answers switch to the real
-          thing.
+          Demo mode — nothing is connected yet, so the assistant answers with
+          clearly-labelled sample data. As each system is connected, its card
+          below turns green and answers switch to the real thing.
         </div>
       )}
 

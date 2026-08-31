@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { createClient } from "@supabase/supabase-js";
 
 export const metadata: Metadata = {
-  title: "Dashboard — Monza Assistant",
+  title: "Dashboard — Monza AI",
 };
 
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  * numbers.
  */
 
-/** Plain words for connector keys — raw keys never reach the screen.
+/** Staff words for connector keys — raw keys never reach the screen.
     Mirrors the closed set in lib/permissions/kernel.ts. */
 const CONNECTOR_LABELS: Record<string, string> = {
   crm: "Customers & Sales",
@@ -106,15 +106,12 @@ export default async function DashboardPage() {
     <main style={{ maxWidth: 860, margin: "0 auto", padding: "32px 20px" }}>
       <div className="stack-lg">
         <header className="stack" style={{ gap: 6 }}>
-          <p className="cap" style={{ margin: 0, color: "var(--ink-3)" }}>
-            This page is for the Monza team — customers never see it.
-          </p>
           <div className="eyebrow">Dashboard</div>
           <h1 className="h1">Today at a glance</h1>
           <p className="lede">
-            A plain view of the assistant&apos;s day — every customer question
-            it was asked and every lookup it made, allowed or not. Nothing
-            happens off the record.
+            A plain view of the assistant&apos;s day — every question it was
+            asked and every lookup it made, allowed or not. Nothing happens
+            off the record.
           </p>
         </header>
 
@@ -127,9 +124,8 @@ export default async function DashboardPage() {
               <p className="cap" style={{ margin: 0, maxWidth: 420 }}>
                 The assistant&apos;s record-keeping isn&apos;t connected, so
                 this page stays honestly empty — it never invents numbers.
-                Once connected, you&apos;ll see today&apos;s customer
-                questions and lookups here on their own, nothing extra to set
-                up.
+                Once connected, you&apos;ll see today&apos;s questions and
+                lookups here on their own, nothing extra to set up.
               </p>
             </div>
           </div>
@@ -139,7 +135,7 @@ export default async function DashboardPage() {
               <StatCard
                 label="Questions"
                 value={stats.questions}
-                hint="asked by customers today"
+                hint="asked so far today"
               />
               <StatCard
                 label="Lookups"

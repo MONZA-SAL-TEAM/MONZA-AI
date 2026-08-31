@@ -4,47 +4,46 @@
  * questions out — no randomness, no model call.
  *
  * Every question here is one the demo engine can also answer (they mirror
- * the customer-facing RECOMMENDED_CHATS question set), so tapping a
- * follow-up always lands on a real answer in both demo and live modes.
+ * the RECOMMENDED_CHATS question set), so tapping a follow-up always lands
+ * on a real answer in both demo and live modes.
  */
 
 import type { ToolTraceEntry } from "@/lib/ai/loop";
 
 /**
- * Per-connector follow-ups, ordered best-first. Friendly customer words —
- * always about the signed-in customer's own car, plan, or visit, or about
- * public information like the models and the showroom. Never anything that
- * would show another customer's data or company-wide figures.
- *
- * IMPORTANT: every string below is byte-identical to a question in the demo
- * engine's card set (lib/chat/demo-answers.ts), so each one is guaranteed to
- * route to a scripted demo answer — chains never dead-end.
+ * Per-connector follow-ups, ordered best-first. Plain staff words only.
+ * IMPORTANT: every string below is verbatim from the demo engine's
+ * RECOMMENDED_CHATS question set (lib/chat/demo-answers.ts), so each one is
+ * guaranteed to route to a scripted demo answer — chains never dead-end.
  */
 const FOLLOWUPS_BY_CONNECTOR: Record<string, string[]> = {
-  garage: [
-    "Is my car ready yet?",
-    "How do I book a service visit?",
-  ],
   installments: [
-    "When is my next payment due?",
-    "How much is left on my plan?",
-  ],
-  inventory: [
-    "Tell me about the Voyah Dream",
-    "Tell me about MHERO",
+    "How much did we collect this month?",
+    "How are our payment plans doing overall?",
   ],
   crm: [
-    "Can I book a test drive?",
-    "How do I talk to a person?",
+    "Where are our new customers coming from?",
+    "Which customers have overdue installments over $2,000?",
+  ],
+  garage: [
+    "Which cars are waiting for repair or parts?",
+    "How many jobs are open in the garage right now?",
+  ],
+  inventory: [
+    "Which parts are running low?",
+    "How many cars do we have in stock?",
+  ],
+  finance: [
+    "How were sales this month?",
+    "What did we spend this month?",
   ],
 };
 
-/** Used when the trace names no known connector (e.g. a pure-text answer).
- *  Drawn from the same card set above, so these always resolve too. */
+/** Used when the trace names no known connector (e.g. a pure-text answer). */
 const DEFAULT_FOLLOWUPS: string[] = [
-  "Is my car ready yet?",
-  "When is my next payment due?",
-  "Can I book a test drive?",
+  "Which customers have overdue installments over $2,000?",
+  "Which cars are waiting for repair or parts?",
+  "How much did we collect this month?",
 ];
 
 const MIN_FOLLOWUPS = 2;
@@ -52,7 +51,7 @@ const MAX_FOLLOWUPS = 4;
 
 /**
  * Map the connectors actually consulted (successfully — a denied call is not
- * an invitation to dig further into a system the customer cannot see) to 2-4
+ * an invitation to dig further into a system the person cannot use) to 2-4
  * natural next questions. Breadth-first across connectors so a two-system
  * answer suggests both directions before doubling down on one.
  */

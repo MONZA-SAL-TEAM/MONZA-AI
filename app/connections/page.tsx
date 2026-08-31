@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import ConnectionsClient from "./ConnectionsClient";
 
 export const metadata: Metadata = {
-  title: "Connections — Monza Assistant",
+  title: "Connections — Monza AI",
 };
 
 /**
@@ -17,16 +17,12 @@ export default function ConnectionsPage() {
     <main style={{ maxWidth: 860, margin: "0 auto", padding: "32px 20px" }}>
       <div className="stack-lg">
         <header className="stack" style={{ gap: 6 }}>
-          <p className="cap" style={{ margin: 0, color: "var(--ink-3)" }}>
-            This page is for the Monza team — customers never see it.
-          </p>
           <div className="eyebrow">Connections</div>
           <h1 className="h1">What the assistant can see</h1>
           <p className="lede">
             Think of this as a checklist: each system below is one thing the
-            assistant can answer customer questions from. A customer only ever
-            sees their own records — their car, their plan, their garage job —
-            plus public information.
+            assistant can answer questions from. Everything runs with your own
+            sign-in — the assistant never sees more than you can.
           </p>
         </header>
         <ConnectionsClient />
