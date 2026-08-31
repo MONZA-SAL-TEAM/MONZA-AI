@@ -13,9 +13,11 @@
   overflow-y: auto;
 }
 .trk-wrap {
-  max-width: 1080px;
+  /* Full-bleed working surface: the grid drinks the whole screen, with a
+     sanity cap so ultrawide monitors don't stretch cards into ribbons. */
+  max-width: 1760px;
   margin: 0 auto;
-  padding: 24px 32px 56px;
+  padding: 24px clamp(20px, 3vw, 48px) 56px;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -424,6 +426,194 @@
   color: var(--ink-3);
 }
 
+/* --- "Recorded" marker: the locked state after a confirmed recording ---------- */
+.trk-recorded {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--live-bg);
+  color: var(--live);
+  font-family: inherit;
+  font-size: var(--t-sm);
+  font-weight: 580;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.12s ease;
+}
+.trk-recorded:hover {
+  border-color: var(--live);
+}
+.trk-recorded[data-final="true"] {
+  cursor: default;
+}
+.trk-recorded[data-final="true"]:hover {
+  border-color: var(--line);
+}
+.trk-recorded svg {
+  flex: none;
+}
+
+/* --- the record-a-payment dialog ---------------------------------------------- */
+.trk-dlg {
+  margin: auto;
+  width: min(460px, calc(100vw - 32px));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--ink);
+  padding: 0;
+  box-shadow: var(--shadow);
+}
+.trk-dlg::backdrop {
+  /* Engines that don't pass tokens into ::backdrop keep their default dim. */
+  background: color-mix(in srgb, var(--ink) 28%, transparent);
+}
+.trk-dlg-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+}
+.trk-dlg-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+.trk-dlg-sub {
+  margin: 0;
+}
+.trk-dlg-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.trk-opt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.trk-opt:hover {
+  background: var(--sunk);
+}
+.trk-opt[data-active="true"] {
+  border-color: var(--ink-3);
+  background: var(--sunk);
+}
+.trk-opt input[type="radio"] {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--live);
+  cursor: pointer;
+}
+.trk-opt-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.trk-opt-title {
+  font-size: var(--t-md);
+  font-weight: 580;
+}
+.trk-opt-detail {
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+}
+.trk-opt-money {
+  font-size: var(--t-md);
+  font-weight: 640;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.trk-opt-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.trk-opt-custom input {
+  width: 110px;
+  min-height: 38px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.trk-dlg-note {
+  margin: 10px 0 0;
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+}
+.trk-dlg-sum {
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.trk-dlg-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.trk-dlg-actions .btn {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+.trk-dlg-cap {
+  margin: 10px 0 0;
+  color: var(--ink-3);
+}
+
+/* Calm entrances — skipped entirely when the person prefers reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .trk-dlg[open] {
+    animation: trk-dlg-in 0.18s ease;
+  }
+  .trk-recorded,
+  .trk-msg {
+    animation: trk-rise 0.22s ease;
+  }
+}
+@keyframes trk-dlg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes trk-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* --- edge states + quiet footnotes -------------------------------------------- */
 .trk-none {
   padding: 28px 24px;
@@ -436,4 +626,33 @@
   margin: 0;
   color: var(--ink-3);
   font-size: var(--t-xs);
+}
+
+/* --- search ---------------------------------------------------------------- */
+.trk-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.trk-search {
+  flex: 0 1 380px;
+  min-width: 220px;
+  min-height: 44px;
+  padding: 0 14px;
+  font-size: var(--t-sm);
+  color: var(--ink);
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.trk-search::placeholder {
+  color: var(--ink-3);
+}
+.trk-search:focus-visible {
+  outline: 2px solid var(--ink-3);
+  outline-offset: 1px;
+}
+.trk-search-count {
+  color: var(--ink-3);
 }

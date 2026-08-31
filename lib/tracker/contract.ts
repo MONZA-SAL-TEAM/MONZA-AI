@@ -61,9 +61,16 @@ export function totalAmountUsd(p: TrackedPlan): number {
   return p.totalCount * p.monthlyAmountUsd;
 }
 
-/** "$1,550" — whole US dollars with thousands separators, no locale calls. */
+/** "$1,550" (or "$1,550.30" when cents matter) — no locale calls. */
 function usd(n: number): string {
-  return "$" + String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const cents = Math.round(n * 100);
+  const whole = Math.trunc(cents / 100);
+  const frac = Math.abs(cents % 100);
+  const grouped = String(Math.abs(whole)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const sign = cents < 0 ? "-" : "";
+  return frac === 0
+    ? `${sign}$${grouped}`
+    : `${sign}$${grouped}.${String(frac).padStart(2, "0")}`;
 }
 
 function firstName(p: TrackedPlan): string {
@@ -98,6 +105,81 @@ export function thankYouMessage(p: TrackedPlan): string {
   }
   const tail = remaining === 1 ? `Just 1 payment to go.` : `${remaining} payments to go.`;
   return opening + tail + ` We appreciate your trust — reply here if you need anything.`;
+}
+
+/**
+ * One confirmed recording made on the tracker screen — the exact months and
+ * dollars the operator confirmed in the "Record a payment" dialog, plus where
+ * the plan stands right after. Pure data; the screen keeps it in memory only.
+ */
+export interface PaymentRecord {
+  /** Whole installments this recording covered (0 for a part-payment). */
+  monthsRecorded: number;
+  /** Exact dollars received in this recording. */
+  amountUsd: number;
+  /** Installments paid across the whole plan AFTER this recording. */
+  newPaidCount: number;
+  /** True when this recording cleared the plan's remaining balance. */
+  complete: boolean;
+  /** Dollars banked toward the next installment AFTER this recording,
+   *  cumulative across the whole plan (a prior half-payment counts).
+   *  When absent, the message falls back to per-recording arithmetic. */
+  bankedUsd?: number;
+}
+
+/**
+ * The message after CONFIRMING a recording in the payment dialog — covers a
+ * single month, several months at once, a custom amount that leaves a
+ * remainder, and the full payoff. Same warm placeholder voice as the builders
+ * above; deterministic — everything derives from the plan and the record.
+ */
+export function paymentReceivedMessage(p: TrackedPlan, r: PaymentRecord): string {
+  const name = firstName(p);
+  const money = usd(r.amountUsd);
+  if (r.complete) {
+    return (
+      `Thank you, ${name}! We received ${money} on your ${p.carLabel} — ` +
+      `your plan is fully paid — congratulations from all of us at Monza.`
+    );
+  }
+  const remaining = Math.max(0, p.totalCount - r.newPaidCount);
+  const tail = remaining === 1 ? `Just 1 payment to go.` : `${remaining} payments to go.`;
+  const close = ` ${tail} We appreciate your trust — reply here if you need anything.`;
+  const firstNo = r.newPaidCount - r.monthsRecorded + 1;
+  // Cents-safe: a custom amount can be fractional, so compare in whole cents.
+  // Prefer the cumulative banked figure when the caller supplies it — a prior
+  // half-payment on the plan makes per-recording arithmetic wrong.
+  const remainder =
+    r.bankedUsd !== undefined
+      ? Math.round(r.bankedUsd * 100) / 100
+      : Math.round((r.amountUsd - r.monthsRecorded * p.monthlyAmountUsd) * 100) / 100;
+  if (remainder >= 0.01) {
+    const nextNo = r.newPaidCount + 1;
+    if (r.monthsRecorded === 0) {
+      return (
+        `Thank you, ${name}! We received ${money} on your ${p.carLabel} — ` +
+        `that goes toward installment #${nextNo}.` + close
+      );
+    }
+    const covered =
+      r.monthsRecorded === 1
+        ? `installment #${r.newPaidCount}`
+        : `installments #${firstNo}–#${r.newPaidCount}`;
+    return (
+      `Thank you, ${name}! We received ${money} on your ${p.carLabel} — ` +
+      `that covers ${covered} with ${usd(remainder)} toward #${nextNo}.` + close
+    );
+  }
+  if (r.monthsRecorded === 1) {
+    return (
+      `Thank you, ${name}! Payment ${r.newPaidCount} of ${p.totalCount} on your ` +
+      `${p.carLabel} — ${money} — is received.` + close
+    );
+  }
+  return (
+    `Thank you, ${name}! Payments ${firstNo}–${r.newPaidCount} of ${p.totalCount} ` +
+    `on your ${p.carLabel} — ${money} — are received.` + close
+  );
 }
 
 /**

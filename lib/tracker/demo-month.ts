@@ -80,6 +80,9 @@ const PLANS: TrackedPlan[] = [
     carLabel: "Voyah Free 2025",
     monthlyAmountUsd: 1700,
     paidCount: 10,
+    // 10 full installments plus the $850 half-payment banked toward #11 —
+    // exactly the story the chat demo tells.
+    paidUsd: 17850,
     totalCount: 18,
     dueDay: 15,
     thisMonth: { installmentNumber: 11, dueDate: "August 15, 2026", amountUsd: 850, status: "overdue" },

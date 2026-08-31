@@ -11,10 +11,13 @@
  * Honesty rules baked in:
  *   - The demo month is a fixed dataset ("August 2026"); nothing reads the
  *     real clock, so server and client can never disagree at first paint.
- *   - Ticking "Paid" only updates this screen and shows the message that
- *     WOULD go to the client. Nothing is ever sent by the app: every send
- *     button is a wa.me link that opens WhatsApp with the text prefilled and
- *     a person taps send.
+ *   - Clicking "Paid" opens the Record-a-payment dialog (1 month, 2, 3, a
+ *     custom amount, or everything remaining). A CONFIRMED recording only
+ *     updates this screen and shows the message that WOULD go to the client —
+ *     and it is final here: the card locks into a "Recorded" state that can
+ *     only record MORE, never undo. Nothing is ever sent by the app: every
+ *     send button is a wa.me link that opens WhatsApp with the text prefilled
+ *     and a person taps send.
  *   - "Add customer" adds a card on this screen only — in-memory, reset on
  *     refresh — and says so. In the live system it would create the plan in
  *     the Monza CRM.
@@ -23,11 +26,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import Link from "next/link";
-import type { TrackedPlan, TrackerMonth } from "@/lib/tracker/contract";
+import type { PaymentRecord, TrackedPlan, TrackerMonth } from "@/lib/tracker/contract";
 import {
   paidAmountUsd,
+  paymentReceivedMessage,
   reminderMessage,
-  thankYouMessage,
   totalAmountUsd,
   waLink,
 } from "@/lib/tracker/contract";
@@ -90,9 +93,16 @@ function sortPlans(plans: TrackedPlan[]): TrackedPlan[] {
   });
 }
 
-/** "$1,550" — no locale calls, so it renders the same everywhere. */
+/** "$1,550" (or "$1,550.30" when cents matter) — no locale calls. */
 function usd(n: number): string {
-  return "$" + String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const cents = Math.round(n * 100);
+  const whole = Math.trunc(cents / 100);
+  const frac = Math.abs(cents % 100);
+  const grouped = String(Math.abs(whole)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const sign = cents < 0 ? "-" : "";
+  return frac === 0
+    ? `${sign}$${grouped}`
+    : `${sign}$${grouped}.${String(frac).padStart(2, "0")}`;
 }
 
 /** "August 2026" + 5 → "August 5, 2026". Falls back to plain words. */
@@ -201,6 +211,143 @@ function ChatGlyph() {
   );
 }
 
+/** A small padlock — marks a recording as final on this screen. */
+function LockGlyph() {
+  return (
+    <svg
+      width={13}
+      height={13}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  );
+}
+
+/* -------------------------------------------------- record-payment maths --- */
+
+/** "Rami Kanaan" → "Rami" — for the dialog's live summary line. */
+function firstNameOf(name: string): string {
+  return name.trim().split(/\s+/)[0] || name;
+}
+
+/** What's still owed on the plan in dollars — never below zero. */
+function remainingUsdOf(p: TrackedPlan): number {
+  return Math.max(0, totalAmountUsd(p) - paidAmountUsd(p));
+}
+
+/** Installments still unpaid on the plan — never below zero. */
+function remainingCountOf(p: TrackedPlan): number {
+  return Math.max(0, p.totalCount - p.paidCount);
+}
+
+/** How many installments cumulative dollars fully cover (cents-guarded).
+ *  ALL payment math derives from this — never from per-recording floors —
+ *  so banked partial amounts tip into a paid installment the moment the
+ *  cumulative money reaches it. */
+function coveredCountOf(paidUsd: number, monthly: number, total: number): number {
+  return Math.min(total, Math.floor((paidUsd + 0.005) / monthly));
+}
+
+/** Dollars already banked toward the NEXT installment (e.g. a half-payment). */
+function bankedUsdOf(p: TrackedPlan): number {
+  return Math.max(
+    0,
+    Math.round((paidAmountUsd(p) - p.paidCount * p.monthlyAmountUsd) * 100) / 100
+  );
+}
+
+interface PayOption {
+  key: string;
+  months: number;
+  amountUsd: number;
+  title: string;
+  detail: string;
+}
+
+/**
+ * The preset rows of the Record-a-payment dialog for a plan as it stands NOW
+ * (prior same-session recordings included): 1–3 months (only as many as are
+ * left) and "Everything remaining". Payments always land on the OLDEST unpaid
+ * installment first, so "1 month" for Rami (5 of 20 paid) is installment #6.
+ */
+function payOptions(p: TrackedPlan): PayOption[] {
+  const count = remainingCountOf(p);
+  const first = p.paidCount + 1;
+  const banked = bankedUsdOf(p);
+  // Money already banked toward the next installment makes it cheaper to
+  // finish — the option prices what is actually owed, not a flat month.
+  const nextCost = Math.round((p.monthlyAmountUsd - banked) * 100) / 100;
+  const opts: PayOption[] = [];
+  for (let n = 1; n <= Math.min(3, count); n++) {
+    opts.push({
+      key: `m${n}`,
+      months: n,
+      amountUsd: Math.round((nextCost + (n - 1) * p.monthlyAmountUsd) * 100) / 100,
+      title: n === 1 ? "1 month" : `${n} months`,
+      detail:
+        n === 1
+          ? banked > 0
+            ? `Finish installment #${first}`
+            : `Installment #${first}`
+          : `Installments #${first}–#${first + n - 1}`,
+    });
+  }
+  if (count > 0) {
+    opts.push({
+      key: "all",
+      months: count,
+      amountUsd: remainingUsdOf(p),
+      title: "Everything remaining",
+      detail: count === 1 ? "1 payment" : `${count} payments`,
+    });
+  }
+  return opts;
+}
+
+interface PendingPayment {
+  months: number;
+  amountUsd: number;
+  /** Shown when the typed amount had to be clamped to the remaining balance. */
+  note: string | null;
+}
+
+/**
+ * Turn the custom-amount text into a recording: whole months covered =
+ * floor(amount / monthly); the exact dollars are kept as typed (a remainder
+ * stays banked toward the next installment). Amounts above the remaining
+ * balance auto-clamp with a note; anything not a positive number is invalid.
+ */
+function resolveCustom(p: TrackedPlan, text: string): PendingPayment | null {
+  const raw = Number(text);
+  if (!Number.isFinite(raw) || raw <= 0) return null;
+  const remUsd = remainingUsdOf(p);
+  const remCount = remainingCountOf(p);
+  let amount = Math.round(raw * 100) / 100;
+  let note: string | null = null;
+  if (amount >= remUsd) {
+    if (amount > remUsd) note = `Capped at the remaining balance — ${usd(remUsd)}.`;
+    // Clearing the balance clears every remaining installment.
+    return { months: remCount, amountUsd: remUsd, note };
+  }
+  // Months newly covered = cumulative coverage after the money lands, minus
+  // what was covered before — so banked halves add up across recordings.
+  const covered = coveredCountOf(
+    paidAmountUsd(p) + amount,
+    p.monthlyAmountUsd,
+    p.totalCount
+  );
+  const months = Math.min(remCount, Math.max(0, covered - p.paidCount));
+  return { months, amountUsd: amount, note };
+}
+
 /* ----------------------------------------------------- add-customer form --- */
 
 interface AddFormState {
@@ -236,8 +383,22 @@ export default function TrackerClient() {
   const [notReady, setNotReady] = useState(
     "The tracker reads live plans once the connection work is finished."
   );
-  /** Plans ticked "Paid" in this session — screen-only, resets on refresh. */
-  const [ticked, setTicked] = useState<Record<string, boolean>>({});
+  /**
+   * Confirmed recordings this session — cumulative months + exact dollars per
+   * plan. Screen-only, resets on refresh; a recording is FINAL here (no undo).
+   */
+  const [recorded, setRecorded] = useState<
+    Record<string, { months: number; amountUsd: number }>
+  >({});
+  /** The latest confirmed recording per plan — drives the thank-you panel. */
+  const [lastRecord, setLastRecord] = useState<Record<string, PaymentRecord>>({});
+  /** Which plan the Record-a-payment dialog is open for, if any. */
+  const [dlgPlanId, setDlgPlanId] = useState<string | null>(null);
+  /** Search over client name, car and VIN — display filter only. */
+  const [query, setQuery] = useState("");
+  const [dlgChoice, setDlgChoice] = useState("m1");
+  const [dlgCustom, setDlgCustom] = useState("");
+  const dlgRef = useRef<HTMLDialogElement | null>(null);
   /** Customers added in this session — screen-only, resets on refresh. */
   const [added, setAdded] = useState<TrackedPlan[]>([]);
   const [addOpen, setAddOpen] = useState(false);
@@ -273,7 +434,9 @@ export default function TrackerClient() {
         // ticked "Paid" keeps its place instead of jumping away from under the
         // person's thumb (the status pill and totals still update).
         setMonth({ ...parsed, plans: sortPlans(parsed.plans) });
-        setTicked({});
+        setRecorded({});
+        setLastRecord({});
+        setDlgPlanId(null);
         setAdded([]);
         setScreen("ready");
         return;
@@ -301,9 +464,83 @@ export default function TrackerClient() {
     };
   }, []);
 
-  const toggle = useCallback((planId: string) => {
-    setTicked((prev) => ({ ...prev, [planId]: !prev[planId] }));
+  const openDialog = useCallback((planId: string) => {
+    setDlgChoice("m1");
+    setDlgCustom("");
+    setDlgPlanId(planId);
   }, []);
+
+  const closeDialog = useCallback(() => setDlgPlanId(null), []);
+
+  /**
+   * Confirm the dialog's pending recording against the plan AS SHOWN (prior
+   * same-session recordings included). Once stored it is final on this
+   * screen — the card locks and the dialog can only ever record MORE.
+   */
+  const confirmPayment = useCallback(
+    (plan: TrackedPlan, pending: PendingPayment) => {
+      if (pending.amountUsd <= 0) return;
+      const newPaidUsd = paidAmountUsd(plan) + pending.amountUsd;
+      const newPaidCount = coveredCountOf(
+        newPaidUsd,
+        plan.monthlyAmountUsd,
+        plan.totalCount
+      );
+      const complete =
+        newPaidCount >= plan.totalCount ||
+        newPaidUsd >= totalAmountUsd(plan) - 0.005;
+      const rec: PaymentRecord = {
+        monthsRecorded: Math.max(0, newPaidCount - plan.paidCount),
+        amountUsd: pending.amountUsd,
+        newPaidCount,
+        complete,
+        bankedUsd: complete
+          ? 0
+          : Math.max(
+              0,
+              Math.round((newPaidUsd - newPaidCount * plan.monthlyAmountUsd) * 100) / 100
+            ),
+      };
+      setRecorded((prev) => {
+        const cur = prev[plan.planId] ?? { months: 0, amountUsd: 0 };
+        return {
+          ...prev,
+          [plan.planId]: {
+            months: cur.months + rec.monthsRecorded,
+            amountUsd: cur.amountUsd + pending.amountUsd,
+          },
+        };
+      });
+      setLastRecord((prev) => ({ ...prev, [plan.planId]: rec }));
+      setDlgPlanId(null);
+    },
+    []
+  );
+
+  // Drive the native <dialog>: showModal gives focus trapping + Esc for free.
+  // The guard covers engines where showModal throws (already-open, old WebKit).
+  useEffect(() => {
+    const d = dlgRef.current;
+    if (!d) return;
+    if (dlgPlanId !== null) {
+      if (!d.open) {
+        try {
+          d.showModal();
+        } catch {
+          d.setAttribute("open", "");
+        }
+      }
+    } else if (d.open) {
+      d.close();
+    }
+    if (dlgPlanId === null) return;
+    // The non-modal fallback gets no free Esc handling — cover it ourselves.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDlgPlanId(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [dlgPlanId]);
 
   const copyMessage = useCallback(async (planId: string, text: string) => {
     try {
@@ -316,19 +553,37 @@ export default function TrackerClient() {
     }
   }, []);
 
-  /** A plan with this session's tick applied: status paid, one more counted. */
-  const withTick = useCallback(
+  /**
+   * A plan with this session's confirmed recordings applied: payments land on
+   * the OLDEST unpaid installment first, so paidCount grows by the recorded
+   * months (clamped to the total) and paidUsd grows by the exact dollars.
+   * This month reads "paid" only once the running count reaches THIS month's
+   * installment number.
+   */
+  const withRecording = useCallback(
     (p: TrackedPlan): TrackedPlan => {
-      if (p.thisMonth.status === "paid" || !ticked[p.planId]) return p;
-      const next: TrackedPlan = {
+      const rec = recorded[p.planId];
+      if (!rec) return p;
+      const newPaidUsd = paidAmountUsd(p) + rec.amountUsd;
+      const newPaidCount = coveredCountOf(
+        newPaidUsd,
+        p.monthlyAmountUsd,
+        p.totalCount
+      );
+      return {
         ...p,
-        paidCount: p.paidCount + 1,
-        thisMonth: { ...p.thisMonth, status: "paid" },
+        paidCount: newPaidCount,
+        paidUsd: newPaidUsd,
+        thisMonth: {
+          ...p.thisMonth,
+          status:
+            newPaidCount >= p.thisMonth.installmentNumber
+              ? "paid"
+              : p.thisMonth.status,
+        },
       };
-      if (p.paidUsd !== undefined) next.paidUsd = p.paidUsd + p.thisMonth.amountUsd;
-      return next;
     },
-    [ticked]
+    [recorded]
   );
 
   /** Your added customers first (newest on top), then the sorted month. */
@@ -337,7 +592,22 @@ export default function TrackerClient() {
     [added, month]
   );
 
-  const shownPlans = useMemo(() => basePlans.map(withTick), [basePlans, withTick]);
+  const shownPlans = useMemo(
+    () => basePlans.map(withRecording),
+    [basePlans, withRecording]
+  );
+
+  /** Cards matching the search box; KPIs stay whole-month on purpose. */
+  const visiblePlans = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return shownPlans;
+    return shownPlans.filter(
+      (p) =>
+        p.clientName.toLowerCase().includes(q) ||
+        p.carLabel.toLowerCase().includes(q) ||
+        p.vin.toLowerCase().includes(q)
+    );
+  }, [shownPlans, query]);
 
   const totals = useMemo(() => {
     let expected = 0;
@@ -345,6 +615,8 @@ export default function TrackerClient() {
     let overdue = 0;
     for (const p of shownPlans) {
       expected += p.thisMonth.amountUsd;
+      // Collected counts only THIS month's slice — money recorded for earlier
+      // months shows in the card's progress bar, not in this tile.
       if (p.thisMonth.status === "paid") collected += p.thisMonth.amountUsd;
       if (p.thisMonth.status === "overdue") overdue += 1;
     }
@@ -544,9 +816,9 @@ export default function TrackerClient() {
           <div className="stack" style={{ gap: 6 }}>
             <div className="note">{DEMO_NOTE}</div>
             <p className="trk-foot">
-              Plans with no payment due this month aren&apos;t shown here. Ticking
-              Paid or adding a customer only updates this example — refreshing the
-              page resets it.
+              Plans with no payment due this month aren&apos;t shown here. Recording
+              a payment or adding a customer only updates this example — refreshing
+              the page resets it.
             </p>
           </div>
         )}
@@ -675,6 +947,24 @@ export default function TrackerClient() {
           </div>
         </div>
 
+        {shownPlans.length > 0 && (
+          <div className="trk-toolbar">
+            <input
+              type="search"
+              className="trk-search"
+              placeholder="Search client, car or VIN…"
+              aria-label="Search plans by client name, car or VIN"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {query.trim() !== "" && (
+              <span className="cap trk-search-count">
+                Showing {visiblePlans.length} of {shownPlans.length}
+              </span>
+            )}
+          </div>
+        )}
+
         {shownPlans.length === 0 ? (
           <div className="card trk-none">
             <p className="h2" style={{ margin: 0 }}>
@@ -684,13 +974,27 @@ export default function TrackerClient() {
               Use Add customer to put the first plan on the board.
             </p>
           </div>
+        ) : visiblePlans.length === 0 ? (
+          <div className="card trk-none">
+            <p className="h2" style={{ margin: 0 }}>
+              No clients match
+            </p>
+            <p className="cap" style={{ margin: 0 }}>
+              Nothing matches &ldquo;{query.trim()}&rdquo; — try a shorter part of the
+              name, car or VIN.
+            </p>
+          </div>
         ) : (
           <div className="trk-grid">
-            {shownPlans.map((p) => {
+            {visiblePlans.map((p) => {
               const base = basePlans.find((b) => b.planId === p.planId) ?? p;
               const isAdded = added.some((a) => a.planId === p.planId);
+              // Paid before this month view (demo data / a complete added
+              // plan): locked look, no dialog — stays exactly as it is today.
               const alreadyPaid = base.thisMonth.status === "paid";
-              const tickedNow = !alreadyPaid && p.thisMonth.status === "paid";
+              const rec = recorded[p.planId];
+              const record = lastRecord[p.planId];
+              const planComplete = p.paidCount >= p.totalCount;
               const paidMoney = paidAmountUsd(p);
               const totalMoney = totalAmountUsd(p);
               const pct =
@@ -698,7 +1002,13 @@ export default function TrackerClient() {
                   ? Math.max(0, Math.min(100, Math.round((paidMoney / totalMoney) * 100)))
                   : 0;
               const hasPhone = base.clientPhone.replace(/\D/g, "") !== "";
-              const thanks = tickedNow ? thankYouMessage(p) : null;
+              const thanks = record ? paymentReceivedMessage(base, record) : null;
+              const recSummary = rec
+                ? `Recorded ${usd(rec.amountUsd)}` +
+                  (rec.months > 0
+                    ? ` · ${rec.months} payment${rec.months === 1 ? "" : "s"}`
+                    : "")
+                : null;
 
               return (
                 <article className="card trk-card" key={p.planId} aria-label={p.clientName}>
@@ -747,7 +1057,8 @@ export default function TrackerClient() {
                   </div>
 
                   <div className="trk-due-row">
-                    {p.thisMonth.status === "paid" && p.thisMonth.amountUsd === 0 ? (
+                    {planComplete ||
+                    (p.thisMonth.status === "paid" && p.thisMonth.amountUsd === 0) ? (
                       <span className="trk-due">Plan fully paid</span>
                     ) : (
                       <>
@@ -758,24 +1069,55 @@ export default function TrackerClient() {
                   </div>
 
                   <div className="trk-actions">
-                    <label
-                      className="trk-paidbox"
-                      data-locked={alreadyPaid}
-                      title={
-                        alreadyPaid && !isAdded
-                          ? "Already recorded as paid in the example data."
-                          : undefined
-                      }
-                    >
-                      <input
-                        type="checkbox"
-                        checked={alreadyPaid || tickedNow}
-                        disabled={alreadyPaid}
-                        onChange={() => toggle(p.planId)}
-                        aria-label={`Mark ${p.clientName} as paid for ${month.monthLabel}`}
-                      />
-                      Paid
-                    </label>
+                    {alreadyPaid ? (
+                      <label
+                        className="trk-paidbox"
+                        data-locked="true"
+                        title={
+                          !isAdded
+                            ? "Already recorded as paid in the example data."
+                            : undefined
+                        }
+                      >
+                        <input
+                          type="checkbox"
+                          checked
+                          disabled
+                          readOnly
+                          aria-label={`${p.clientName} is already paid for ${month.monthLabel}`}
+                        />
+                        Paid
+                      </label>
+                    ) : rec ? (
+                      planComplete ? (
+                        <span className="trk-recorded" data-final="true">
+                          <LockGlyph />
+                          {recSummary}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="trk-recorded"
+                          onClick={() => openDialog(p.planId)}
+                          aria-haspopup="dialog"
+                          title="Recorded — final on this screen. Click to record another payment."
+                        >
+                          <LockGlyph />
+                          {recSummary}
+                        </button>
+                      )
+                    ) : (
+                      <label className="trk-paidbox">
+                        <input
+                          type="checkbox"
+                          checked={false}
+                          onChange={() => openDialog(p.planId)}
+                          aria-haspopup="dialog"
+                          aria-label={`Record a payment for ${p.clientName}`}
+                        />
+                        Paid
+                      </label>
+                    )}
                     {p.thisMonth.status !== "paid" &&
                       (hasPhone ? (
                         <a
@@ -830,6 +1172,148 @@ export default function TrackerClient() {
           yourself. Fully automatic sending arrives when the WhatsApp Business API is
           connected.
         </p>
+
+        {/* Record-a-payment dialog — native <dialog> for focus trap + Esc. */}
+        <dialog
+          ref={dlgRef}
+          className="trk-dlg"
+          aria-label="Record a payment"
+          onClose={closeDialog}
+          onClick={(e) => {
+            // Backdrop click: the dialog element itself is the target only
+            // when the click lands outside its content box.
+            if (e.target === e.currentTarget) closeDialog();
+          }}
+        >
+          {(() => {
+            const plan = dlgPlanId
+              ? shownPlans.find((s) => s.planId === dlgPlanId) ?? null
+              : null;
+            if (!plan) return null;
+            const opts = payOptions(plan);
+            const pending: PendingPayment | null =
+              dlgChoice === "custom"
+                ? resolveCustom(plan, dlgCustom)
+                : (() => {
+                    const o = opts.find((x) => x.key === dlgChoice);
+                    return o
+                      ? { months: o.months, amountUsd: o.amountUsd, note: null }
+                      : null;
+                  })();
+            const totalUsd = totalAmountUsd(plan);
+            const newPaidUsd = pending
+              ? paidAmountUsd(plan) + pending.amountUsd
+              : paidAmountUsd(plan);
+            const newPaidCount = pending
+              ? coveredCountOf(newPaidUsd, plan.monthlyAmountUsd, plan.totalCount)
+              : plan.paidCount;
+            // Banked toward the NEXT installment, cumulatively — includes any
+            // half-payment that was already on the plan before this recording.
+            const remainder = pending
+              ? Math.max(
+                  0,
+                  Math.round(
+                    (newPaidUsd - newPaidCount * plan.monthlyAmountUsd) * 100
+                  ) / 100
+                )
+              : 0;
+            const showRemainder =
+              pending !== null && remainder >= 0.01 && newPaidCount < plan.totalCount;
+            return (
+              <div className="trk-dlg-body">
+                <div className="trk-dlg-head">
+                  <h2 className="h2">Record a payment</h2>
+                  <p className="cap trk-dlg-sub">
+                    {plan.clientName} · {plan.carLabel}
+                  </p>
+                </div>
+                <div
+                  className="trk-dlg-opts"
+                  role="radiogroup"
+                  aria-label="How much was paid"
+                >
+                  {opts.map((o) => (
+                    <label
+                      key={o.key}
+                      className="trk-opt"
+                      data-active={dlgChoice === o.key}
+                    >
+                      <input
+                        type="radio"
+                        name="trk-pay-choice"
+                        checked={dlgChoice === o.key}
+                        onChange={() => setDlgChoice(o.key)}
+                      />
+                      <span className="trk-opt-main">
+                        <span className="trk-opt-title">{o.title}</span>
+                        <span className="trk-opt-detail">{o.detail}</span>
+                      </span>
+                      <span className="trk-opt-money">{usd(o.amountUsd)}</span>
+                    </label>
+                  ))}
+                  <label className="trk-opt" data-active={dlgChoice === "custom"}>
+                    <input
+                      type="radio"
+                      name="trk-pay-choice"
+                      checked={dlgChoice === "custom"}
+                      onChange={() => setDlgChoice("custom")}
+                    />
+                    <span className="trk-opt-main">
+                      <span className="trk-opt-title">Custom amount</span>
+                      <span className="trk-opt-detail">USD received</span>
+                    </span>
+                    <span className="trk-opt-custom">
+                      <span aria-hidden>$</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={dlgCustom}
+                        placeholder="0"
+                        onChange={(e) =>
+                          setDlgCustom(e.target.value.replace(/[^\d.]/g, ""))
+                        }
+                        onFocus={() => setDlgChoice("custom")}
+                        aria-label="Custom amount in US dollars"
+                      />
+                    </span>
+                  </label>
+                </div>
+                {pending?.note && <p className="trk-dlg-note">{pending.note}</p>}
+                <p className="trk-dlg-sum" aria-live="polite">
+                  {pending ? (
+                    <>
+                      After this, {firstNameOf(plan.clientName)} is {newPaidCount} of{" "}
+                      {plan.totalCount} paid — {usd(newPaidUsd)} of {usd(totalUsd)}.
+                      {showRemainder &&
+                        ` Leaves ${usd(remainder)} toward installment #${
+                          newPaidCount + 1
+                        }.`}
+                    </>
+                  ) : (
+                    <>Enter an amount to see where it lands.</>
+                  )}
+                </p>
+                <div className="trk-dlg-actions">
+                  <button
+                    type="button"
+                    className="btn primary"
+                    disabled={!pending || pending.amountUsd <= 0}
+                    onClick={() => pending && confirmPayment(plan, pending)}
+                  >
+                    Confirm payment
+                  </button>
+                  <button type="button" className="btn" onClick={closeDialog}>
+                    Cancel
+                  </button>
+                </div>
+                <p className="cap trk-dlg-cap">
+                  Once confirmed, this recording is final on this screen. In the live
+                  system this records the payment in the Monza CRM.
+                </p>
+              </div>
+            );
+          })()}
+        </dialog>
       </div>
     </div>
   );
