@@ -41,6 +41,11 @@ import type { AnswerTable } from "@/lib/chat/contract";
 /** Cap on how much of one tool result is fed back to the model. */
 const RESULT_CHAR_LIMIT = 4000;
 
+/** A single source-system call may take at most this long. Together with the
+ *  tool-call cap this bounds a whole question's worst case well inside the
+ *  route's maxDuration. */
+const TOOL_CALL_TIMEOUT_MS = 12_000;
+
 /** At most this many data tables accompany one answer. */
 const MAX_TABLES_PER_TURN = 3;
 
@@ -314,10 +319,26 @@ async function handleToolUse(
     return deniedResult(decision);
   }
 
-  // Allowed: execute with the caller's identity, timed.
+  // Allowed: execute with the caller's identity, timed. A source system that
+  // hangs becomes an honest error result, never a hung answer — and the model
+  // is told plainly, so it says "I couldn't retrieve X right now" instead of
+  // improvising from nothing.
   let result: ToolResult;
   try {
-    result = await tool.execute(input, ctx);
+    result = await Promise.race([
+      tool.execute(input, ctx),
+      new Promise<ToolResult>((resolve) =>
+        setTimeout(
+          () =>
+            resolve({
+              ok: false,
+              error:
+                "The system did not respond in time. Tell the user this area could not be checked right now — do not guess at what it would have said.",
+            }),
+          TOOL_CALL_TIMEOUT_MS
+        )
+      ),
+    ]);
   } catch (e) {
     result = {
       ok: false,
