@@ -152,6 +152,23 @@ export default function DepartmentPage({ params }: { params: { slug: string } })
           </div>
         </header>
 
+        {dept.slug === "installments-payments" && (
+          <div className="dept-qs" aria-label="Payment tracker">
+            <Link className="dept-q" href="/departments/installments-payments/tracker">
+              <span className="grow">
+                <span className="h2" style={{ display: "block" }}>
+                  Payment tracker
+                </span>
+                <span className="cap">
+                  Track this month&apos;s installments, tick off payments, and send clients
+                  their messages.
+                </span>
+              </span>
+              <ArrowGlyph />
+            </Link>
+          </div>
+        )}
+
         <section className="dept-section" aria-label="Ask about this">
           <h2 className="h2">Ask about this</h2>
           <p className="dept-hint">

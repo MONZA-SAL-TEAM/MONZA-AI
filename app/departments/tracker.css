@@ -1,0 +1,179 @@
+/* =============================================================================
+   Payment tracker — additive layer on top of departments.css. New trk-*
+   classes only; every colour comes from the theme tokens in app/globals.css,
+   so light and dark both just work. Phone-first: cards are full-width and
+   every action is thumb-sized.
+   ============================================================================= */
+
+/* --- header ---------------------------------------------------------------- */
+.trk-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.trk-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.trk-totals {
+  margin: 0;
+  color: var(--ink-2);
+}
+.trk-totals strong {
+  font-weight: 620;
+  color: var(--ink);
+}
+
+/* --- the list: one card per plan ------------------------------------------- */
+.trk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.trk-card {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.trk-name {
+  margin: 0;
+  font-size: var(--t-lg);
+  font-weight: 620;
+  letter-spacing: -0.012em;
+}
+.trk-car {
+  margin: 2px 0 0;
+}
+.trk-vin {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-xs);
+  letter-spacing: 0.03em;
+  color: var(--ink-3);
+  word-break: break-all;
+}
+
+/* --- progress: "3 of 10 payments paid" + a thin bar ------------------------- */
+.trk-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.trk-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--sunk);
+  border: 1px solid var(--line-soft);
+  overflow: hidden;
+}
+.trk-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--live);
+  transition: width 0.2s ease;
+}
+
+/* --- due date + amount, prominent ------------------------------------------ */
+.trk-due-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.trk-due {
+  font-size: var(--t-md);
+  font-weight: 580;
+}
+.trk-amount {
+  font-size: var(--t-lg);
+  font-weight: 640;
+  letter-spacing: -0.012em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- actions: thumb-sized, wrapping on small screens ------------------------ */
+.trk-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 12px;
+}
+.trk-actions .btn {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+}
+.trk-paidbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 12px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  font-weight: 560;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s ease;
+}
+.trk-paidbox:hover {
+  background: var(--sunk);
+}
+.trk-paidbox input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--live);
+  cursor: pointer;
+}
+.trk-paidbox[data-locked="true"] {
+  cursor: default;
+  color: var(--ink-3);
+}
+.trk-paidbox[data-locked="true"]:hover {
+  background: var(--panel);
+}
+.trk-paidbox[data-locked="true"] input {
+  cursor: default;
+}
+
+/* --- the message panel that appears after ticking Paid ---------------------- */
+.trk-msg {
+  border: 1px solid var(--line);
+  background: var(--sunk);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.trk-msg-text {
+  margin: 0;
+  font-size: var(--t-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.trk-msg-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.trk-msg-cap {
+  margin: 0;
+  color: var(--ink-3);
+}
+
+/* --- quiet footnotes -------------------------------------------------------- */
+.trk-foot {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--t-xs);
+}
