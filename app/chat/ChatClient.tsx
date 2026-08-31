@@ -388,6 +388,8 @@ export default function ChatClient() {
   }, []);
 
   useEffect(() => {
+    // Follow the conversation down — but the welcome screen starts at the top.
+    if (messages.length === 0 && !sending) return;
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, sending]);
 

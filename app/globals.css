@@ -182,6 +182,12 @@ input:focus, textarea:focus, select:focus { border-color: var(--ink-3); outline:
 }
 .navlink:hover { background: var(--sunk); color: var(--ink); }
 .navlink[aria-current="page"] { background: var(--sunk); color: var(--ink); font-weight: 600; }
+@media (max-width: 480px) {
+  .topbar { gap: 10px; padding: 0 12px; }
+  .topbar nav { overflow-x: auto; scrollbar-width: none; }
+  .brand { white-space: nowrap; }
+  .navlink { padding: 6px 8px; white-space: nowrap; }
+}
 
 /* --- the signature: waiting rail ------------------------------------------
    A thread needing a person carries a solid bar on its leading edge. Findable
