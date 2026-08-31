@@ -1,15 +1,66 @@
 /* =============================================================================
-   Payment tracker — additive layer on top of departments.css. New trk-*
-   classes only; every colour comes from the theme tokens in app/globals.css,
-   so light and dark both just work. Phone-first: cards are full-width and
-   every action is thumb-sized.
+   Installments & Payments — the payment tracker as the department page.
+   Additive layer: trk-* classes only, every colour from the theme tokens in
+   app/globals.css, so light and dark both just work. Wide and calm: a KPI
+   strip up top, then plan cards in a responsive grid — 2–3 across on desktop,
+   one column on phones, every action thumb-sized.
    ============================================================================= */
 
-/* --- header ---------------------------------------------------------------- */
-.trk-head {
+/* --- page frame: wide, centered, breathing room ----------------------------- */
+.trk-page {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+.trk-wrap {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 24px 32px 56px;
   display: flex;
   flex-direction: column;
+  gap: 20px;
+}
+@media (max-width: 720px) {
+  .trk-wrap {
+    padding: 20px 16px 48px;
+  }
+}
+.trk-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 8px;
+  min-height: 60vh;
+  color: var(--ink-3);
+  text-align: center;
+  padding: 40px;
+}
+
+/* --- header: icon tile + title + month chip, Add customer on the right ------ */
+.trk-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.trk-head-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+}
+.trk-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  flex: none;
+  background: var(--sunk);
+  color: var(--ink-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .trk-title-row {
   display: flex;
@@ -17,28 +68,187 @@
   gap: 10px;
   flex-wrap: wrap;
 }
-.trk-totals {
-  margin: 0;
-  color: var(--ink-2);
+.trk-sub {
+  margin: 6px 0 0;
 }
-.trk-totals strong {
-  font-weight: 620;
+.trk-sub-link {
+  color: var(--ink);
+  font-weight: 560;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.trk-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 18px;
+  flex: none;
+}
+@media (max-width: 560px) {
+  .trk-add-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* --- KPI strip: 4 tiles, 2-up on phones ------------------------------------- */
+.trk-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+@media (max-width: 720px) {
+  .trk-kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.trk-kpi {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.trk-kpi-label {
+  font-size: var(--t-xs);
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trk-kpi-value {
+  font-size: 28px;
+  line-height: 1.15;
+  font-weight: 640;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
+.trk-kpi[data-urgent="true"] {
+  border-left: 3px solid var(--urgent);
+}
+.trk-kpi[data-urgent="true"] .trk-kpi-value {
+  color: var(--urgent);
+}
 
-/* --- the list: one card per plan ------------------------------------------- */
-.trk-list {
+/* --- add-a-customer panel ---------------------------------------------------- */
+.trk-add {
+  padding: 18px 20px 20px;
   display: flex;
   flex-direction: column;
+  gap: 14px;
+}
+.trk-add-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
+}
+.trk-form {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px 16px;
+}
+@media (max-width: 560px) {
+  .trk-form {
+    grid-template-columns: 1fr;
+  }
+}
+.trk-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.trk-label {
+  font-size: var(--t-xs);
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.trk-field input {
+  min-height: 42px;
+}
+.trk-vin-input {
+  text-transform: uppercase;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.03em;
+}
+.trk-span2 {
+  grid-column: 1 / -1;
+}
+@media (max-width: 560px) {
+  .trk-span2 {
+    grid-column: auto;
+  }
+}
+.trk-form-err {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--urgent);
+}
+.trk-form-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.trk-form-actions .btn {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+.trk-form-cap {
+  margin: 0;
+  color: var(--ink-3);
+}
+
+/* --- the card grid: 2–3 across on desktop, one column on phones -------------- */
+.trk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(330px, 100%), 1fr));
+  gap: 16px;
+  align-items: start;
 }
 .trk-card {
-  padding: 16px;
+  border-radius: 14px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+  min-width: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .trk-card {
+    transition: box-shadow 0.15s ease, transform 0.15s ease;
+  }
+  .trk-card:hover {
+    box-shadow: var(--shadow);
+    transform: translateY(-1px);
+  }
 }
 
+/* --- card top: name + status pill, then car · VIN ---------------------------- */
+.trk-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.trk-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .trk-name {
   margin: 0;
   font-size: var(--t-lg);
@@ -46,7 +256,7 @@
   letter-spacing: -0.012em;
 }
 .trk-car {
-  margin: 2px 0 0;
+  margin: 3px 0 0;
 }
 .trk-vin {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -57,14 +267,36 @@
   word-break: break-all;
 }
 
-/* --- progress: "3 of 10 payments paid" + a thin bar ------------------------- */
-.trk-progress {
+/* --- money progress: "$7,750 paid of $18,600" + "5 of 12" + a bar ------------ */
+.trk-money {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
+}
+.trk-money-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.trk-money-paid {
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.trk-money-paid strong {
+  font-weight: 640;
+  color: var(--ink);
+}
+.trk-money-count {
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .trk-bar {
-  height: 5px;
+  height: 6px;
   border-radius: 999px;
   background: var(--sunk);
   border: 1px solid var(--line-soft);
@@ -76,60 +308,76 @@
   background: var(--live);
   transition: width 0.2s ease;
 }
+.trk-bar-fill[data-urgent="true"] {
+  background: var(--urgent);
+}
 
-/* --- due date + amount, prominent ------------------------------------------ */
+/* --- this month: due date + the amount, big and right-aligned ---------------- */
 .trk-due-row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 12px;
 }
 .trk-due {
   font-size: var(--t-md);
   font-weight: 580;
 }
 .trk-amount {
-  font-size: var(--t-lg);
+  font-size: var(--t-xl);
   font-weight: 640;
-  letter-spacing: -0.012em;
+  letter-spacing: -0.015em;
   font-variant-numeric: tabular-nums;
 }
 
-/* --- actions: thumb-sized, wrapping on small screens ------------------------ */
+/* --- actions: thumb-sized, wrapping on small screens ------------------------- */
 .trk-actions {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  border-top: 1px solid var(--line-soft);
-  padding-top: 12px;
+  margin-top: auto;
 }
 .trk-actions .btn {
-  min-height: 42px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
+  gap: 7px;
+}
+.trk-wa svg {
+  flex: none;
+  color: var(--ink-3);
+}
+.trk-hint {
+  font-size: var(--t-xs);
+  color: var(--ink-3);
 }
 .trk-paidbox {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 42px;
-  padding: 0 12px 0 10px;
+  gap: 9px;
+  min-height: 44px;
+  padding: 0 14px 0 11px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--panel);
   font-weight: 560;
   cursor: pointer;
   user-select: none;
-  transition: background 0.12s ease;
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
 .trk-paidbox:hover {
   background: var(--sunk);
 }
+.trk-paidbox:focus-within {
+  border-color: var(--ink-3);
+}
 .trk-paidbox input {
-  width: 18px;
-  height: 18px;
+  width: 19px;
+  height: 19px;
   margin: 0;
   accent-color: var(--live);
   cursor: pointer;
@@ -145,7 +393,7 @@
   cursor: default;
 }
 
-/* --- the message panel that appears after ticking Paid ---------------------- */
+/* --- the message panel that appears after ticking Paid ------------------------ */
 .trk-msg {
   border: 1px solid var(--line);
   background: var(--sunk);
@@ -166,12 +414,24 @@
   gap: 10px;
   flex-wrap: wrap;
 }
+.trk-msg-actions .btn {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+}
 .trk-msg-cap {
   margin: 0;
   color: var(--ink-3);
 }
 
-/* --- quiet footnotes -------------------------------------------------------- */
+/* --- edge states + quiet footnotes -------------------------------------------- */
+.trk-none {
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
 .trk-foot {
   margin: 0;
   color: var(--ink-3);

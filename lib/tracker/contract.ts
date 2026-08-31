@@ -26,6 +26,12 @@ export interface TrackedPlan {
   totalCount: number;
   /** Day of the month the installment falls due. */
   dueDay: number;
+  /**
+   * Exact dollars received so far across the whole plan, when known.
+   * Optional: most plans derive it as paidCount × monthlyAmountUsd, but a
+   * hand-entered plan can carry the precise figure (e.g. a part-payment).
+   */
+  paidUsd?: number;
   /** This month's installment for the plan. */
   thisMonth: {
     installmentNumber: number;
@@ -40,6 +46,19 @@ export interface TrackedPlan {
 export interface TrackerMonth {
   monthLabel: string;
   plans: TrackedPlan[];
+}
+
+/**
+ * Dollars received so far on the plan: the exact figure when the plan carries
+ * one, otherwise installments paid × the monthly amount. Pure arithmetic.
+ */
+export function paidAmountUsd(p: TrackedPlan): number {
+  return p.paidUsd ?? p.paidCount * p.monthlyAmountUsd;
+}
+
+/** The plan's full value: total installments × the monthly amount. */
+export function totalAmountUsd(p: TrackedPlan): number {
+  return p.totalCount * p.monthlyAmountUsd;
 }
 
 /** "$1,550" — whole US dollars with thousands separators, no locale calls. */
