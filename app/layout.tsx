@@ -1,8 +1,23 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import Link from "next/link";
-import NavDepartments from "@/components/NavDepartments";
+import { Sora, Manrope } from "next/font/google";
+import SideNav from "@/components/SideNav";
 import "./globals.css";
+
+/* The product's two voices: Sora carries headings and big numbers,
+   Manrope carries everything people read. */
+const sora = Sora({
+  subsets: ["latin"],
+  weight: ["600", "700"],
+  variable: "--font-display",
+  display: "swap",
+});
+const manrope = Manrope({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-body",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Monza AI",
@@ -11,63 +26,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      <body style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-        <header className="topbar">
-          <Link
-            className="brand"
-            href="/chat"
-            style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
-          >
-            {/* Small mark: an M inside a rounded square, drawn in currentColor
-                so it follows the theme automatically. */}
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              aria-hidden="true"
-              focusable="false"
-            >
-              <rect
-                x="2.5"
-                y="2.5"
-                width="19"
-                height="19"
-                rx="6"
-                stroke="currentColor"
-                strokeWidth="1.8"
-              />
-              <path
-                d="M7.5 15.5v-7l4.5 4.5 4.5-4.5v7"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            Monza AI
-          </Link>
-          <nav className="row" style={{ gap: 4 }} aria-label="Main">
-            <Link className="navlink" href="/chat">
-              Chat
-            </Link>
-            {/* Pure-HTML dropdown: <details> opens/closes with no JS, works
-                with keyboard (Enter/Space on the summary), and inherits the
-                navlink look. */}
-            <NavDepartments />
-            <Link className="navlink" href="/dashboard">
-              Overview
-            </Link>
-            <Link className="navlink" href="/connections">
-              Connections
-            </Link>
-            <Link className="navlink" href="/settings">
-              Settings
-            </Link>
-          </nav>
-        </header>
-        <main style={{ flex: 1, minHeight: 0, display: "flex" }}>{children}</main>
+    <html lang="en" className={`${sora.variable} ${manrope.variable}`}>
+      <body className="app-shell">
+        <SideNav />
+        <main className="app-main">{children}</main>
       </body>
     </html>
   );

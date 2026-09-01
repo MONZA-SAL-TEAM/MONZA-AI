@@ -85,14 +85,21 @@ async function readTodayStats(): Promise<DayStats | null> {
 
 function StatCard({ label, value, hint }: { label: string; value: number; hint: string }) {
   return (
-    <div className="card pad grow">
+    <div className="card pad-lg grow" style={{ minWidth: 180 }}>
       <div className="eyebrow">{label}</div>
       <div
-        style={{ fontSize: 40, fontWeight: 640, letterSpacing: "-.025em", marginTop: 6 }}
+        style={{
+          fontFamily: "var(--font-display), var(--font-body), sans-serif",
+          fontSize: 42,
+          fontWeight: 640,
+          letterSpacing: "-.03em",
+          lineHeight: 1.15,
+          marginTop: 8,
+        }}
       >
         {value}
       </div>
-      <div className="cap" style={{ color: "var(--ink-3)", marginTop: 2 }}>
+      <div className="cap" style={{ color: "var(--ink-3)", marginTop: 4 }}>
         {hint}
       </div>
     </div>
@@ -103,7 +110,7 @@ export default async function DashboardPage() {
   const stats = await readTodayStats();
 
   return (
-    <main style={{ maxWidth: 860, margin: "0 auto", padding: "32px 20px" }}>
+    <main style={{ maxWidth: 860, margin: "0 auto", padding: "36px 24px 64px" }}>
       <div className="stack-lg">
         <header className="stack" style={{ gap: 6 }}>
           <div className="eyebrow">Dashboard</div>
@@ -114,6 +121,8 @@ export default async function DashboardPage() {
             off the record.
           </p>
         </header>
+
+        <div className="aurora" aria-hidden="true" style={{ marginTop: -6 }} />
 
         {stats === null ? (
           <div className="card">
@@ -131,7 +140,10 @@ export default async function DashboardPage() {
           </div>
         ) : (
           <>
-            <div className="row" style={{ alignItems: "stretch", gap: 12 }}>
+            <div
+              className="row"
+              style={{ alignItems: "stretch", gap: 14, flexWrap: "wrap" }}
+            >
               <StatCard
                 label="Questions"
                 value={stats.questions}
@@ -150,7 +162,13 @@ export default async function DashboardPage() {
             </div>
 
             <div className="card">
-              <div className="pad" style={{ borderBottom: "1px solid var(--line-soft)" }}>
+              <div
+                className="pad"
+                style={{
+                  padding: "18px 24px",
+                  borderBottom: "1px solid var(--line-soft)",
+                }}
+              >
                 <div style={{ fontWeight: 600 }}>Lookups by system</div>
                 <div className="cap">Where today&apos;s answers came from.</div>
               </div>
@@ -168,7 +186,7 @@ export default async function DashboardPage() {
                       key={s.label}
                       className="row-between"
                       style={{
-                        padding: "12px 18px",
+                        padding: "14px 24px",
                         borderBottom: "1px solid var(--line-soft)",
                       }}
                     >

@@ -110,7 +110,8 @@
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 14px 16px;
+  box-shadow: var(--shadow);
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -127,10 +128,11 @@
   text-overflow: ellipsis;
 }
 .gv-kpi-value {
-  font-size: 28px;
+  font-family: var(--font-display), var(--font-body), sans-serif;
+  font-size: 30px;
   line-height: 1.15;
   font-weight: 640;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.028em;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
@@ -188,7 +190,7 @@
   color: var(--ink-3);
 }
 .gv-search:focus-visible {
-  outline: 2px solid var(--ink-3);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 .gv-search-count {
@@ -203,8 +205,8 @@
   align-items: start;
 }
 .gv-job {
-  border-radius: 14px;
-  padding: 16px 18px;
+  border-radius: var(--radius);
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
   gap: 11px;
@@ -214,19 +216,26 @@
   background: var(--sunk);
   border-color: var(--line-soft);
   color: var(--ink-3);
+  box-shadow: none;
+  opacity: 0.75;
 }
 .gv-job[data-closed="true"] .gv-job-no,
 .gv-job[data-closed="true"] .gv-job-name,
 .gv-job[data-closed="true"] .gv-job-update {
   color: var(--ink-3);
 }
+/* On a sunk (closed) card the sunk chips would vanish — step them to panel. */
+.gv-job[data-closed="true"] .gv-job-no,
+.gv-job[data-closed="true"] .gv-vin {
+  background: var(--panel);
+}
 @media (prefers-reduced-motion: no-preference) {
   .gv-job {
     transition: box-shadow 0.15s ease, transform 0.15s ease, background 0.2s ease;
   }
   .gv-job:not([data-closed="true"]):hover {
-    box-shadow: var(--shadow);
-    transform: translateY(-1px);
+    box-shadow: var(--shadow-lift);
+    transform: translateY(-2px);
   }
   /* Gentle entrance for cards that just changed or arrived — runs once. */
   .gv-job[data-touched="true"] {
@@ -247,12 +256,19 @@
   flex-wrap: wrap;
 }
 .gv-job-no {
+  display: inline-flex;
+  align-items: center;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-variant-numeric: tabular-nums;
-  font-size: var(--t-md);
-  font-weight: 640;
-  letter-spacing: 0.02em;
-  color: var(--ink);
+  font-size: var(--t-sm);
+  font-weight: 620;
+  letter-spacing: 0.03em;
+  color: var(--ink-2);
+  background: var(--sunk);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 3px 9px;
+  white-space: nowrap;
 }
 .gv-job-name {
   margin: 0;
@@ -268,7 +284,10 @@
   font-variant-numeric: tabular-nums;
   font-size: var(--t-xs);
   letter-spacing: 0.03em;
-  color: var(--ink-3);
+  color: var(--ink-2);
+  background: var(--sunk);
+  border-radius: 6px;
+  padding: 1px 6px;
   word-break: break-all;
 }
 .gv-job-update {
@@ -326,7 +345,7 @@
   width: 100%;
 }
 .gv-part-prompt input {
-  min-height: 42px;
+  min-height: 44px;
 }
 .gv-part-prompt-actions {
   display: flex;
@@ -384,7 +403,7 @@
   color: var(--ink-3);
 }
 .gv-field input {
-  min-height: 42px;
+  min-height: 44px;
 }
 .gv-vin-input {
   text-transform: uppercase;
@@ -450,7 +469,7 @@
 .gv-rail-search {
   flex: none;
   width: 100%;
-  min-height: 42px;
+  min-height: 44px;
 }
 .gv-stock-list,
 .gv-parts-list {
@@ -487,9 +506,10 @@
   color: var(--ink-3);
 }
 .gv-stock-count {
+  font-family: var(--font-display), var(--font-body), sans-serif;
   font-size: var(--t-xl);
   font-weight: 640;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.022em;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
   flex: none;

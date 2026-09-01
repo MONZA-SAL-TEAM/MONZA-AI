@@ -111,7 +111,8 @@
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 14px 16px;
+  box-shadow: var(--shadow);
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -128,10 +129,11 @@
   text-overflow: ellipsis;
 }
 .cd-kpi-value {
-  font-size: 28px;
+  font-family: var(--font-display), var(--font-body), sans-serif;
+  font-size: 30px;
   line-height: 1.15;
   font-weight: 640;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.028em;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
@@ -192,7 +194,7 @@
   color: var(--ink-3);
 }
 .cd-search:focus-visible {
-  outline: 2px solid var(--ink-3);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 .cd-search-count {
@@ -207,8 +209,8 @@
   align-items: start;
 }
 .cd-cust {
-  border-radius: 14px;
-  padding: 16px 18px;
+  border-radius: var(--radius);
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
   gap: 11px;
@@ -219,8 +221,8 @@
     transition: box-shadow 0.15s ease, transform 0.15s ease, background 0.2s ease;
   }
   .cd-cust:hover {
-    box-shadow: var(--shadow);
-    transform: translateY(-1px);
+    box-shadow: var(--shadow-lift);
+    transform: translateY(-2px);
   }
   /* Gentle entrance for a card you just added — runs once. */
   .cd-cust[data-added="true"] {
@@ -261,7 +263,10 @@
   font-variant-numeric: tabular-nums;
   font-size: var(--t-xs);
   letter-spacing: 0.03em;
-  color: var(--ink-3);
+  color: var(--ink-2);
+  background: var(--sunk);
+  border-radius: 6px;
+  padding: 1px 6px;
   word-break: break-all;
 }
 .cd-plate {
@@ -273,11 +278,16 @@
   font-weight: 600;
   letter-spacing: 0.05em;
   padding: 2px 8px;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid var(--line);
   background: var(--sunk);
   color: var(--ink-2);
   white-space: nowrap;
+}
+/* The "New" tag wears the brand — the one small accent moment on a card. */
+.tag.cd-new {
+  background: var(--accent-bg);
+  color: var(--accent);
 }
 .cd-cust-meta {
   display: flex;
@@ -360,13 +370,16 @@
   color: var(--ink);
 }
 .cd-details-summary:focus-visible {
-  outline: 2px solid var(--ink-3);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
   border-radius: var(--radius-sm);
 }
+/* Full details opens as a sunken inset panel — quietly below the card face. */
 .cd-dl {
-  margin: 0 0 6px;
-  padding: 4px 0 2px;
+  margin: 0 0 10px;
+  padding: 4px 14px;
+  background: var(--sunk);
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -375,10 +388,15 @@
   display: grid;
   grid-template-columns: 108px minmax(0, 1fr);
   gap: 10px;
-  padding: 7px 0;
+  padding: 8px 0;
 }
 .cd-dl-row + .cd-dl-row {
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--line);
+}
+/* Chips sitting inside the sunken panel step up to the panel colour. */
+.cd-dl .cd-plate,
+.cd-dl .cd-vin {
+  background: var(--panel);
 }
 .cd-dl dt {
   font-size: var(--t-xs);
@@ -445,7 +463,7 @@
   border-radius: var(--radius-sm);
 }
 .cd-field select:focus-visible {
-  outline: 2px solid var(--ink-3);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 .cd-vin-input {
@@ -546,6 +564,7 @@
   min-width: 0;
 }
 .cd-src-count {
+  font-family: var(--font-display), var(--font-body), sans-serif;
   font-size: var(--t-md);
   font-weight: 640;
   font-variant-numeric: tabular-nums;
@@ -561,7 +580,7 @@
 .cd-src-fill {
   height: 100%;
   border-radius: 999px;
-  background: var(--mine);
+  background: var(--grad);
   min-width: 0;
 }
 @media (prefers-reduced-motion: no-preference) {

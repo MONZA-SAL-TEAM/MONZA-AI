@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "monza-ai", "runtimeExecutable": "npx", "runtimeArgs": ["next", "start", "-p", "3200"], "port": 3200 }
+  ]
+}

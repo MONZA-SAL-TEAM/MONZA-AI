@@ -180,9 +180,11 @@ function StatusPill({ status }: { status: GarageJobStatus }) {
   const cls =
     status === "waiting_parts"
       ? "tag urgent"
-      : status === "working" || status === "ready"
-        ? "tag live"
-        : "tag";
+      : status === "working"
+        ? "tag mine"
+        : status === "ready"
+          ? "tag live"
+          : "tag";
   const withDot = status === "working" || status === "waiting_parts";
   return (
     <span className={cls}>
@@ -529,6 +531,7 @@ export default function GarageClient() {
               </div>
             </div>
           </header>
+          <div className="aurora" aria-hidden="true" />
           <div className="card pad stack">
             <p className="h2" style={{ margin: 0 }}>
               Not connected yet
@@ -583,6 +586,8 @@ export default function GarageClient() {
             Add job card
           </button>
         </header>
+
+        <div className="aurora" aria-hidden="true" />
 
         {demo && (
           <div className="stack" style={{ gap: 6 }}>

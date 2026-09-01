@@ -30,7 +30,7 @@ const PLANNED = [
 
 export default function AutomationsPage() {
   return (
-    <main style={{ maxWidth: 860, margin: "0 auto", padding: "32px 20px" }}>
+    <main style={{ maxWidth: 860, margin: "0 auto", padding: "36px 24px 64px" }}>
       <div className="stack-lg">
         <header className="stack" style={{ gap: 6 }}>
           <div className="row" style={{ gap: 10 }}>
@@ -46,14 +46,16 @@ export default function AutomationsPage() {
           </p>
         </header>
 
-        <div className="stack">
+        <div className="aurora" aria-hidden="true" style={{ marginTop: -6 }} />
+
+        <div className="stack" style={{ gap: 14 }}>
           {PLANNED.map((p) => (
-            <div key={p.title} className="card pad">
-              <div className="row" style={{ gap: 8 }}>
+            <div key={p.title} className="card pad-lg">
+              <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
                 <span style={{ fontWeight: 600 }}>{p.title}</span>
                 <span className="tag">Planned</span>
               </div>
-              <p className="cap" style={{ margin: "6px 0 0" }}>
+              <p className="cap" style={{ margin: "8px 0 0" }}>
                 {p.example}
               </p>
             </div>

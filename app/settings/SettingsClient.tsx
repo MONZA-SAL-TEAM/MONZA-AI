@@ -37,7 +37,7 @@ export default function SettingsClient({ view }: { view: SettingsView }) {
       )}
 
       {/* The one paragraph that matters */}
-      <div className="card pad">
+      <div className="card pad-lg">
         <div className="eyebrow" style={{ marginBottom: 8 }}>
           Who sees what
         </div>
@@ -59,7 +59,10 @@ export default function SettingsClient({ view }: { view: SettingsView }) {
 
       {/* Current configuration, plain words */}
       <div className="card">
-        <div className="pad" style={{ borderBottom: "1px solid var(--line-soft)" }}>
+        <div
+          className="pad"
+          style={{ padding: "20px 24px", borderBottom: "1px solid var(--line-soft)" }}
+        >
           <div className="row-between">
             <div>
               <div style={{ fontWeight: 600 }}>Assistant</div>
@@ -75,7 +78,10 @@ export default function SettingsClient({ view }: { view: SettingsView }) {
             )}
           </div>
         </div>
-        <div className="pad" style={{ borderBottom: "1px solid var(--line-soft)" }}>
+        <div
+          className="pad"
+          style={{ padding: "20px 24px", borderBottom: "1px solid var(--line-soft)" }}
+        >
           <div className="row-between">
             <div>
               <div style={{ fontWeight: 600 }}>Assistant model</div>
@@ -84,7 +90,7 @@ export default function SettingsClient({ view }: { view: SettingsView }) {
             <span className="tag">{view.modelLabel}</span>
           </div>
         </div>
-        <div className="pad">
+        <div className="pad" style={{ padding: "20px 24px" }}>
           <div className="row-between">
             <div>
               <div style={{ fontWeight: 600 }}>Lookups per question</div>
@@ -98,8 +104,8 @@ export default function SettingsClient({ view }: { view: SettingsView }) {
       </div>
 
       {/* Environment checklist — presence only, never values */}
-      <div className="card pad">
-        <div className="row-between" style={{ marginBottom: 12 }}>
+      <div className="card pad-lg">
+        <div className="row-between" style={{ marginBottom: 16 }}>
           <div>
             <div style={{ fontWeight: 600 }}>Setup checklist</div>
             <div className="cap">
@@ -117,9 +123,16 @@ export default function SettingsClient({ view }: { view: SettingsView }) {
           )}
         </div>
 
-        <div className="stack" style={{ gap: 10 }}>
-          {view.env.map((e) => (
-            <div key={e.name} className="row-between">
+        <div className="stack" style={{ gap: 0 }}>
+          {view.env.map((e, i) => (
+            <div
+              key={e.name}
+              className="row-between"
+              style={{
+                padding: "12px 0",
+                borderTop: i === 0 ? "none" : "1px solid var(--line-soft)",
+              }}
+            >
               <div className="grow">
                 <div
                   className="cap"
@@ -138,13 +151,18 @@ export default function SettingsClient({ view }: { view: SettingsView }) {
               {e.set ? (
                 <span className="tag live">Set</span>
               ) : (
-                <span className="tag">Missing</span>
+                <span
+                  className="tag"
+                  style={{ background: "var(--sunk)", color: "var(--ink-3)" }}
+                >
+                  Missing
+                </span>
               )}
             </div>
           ))}
         </div>
 
-        <hr className="rule" style={{ margin: "16px 0" }} />
+        <hr className="rule" style={{ margin: "18px 0" }} />
 
         <div className="row-between" style={{ marginBottom: 8 }}>
           <div className="cap">
@@ -157,10 +175,10 @@ export default function SettingsClient({ view }: { view: SettingsView }) {
         <pre
           style={{
             margin: 0,
-            padding: "12px 14px",
+            padding: "14px 16px",
             background: "var(--sunk)",
-            border: "1px solid var(--line)",
-            borderRadius: "var(--radius-sm)",
+            border: "1px solid var(--line-soft)",
+            borderRadius: 12,
             fontSize: "var(--t-sm)",
             overflowX: "auto",
             fontFamily:

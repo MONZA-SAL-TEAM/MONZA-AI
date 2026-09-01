@@ -579,11 +579,12 @@ export default function ChatClient() {
             <div className="chat-welcome">
               {/* Static constant CSS (tokens only) — nothing user-supplied. */}
               <style dangerouslySetInnerHTML={{ __html: headLinkCss }} />
-              <p className="h1">Hi! What do you want to know?</p>
+              <p className="h1 welcome-title">Hi! What do you want to know?</p>
               <p className="lede" style={{ maxWidth: 460 }}>
                 Tap a question to ask it, or type your own below. Every answer shows exactly which
                 systems were checked.
               </p>
+              <div className="aurora" aria-hidden="true" />
               <div className="welcome-grid">
                 {RECOMMENDED_CHATS.map((rc) => (
                   <section key={rc.key} className="reco-card" aria-label={rc.label}>
@@ -658,7 +659,7 @@ export default function ChatClient() {
               ref={textareaRef}
               rows={2}
               value={input}
-              placeholder="Ask about customers, payments, the garage, cars, or parts…"
+              placeholder="Ask about customers, payments, cars, or parts…"
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onComposerKeyDown}
               aria-label="Your question"

@@ -105,7 +105,7 @@ export default async function SettingsPage() {
   };
 
   return (
-    <main style={{ maxWidth: 860, margin: "0 auto", padding: "32px 20px" }}>
+    <main style={{ maxWidth: 860, margin: "0 auto", padding: "36px 24px 64px" }}>
       <div className="stack-lg">
         <header className="stack" style={{ gap: 6 }}>
           <div className="eyebrow">Settings</div>
@@ -115,6 +115,7 @@ export default async function SettingsPage() {
             be changed from here — your administrator manages these values.
           </p>
         </header>
+        <div className="aurora" aria-hidden="true" style={{ marginTop: -6 }} />
         <SettingsClient view={view} />
       </div>
     </main>

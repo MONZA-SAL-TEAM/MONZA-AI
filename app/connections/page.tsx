@@ -14,7 +14,7 @@ export const metadata: Metadata = {
  */
 export default function ConnectionsPage() {
   return (
-    <main style={{ maxWidth: 860, margin: "0 auto", padding: "32px 20px" }}>
+    <main style={{ maxWidth: 860, margin: "0 auto", padding: "36px 24px 64px" }}>
       <div className="stack-lg">
         <header className="stack" style={{ gap: 6 }}>
           <div className="eyebrow">Connections</div>
@@ -25,6 +25,7 @@ export default function ConnectionsPage() {
             sign-in — the assistant never sees more than you can.
           </p>
         </header>
+        <div className="aurora" aria-hidden="true" style={{ marginTop: -6 }} />
         <ConnectionsClient />
       </div>
     </main>

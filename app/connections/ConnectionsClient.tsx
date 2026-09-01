@@ -52,12 +52,15 @@ export default function ConnectionsClient() {
 
   if (failed) {
     return (
-      <div className="note urgent">
+      <div
+        className="note urgent"
+        style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}
+      >
         We couldn&apos;t check the connections just now.{" "}
         <button
           type="button"
-          className="tag"
-          style={{ cursor: "pointer" }}
+          className="btn"
+          style={{ flex: "none", minHeight: 44 }}
           onClick={() => setAttempt((a) => a + 1)}
         >
           Try again
@@ -80,12 +83,25 @@ export default function ConnectionsClient() {
         </div>
       )}
 
-      <div className="stack">
+      <div className="stack" style={{ gap: 14 }}>
         {data.connectors.map((c) => (
-          <div key={c.key} className="card pad">
+          <div
+            key={c.key}
+            className="card pad-lg"
+            style={
+              c.connected
+                ? {
+                    borderColor:
+                      "color-mix(in srgb, var(--live) 35%, var(--line))",
+                    background:
+                      "linear-gradient(180deg, color-mix(in srgb, var(--live-bg) 40%, var(--panel)), var(--panel) 56%)",
+                  }
+                : undefined
+            }
+          >
             <div className="row-between">
               <div className="grow">
-                <div className="row" style={{ gap: 8 }}>
+                <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
                   <span style={{ fontWeight: 600 }}>{c.label}</span>
                   {c.connected ? (
                     <span className="tag live">
@@ -96,12 +112,12 @@ export default function ConnectionsClient() {
                     <span className="tag">Not connected</span>
                   )}
                 </div>
-                <div className="cap" style={{ marginTop: 4 }}>
+                <div className="cap" style={{ marginTop: 6 }}>
                   {c.description}
                 </div>
               </div>
             </div>
-            <div className="cap" style={{ marginTop: 10 }}>
+            <div className="cap" style={{ marginTop: 12 }}>
               <span style={{ color: "var(--ink-3)" }}>Source: </span>
               {c.source ?? "Not set"}
             </div>
@@ -113,7 +129,7 @@ export default function ConnectionsClient() {
             )}
             <div
               className="cap"
-              style={{ marginTop: 10, color: "var(--ink-3)" }}
+              style={{ marginTop: 12, color: "var(--ink-3)" }}
             >
               {c.detail}
             </div>

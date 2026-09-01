@@ -757,6 +757,7 @@ export default function TrackerClient() {
               </div>
             </div>
           </header>
+          <div className="aurora" aria-hidden="true" />
           <div className="card pad stack">
             <p className="h2" style={{ margin: 0 }}>
               Not connected yet
@@ -811,6 +812,8 @@ export default function TrackerClient() {
             Add customer
           </button>
         </header>
+
+        <div className="aurora" aria-hidden="true" />
 
         {demo && (
           <div className="stack" style={{ gap: 6 }}>
@@ -929,7 +932,7 @@ export default function TrackerClient() {
         )}
 
         <div className="trk-kpis" aria-live="polite">
-          <div className="trk-kpi">
+          <div className="trk-kpi trk-kpi--plans">
             <span className="trk-kpi-label">Plans</span>
             <span className="trk-kpi-value">{totals.count}</span>
           </div>

@@ -152,6 +152,8 @@ export default function DepartmentPage({ params }: { params: { slug: string } })
           </div>
         </header>
 
+        <div className="aurora" aria-hidden="true" />
+
         <section className="dept-section" aria-label="Ask about this">
           <h2 className="h2">Ask about this</h2>
           <p className="dept-hint">

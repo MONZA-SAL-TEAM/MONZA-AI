@@ -11,12 +11,17 @@
 }
 
 .dept-wrap {
-  max-width: 640px;
+  max-width: 660px;
   margin: 0 auto;
-  padding: 24px 20px 48px;
+  padding: 32px 24px 64px;
   display: flex;
   flex-direction: column;
-  gap: 30px;
+  gap: 34px;
+}
+
+/* The signature hairline sits tucked under the header, not floating mid-gap. */
+.dept-wrap > .aurora {
+  margin-top: -16px;
 }
 
 /* --- back link ------------------------------------------------------------- */
@@ -25,13 +30,13 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 44px;
   font-size: var(--t-sm);
   font-weight: 520;
   color: var(--ink-2);
-  padding: 6px 10px;
-  margin-left: -10px;
+  padding: 8px 12px;
+  margin-left: -12px;
   border-radius: var(--radius-sm);
-  transition: background 0.12s ease, color 0.12s ease;
 }
 .dept-back:hover {
   background: var(--sunk);
@@ -46,15 +51,15 @@
 .dept-head {
   display: flex;
   align-items: flex-start;
-  gap: 14px;
+  gap: 16px;
 }
 .dept-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius);
   flex: none;
-  background: var(--sunk);
-  color: var(--ink-2);
+  background: var(--accent-bg);
+  color: var(--accent);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -68,7 +73,7 @@
 .dept-section {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 .dept-hint {
   font-size: var(--t-sm);
@@ -78,10 +83,11 @@
 
 /* --- "Ask about this": three big tappable rows ------------------------------ */
 .dept-qs {
-  margin-top: 8px;
+  margin-top: 10px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -89,11 +95,11 @@
 .dept-q {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  min-height: 44px;
   font-size: var(--t-md);
   color: var(--ink-2);
-  padding: 15px 16px;
-  transition: background 0.12s ease, color 0.12s ease;
+  padding: 16px 18px;
 }
 .dept-q + .dept-q {
   border-top: 1px solid var(--line-soft);
@@ -106,8 +112,26 @@
   flex: none;
   color: var(--ink-3);
 }
+.dept-q:hover svg {
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dept-back {
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .dept-q {
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .dept-q svg {
+    transition: transform 0.18s ease, color 0.18s ease;
+  }
+  .dept-q:hover svg {
+    transform: translateX(2px);
+  }
+}
 
 /* --- "At a glance": the table gets a little air under its heading ----------- */
 .dept-section .dtable-wrap {
-  margin-top: 8px;
+  margin-top: 10px;
 }

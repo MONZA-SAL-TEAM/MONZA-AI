@@ -479,6 +479,7 @@ export default function CustomersClient() {
               </div>
             </div>
           </header>
+          <div className="aurora" aria-hidden="true" />
           <div className="card pad stack">
             <p className="h2" style={{ margin: 0 }}>
               Not connected yet
@@ -533,6 +534,8 @@ export default function CustomersClient() {
             Add customer
           </button>
         </header>
+
+        <div className="aurora" aria-hidden="true" />
 
         {demo && (
           <div className="stack" style={{ gap: 6 }}>
@@ -694,8 +697,8 @@ export default function CustomersClient() {
                     <div className="cd-cust-top">
                       <p className="cd-cust-name">{c.name}</p>
                       <div className="cd-cust-tags">
-                        {c.isNewThisMonth && <span className="tag live">New</span>}
-                        <span className="tag">{c.source}</span>
+                        {c.isNewThisMonth && <span className="tag cd-new">New</span>}
+                        <span className="tag mine">{c.source}</span>
                       </div>
                     </div>
 

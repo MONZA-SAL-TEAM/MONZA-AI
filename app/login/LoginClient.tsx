@@ -87,9 +87,27 @@ export default function LoginClient() {
         padding: 24,
       }}
     >
-      <div className="card pad-lg" style={{ width: "100%", maxWidth: 380 }}>
+      <div
+        className="card pad-lg"
+        style={{ width: "100%", maxWidth: 400, boxShadow: "var(--shadow-lift)" }}
+      >
         <div className="stack-lg">
           <div className="stack" style={{ gap: 6 }}>
+            <span
+              className="side-mark"
+              aria-hidden="true"
+              style={{ width: 38, height: 38, borderRadius: 12, marginBottom: 6 }}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M4 17V7l8 7 8-7v10"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
             <span className="eyebrow">Monza AI</span>
             <h1 className="h1">{CONFIGURED ? "Welcome back" : "Welcome"}</h1>
             <p className="lede">
@@ -98,6 +116,8 @@ export default function LoginClient() {
                 : "No systems are connected yet, so Monza AI is running on sample data."}
             </p>
           </div>
+
+          <div className="aurora" aria-hidden="true" style={{ marginTop: -8 }} />
 
           {CONFIGURED ? (
             <form className="stack" onSubmit={onSubmit}>
@@ -128,7 +148,12 @@ export default function LoginClient() {
 
               {error ? <div className="note urgent">{error}</div> : null}
 
-              <button className="btn primary" type="submit" disabled={busy}>
+              <button
+                className="btn primary"
+                type="submit"
+                disabled={busy}
+                style={{ minHeight: 44, marginTop: 4 }}
+              >
                 {busy ? "Signing in…" : "Sign in"}
               </button>
             </form>
@@ -138,7 +163,17 @@ export default function LoginClient() {
                 Everything you see inside is invented sample data, clearly
                 labelled — nothing real is connected.
               </div>
-              <a className="btn primary" href="/chat" style={{ textAlign: "center" }}>
+              <a
+                className="btn primary"
+                href="/chat"
+                style={{
+                  textAlign: "center",
+                  minHeight: 44,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
                 Have a look around
               </a>
             </div>

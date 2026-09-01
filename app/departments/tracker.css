@@ -58,8 +58,8 @@
   height: 48px;
   border-radius: 14px;
   flex: none;
-  background: var(--sunk);
-  color: var(--ink-2);
+  background: var(--accent-bg);
+  color: var(--accent);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -94,31 +94,33 @@
   }
 }
 
-/* --- KPI strip: 4 tiles, 2-up on phones ------------------------------------- */
+/* --- KPI strip: 4 panel tiles, 2-up on phones -------------------------------- */
 .trk-kpis {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+  gap: 14px;
 }
 @media (max-width: 720px) {
   .trk-kpis {
     grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
   }
 }
 .trk-kpi {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 14px 16px;
+  box-shadow: var(--shadow);
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
 }
 .trk-kpi-label {
   font-size: var(--t-xs);
   font-weight: 650;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.085em;
   text-transform: uppercase;
   color: var(--ink-3);
   white-space: nowrap;
@@ -126,12 +128,18 @@
   text-overflow: ellipsis;
 }
 .trk-kpi-value {
+  font-family: var(--font-display), var(--font-body), sans-serif;
   font-size: 28px;
-  line-height: 1.15;
-  font-weight: 640;
-  letter-spacing: -0.02em;
+  line-height: 1.12;
+  font-weight: 650;
+  letter-spacing: -0.028em;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
+}
+/* A whisper of the brand on the Plans tile — quiet enough to stay ground. */
+.trk-kpi--plans {
+  background: color-mix(in srgb, var(--accent-bg) 45%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 14%, var(--line));
 }
 .trk-kpi[data-urgent="true"] {
   border-left: 3px solid var(--urgent);
@@ -177,7 +185,7 @@
   color: var(--ink-3);
 }
 .trk-field input {
-  min-height: 42px;
+  min-height: 44px;
 }
 .trk-vin-input {
   text-transform: uppercase;
@@ -221,8 +229,8 @@
   align-items: start;
 }
 .trk-card {
-  border-radius: 14px;
-  padding: 18px;
+  border-radius: var(--radius);
+  padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -230,11 +238,11 @@
 }
 @media (prefers-reduced-motion: no-preference) {
   .trk-card {
-    transition: box-shadow 0.15s ease, transform 0.15s ease;
+    transition: box-shadow 0.18s ease, transform 0.18s ease;
   }
   .trk-card:hover {
-    box-shadow: var(--shadow);
-    transform: translateY(-1px);
+    box-shadow: var(--shadow-lift);
+    transform: translateY(-2px);
   }
 }
 
@@ -298,7 +306,7 @@
   white-space: nowrap;
 }
 .trk-bar {
-  height: 6px;
+  height: 7px;
   border-radius: 999px;
   background: var(--sunk);
   border: 1px solid var(--line-soft);
@@ -307,11 +315,16 @@
 .trk-bar-fill {
   height: 100%;
   border-radius: 999px;
-  background: var(--live);
-  transition: width 0.2s ease;
+  /* On track wears the brand gradient; overdue keeps the urgent semantic. */
+  background: var(--grad);
 }
 .trk-bar-fill[data-urgent="true"] {
   background: var(--urgent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .trk-bar-fill {
+    transition: width 0.2s ease;
+  }
 }
 
 /* --- this month: due date + the amount, big and right-aligned ---------------- */
@@ -329,9 +342,10 @@
   font-weight: 580;
 }
 .trk-amount {
+  font-family: var(--font-display), var(--font-body), sans-serif;
   font-size: var(--t-xl);
-  font-weight: 640;
-  letter-spacing: -0.015em;
+  font-weight: 650;
+  letter-spacing: -0.025em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -362,20 +376,19 @@
   align-items: center;
   gap: 9px;
   min-height: 44px;
-  padding: 0 14px 0 11px;
+  padding: 0 16px 0 13px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
   background: var(--panel);
   font-weight: 560;
   cursor: pointer;
   user-select: none;
-  transition: background 0.12s ease, border-color 0.12s ease;
 }
 .trk-paidbox:hover {
   background: var(--sunk);
 }
 .trk-paidbox:focus-within {
-  border-color: var(--ink-3);
+  border-color: var(--accent);
 }
 .trk-paidbox input {
   width: 19px;
@@ -393,6 +406,11 @@
 }
 .trk-paidbox[data-locked="true"] input {
   cursor: default;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .trk-paidbox {
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
 }
 
 /* --- the message panel that appears after ticking Paid ------------------------ */
@@ -417,7 +435,7 @@
   flex-wrap: wrap;
 }
 .trk-msg-actions .btn {
-  min-height: 42px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
 }
@@ -432,9 +450,9 @@
   align-items: center;
   gap: 8px;
   min-height: 44px;
-  padding: 0 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  padding: 0 16px;
+  border: 1px solid color-mix(in srgb, var(--live) 28%, var(--line));
+  border-radius: 999px;
   background: var(--live-bg);
   color: var(--live);
   font-family: inherit;
@@ -443,7 +461,6 @@
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   user-select: none;
-  transition: border-color 0.12s ease;
 }
 .trk-recorded:hover {
   border-color: var(--live);
@@ -452,10 +469,15 @@
   cursor: default;
 }
 .trk-recorded[data-final="true"]:hover {
-  border-color: var(--line);
+  border-color: color-mix(in srgb, var(--live) 28%, var(--line));
 }
 .trk-recorded svg {
   flex: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .trk-recorded {
+    transition: border-color 0.15s ease;
+  }
 }
 
 /* --- the record-a-payment dialog ---------------------------------------------- */
@@ -463,18 +485,18 @@
   margin: auto;
   width: min(460px, calc(100vw - 32px));
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 20px;
   background: var(--panel);
   color: var(--ink);
   padding: 0;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-lift);
 }
 .trk-dlg::backdrop {
   /* Engines that don't pass tokens into ::backdrop keep their default dim. */
   background: color-mix(in srgb, var(--ink) 28%, transparent);
 }
 .trk-dlg-body {
-  padding: 20px;
+  padding: 22px;
   display: flex;
   flex-direction: column;
 }
@@ -499,26 +521,30 @@
   min-height: 48px;
   padding: 10px 14px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  border-radius: 12px;
   background: var(--panel);
   cursor: pointer;
   user-select: none;
-  transition: border-color 0.12s ease, background 0.12s ease;
 }
 .trk-opt:hover {
   background: var(--sunk);
 }
 .trk-opt[data-active="true"] {
-  border-color: var(--ink-3);
-  background: var(--sunk);
+  border-color: var(--accent);
+  background: var(--accent-bg);
 }
 .trk-opt input[type="radio"] {
   width: 17px;
   height: 17px;
   margin: 0;
   flex: none;
-  accent-color: var(--live);
+  accent-color: var(--accent);
   cursor: pointer;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .trk-opt {
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
 }
 .trk-opt-main {
   display: flex;
@@ -639,18 +665,21 @@
   flex: 0 1 380px;
   min-width: 220px;
   min-height: 44px;
-  padding: 0 14px;
+  padding: 0 18px;
   font-size: var(--t-sm);
   color: var(--ink);
-  background: var(--sunk);
+  background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
 }
 .trk-search::placeholder {
   color: var(--ink-3);
 }
+.trk-search:focus,
 .trk-search:focus-visible {
-  outline: 2px solid var(--ink-3);
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 .trk-search-count {
