@@ -1,0 +1,705 @@
+/* =============================================================================
+   WhatsApp Sales Control — the first-message auto-sender's control panel.
+   Additive layer: ws-* classes only, every colour from the theme tokens in
+   app/globals.css, so light and dark both just work. Layout: header + KPI
+   strip, then two columns — the catalog drinking most of the width, the
+   simulator as a right rail that becomes a full-width section on phones.
+   ============================================================================= */
+
+/* --- page frame: wide, centered, breathing room ----------------------------- */
+.ws-page {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+.ws-wrap {
+  /* Full-bleed working surface with the family's ultrawide sanity cap. */
+  max-width: 1760px;
+  margin: 0 auto;
+  padding: 24px clamp(20px, 3vw, 48px) 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+@media (max-width: 720px) {
+  .ws-wrap {
+    padding: 20px 16px 48px;
+  }
+}
+.ws-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 60vh;
+  color: var(--ink-3);
+  text-align: center;
+  padding: 40px;
+}
+
+/* --- back link (same drawing as the department pages) ----------------------- */
+.ws-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  font-size: var(--t-sm);
+  font-weight: 520;
+  color: var(--ink-2);
+  padding: 8px 12px;
+  margin-left: -12px;
+  border-radius: var(--radius-sm);
+}
+.ws-back:hover {
+  background: var(--sunk);
+  color: var(--ink);
+}
+.ws-back svg {
+  flex: none;
+  color: var(--ink-3);
+}
+
+/* --- header: icon tile + title + status chip, Add car on the right ---------- */
+.ws-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.ws-head-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+}
+.ws-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  flex: none;
+  background: var(--accent-bg);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ws-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ws-sub {
+  margin: 6px 0 0;
+}
+.ws-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 18px;
+  flex: none;
+}
+@media (max-width: 560px) {
+  .ws-add-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* --- KPI strip: 4 panel tiles, 2-up on phones -------------------------------- */
+.ws-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+@media (max-width: 900px) {
+  .ws-kpis {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+}
+.ws-kpi {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.ws-kpi-label {
+  font-size: var(--t-xs);
+  font-weight: 650;
+  letter-spacing: 0.085em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ws-kpi-value {
+  font-family: var(--font-display), var(--font-body), sans-serif;
+  font-size: 28px;
+  line-height: 1.12;
+  font-weight: 650;
+  letter-spacing: -0.028em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.ws-kpi-cap {
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+}
+/* A whisper of the brand on the tile holding the master switch. */
+.ws-kpi--accent {
+  background: color-mix(in srgb, var(--accent-bg) 45%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 14%, var(--line));
+}
+
+/* --- the labelled switch: the page's one toggle drawing ---------------------- */
+.ws-switch {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 4px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  cursor: pointer;
+  font: inherit;
+  color: var(--ink-2);
+}
+.ws-switch-track {
+  width: 40px;
+  height: 23px;
+  border-radius: 999px;
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  flex: none;
+}
+.ws-switch-knob {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+.ws-switch[data-on="true"] .ws-switch-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.ws-switch[data-on="true"] .ws-switch-knob {
+  margin-left: auto;
+  background: var(--accent-ink);
+}
+.ws-switch[data-on="true"] {
+  color: var(--ink);
+}
+.ws-switch-text {
+  font-size: var(--t-sm);
+  font-weight: 600;
+  min-width: 24px;
+  text-align: left;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ws-switch-track {
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .ws-switch-knob {
+    transition: margin 0.15s ease, background 0.15s ease;
+  }
+}
+
+/* --- two columns: catalog + simulator rail ----------------------------------- */
+.ws-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .ws-cols {
+    grid-template-columns: 1fr;
+  }
+}
+.ws-col-title {
+  margin: 0 0 12px;
+}
+.ws-catalog,
+.ws-sim {
+  min-width: 0;
+}
+.ws-sim {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  /* On desktop the rail follows the reader down the catalog. */
+  position: sticky;
+  top: 16px;
+}
+@media (max-width: 1100px) {
+  .ws-sim {
+    position: static;
+  }
+}
+.ws-sim .ws-col-title {
+  margin-bottom: 0;
+}
+
+/* --- catalog cards ------------------------------------------------------------ */
+.ws-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.ws-card {
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  min-width: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ws-card {
+    transition: box-shadow 0.18s ease, transform 0.18s ease;
+  }
+  .ws-card:hover {
+    box-shadow: var(--shadow-lift);
+    transform: translateY(-2px);
+  }
+}
+.ws-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ws-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ws-name {
+  margin: 0;
+  font-family: var(--font-display), var(--font-body), sans-serif;
+  font-size: var(--t-lg);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+.ws-oneliner {
+  margin: 3px 0 0;
+}
+
+/* --- asset chips: videos with a play glyph, brochure with a doc glyph --------- */
+.ws-assets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.ws-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-xs);
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--sunk);
+  border: 1px solid var(--line-soft);
+  color: var(--ink-2);
+  min-width: 0;
+  max-width: 100%;
+}
+.ws-file svg {
+  flex: none;
+  color: var(--accent);
+}
+.ws-file[data-doc="true"] svg {
+  color: var(--accent-2);
+}
+.ws-file-label {
+  font-weight: 620;
+  white-space: nowrap;
+}
+.ws-file-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- the quiet urgent line on a car that can't auto-send ---------------------- */
+.ws-missing {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--urgent);
+}
+
+/* --- alias chips with inline add/remove --------------------------------------- */
+.ws-aliases {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 11px;
+}
+.ws-aliases-label {
+  font-size: var(--t-xs);
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ws-alias-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.ws-alias {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--t-xs);
+  font-weight: 560;
+  color: var(--ink-2);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 5px 3px 10px;
+}
+.ws-alias-x {
+  appearance: none;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--ink-3);
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 8px;
+  box-sizing: content-box;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.ws-alias-x:hover {
+  background: var(--urgent-bg);
+  color: var(--urgent);
+}
+.ws-alias-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ws-alias-add input {
+  width: 108px;
+  min-height: 44px;
+  padding: 3px 10px;
+  font-size: var(--t-xs);
+  border-radius: 999px;
+}
+.ws-alias-plus {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink-2);
+  cursor: pointer;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex: none;
+}
+.ws-alias-plus:hover {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.ws-card-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: auto;
+}
+.ws-card-actions .btn {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* --- the simulator card -------------------------------------------------------- */
+.ws-sim-card {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ws-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.ws-label {
+  font-size: var(--t-xs);
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ws-sim-text {
+  resize: vertical;
+  min-height: 76px;
+}
+.ws-field select {
+  min-height: 44px;
+}
+.ws-sim-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.ws-sim-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ws-run {
+  min-height: 44px;
+  align-self: flex-start;
+  padding: 0 22px;
+  display: inline-flex;
+  align-items: center;
+}
+@media (max-width: 560px) {
+  .ws-run {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* --- the verdict card: loud, honest ------------------------------------------- */
+.ws-result {
+  border: 1px solid var(--line);
+  background: var(--sunk);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ws-result[data-send="true"] {
+  border-color: color-mix(in srgb, var(--live) 40%, var(--line));
+  background: var(--live-bg);
+}
+.ws-result-title {
+  margin: 0;
+  font-family: var(--font-display), var(--font-body), sans-serif;
+  font-size: var(--t-lg);
+  font-weight: 680;
+  letter-spacing: -0.012em;
+  color: var(--ink);
+}
+.ws-result[data-send="true"] .ws-result-title {
+  color: var(--live);
+}
+.ws-result-sub {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+}
+.ws-reply {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+.ws-result-cap {
+  margin: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ws-result {
+    animation: ws-rise 0.22s ease;
+  }
+}
+@keyframes ws-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --- quick tries + the rules ---------------------------------------------------- */
+.ws-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 13px;
+}
+.ws-rules {
+  padding: 16px 18px;
+}
+.ws-rules-title {
+  margin: 0 0 9px;
+}
+.ws-rules-list {
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+}
+
+/* --- the add / edit dialog ------------------------------------------------------ */
+.ws-dlg {
+  margin: auto;
+  width: min(560px, calc(100vw - 32px));
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--panel);
+  color: var(--ink);
+  padding: 0;
+  box-shadow: var(--shadow-lift);
+}
+.ws-dlg::backdrop {
+  /* Engines that don't pass tokens into ::backdrop keep their default dim. */
+  background: color-mix(in srgb, var(--ink) 28%, transparent);
+}
+.ws-dlg-body {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  max-height: min(82vh, 720px);
+  overflow-y: auto;
+}
+.ws-dlg-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ws-dlg-sub {
+  margin: 0;
+}
+.ws-field input {
+  min-height: 44px;
+}
+.ws-dlg-videos {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ws-dlg-video-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.ws-dlg-video-row[data-nobtn="true"] {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+}
+@media (max-width: 560px) {
+  .ws-dlg-video-row {
+    grid-template-columns: 1fr;
+  }
+  .ws-dlg-video-row[data-nobtn="true"] {
+    grid-template-columns: 1fr;
+  }
+}
+.ws-dlg-row-x {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-3);
+}
+.ws-dlg-row-x:hover:not(:disabled) {
+  color: var(--urgent);
+  background: var(--urgent-bg);
+}
+.ws-dlg-addrow {
+  align-self: flex-start;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.ws-form-err {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--urgent);
+}
+.ws-dlg-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.ws-dlg-actions .btn {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+.ws-dlg-cap {
+  margin: 0;
+  color: var(--ink-3);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ws-dlg[open] {
+    animation: ws-dlg-in 0.18s ease;
+  }
+}
+@keyframes ws-dlg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --- edge states + quiet footnotes ---------------------------------------------- */
+.ws-none {
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.ws-foot {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--t-xs);
+}

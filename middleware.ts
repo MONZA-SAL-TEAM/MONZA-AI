@@ -37,6 +37,7 @@ export const config = {
   matcher: [
     "/chat/:path*",
     "/departments/:path*",
+    "/whatsapp-sales/:path*",
     "/dashboard/:path*",
     "/connections/:path*",
     "/automations/:path*",

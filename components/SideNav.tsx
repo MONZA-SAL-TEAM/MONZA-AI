@@ -42,6 +42,7 @@ const ICONS: Record<string, string> = {
   finance: "M3 3v18h18 M7 13l4-4 4 4 5-5",
   dashboard: "M12 2a10 10 0 1 0 10 10 M12 2v10l7-7",
   connections: "M9 2v6 M15 2v6 M12 17v5 M5 8h14l-1 7a6 6 0 0 1-12 0z",
+  wasales: "M22 2L11 13 M22 2l-7 20-4-9-9-4z",
   settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z",
 };
 
@@ -149,6 +150,11 @@ export default function SideNav() {
             {DEPARTMENTS.map((d) =>
               linkFor(`/departments/${d.slug}`, d.label, d.key)
             )}
+          </div>
+
+          <div className="side-group">
+            <div className="side-group-label">Channels</div>
+            {linkFor("/whatsapp-sales", "WhatsApp Sales", "wasales")}
           </div>
 
           <div className="side-group">
