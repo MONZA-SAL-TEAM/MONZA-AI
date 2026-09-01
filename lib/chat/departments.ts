@@ -2,10 +2,15 @@ import type { RecommendedChat } from "@/lib/chat/contract";
 import { RECOMMENDED_CHATS } from "@/lib/chat/demo-answers";
 
 /**
- * The five department pages — one per welcome card. Built FROM
+ * The department pages — one per welcome card (four since Garage & Service
+ * and Vehicles & Parts merged into Garage & Vehicles). Built FROM
  * RECOMMENDED_CHATS so the labels, blurbs and questions on a department page
  * can never drift from the welcome screen: there is exactly one source of
  * truth, and this file only adds a URL slug on top of it.
+ *
+ * The two retired slugs — garage-service and vehicles-parts — return null
+ * here; next.config.mjs sends them to /departments/garage-vehicles with a
+ * real permanent redirect.
  *
  * Pure data + pure functions; importable from server and client components.
  */
@@ -25,8 +30,11 @@ export interface Department {
 const SLUG_BY_KEY: Record<RecommendedChat["key"], string> = {
   crm: "customers-sales",
   installments: "installments-payments",
-  garage: "garage-service",
-  inventory: "vehicles-parts",
+  // The merged Garage & Vehicles card carries the "garage" key; "inventory"
+  // no longer appears in RECOMMENDED_CHATS, but any code still holding that
+  // key lands on the same merged page.
+  garage: "garage-vehicles",
+  inventory: "garage-vehicles",
   finance: "money-reports",
 };
 

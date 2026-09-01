@@ -41,8 +41,8 @@ function keyOf(entry: ToolTraceEntry): string {
 const CONNECTOR_LABELS: Record<string, string> = {
   crm: "Customers & Sales",
   installments: "Installments",
-  garage: "Garage",
-  inventory: "Vehicles & Parts",
+  garage: "Garage & Vehicles",
+  inventory: "Garage & Vehicles",
   finance: "Finance",
 };
 

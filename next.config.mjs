@@ -11,6 +11,17 @@ const nextConfig = {
         destination: "/departments/installments-payments",
         permanent: true,
       },
+      {
+        // Garage & Service and Vehicles & Parts merged into one board.
+        source: "/departments/garage-service",
+        destination: "/departments/garage-vehicles",
+        permanent: true,
+      },
+      {
+        source: "/departments/vehicles-parts",
+        destination: "/departments/garage-vehicles",
+        permanent: true,
+      },
     ];
   },
 };

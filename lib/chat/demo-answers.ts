@@ -58,16 +58,14 @@ export const RECOMMENDED_CHATS: RecommendedChat[] = [
     questions: [Q.overdue, Q.collections, Q.planHealth],
   },
   {
+    // Garage & Service and Vehicles & Parts merged into ONE card: jobs, cars
+    // and parts live together on /departments/garage-vehicles. All six
+    // original questions stay verbatim so every matcher still fires.
     key: "garage",
-    label: "Garage & Service",
-    blurb: "Open jobs, cars stuck waiting for parts, and any job card's status.",
-    questions: [Q.waitingParts, Q.openJobs, Q.jobStatus],
-  },
-  {
-    key: "inventory",
-    label: "Vehicles & Parts",
-    blurb: "Cars on hand, parts running low, and finding a specific vehicle.",
-    questions: [Q.carsInStock, Q.lowParts, Q.dream],
+    label: "Garage & Vehicles",
+    blurb:
+      "Open jobs, cars stuck waiting for parts, cars on hand, and parts running low.",
+    questions: [Q.waitingParts, Q.openJobs, Q.jobStatus, Q.carsInStock, Q.lowParts, Q.dream],
   },
   {
     key: "finance",
@@ -359,7 +357,7 @@ const ANSWER_COSTS: DemoAnswer = {
 
 const ANSWER_TOUR: DemoAnswer = {
   text:
-    "You can ask me about five areas of the business, in plain language. Customers & Sales — find any customer and see where new enquiries come from. Installments & Payments — who's behind, what we collected, and plan health. Garage & Service — open jobs and cars stuck waiting for parts. Vehicles & Parts — cars in stock and parts running low. Money & Reports — monthly sales, spending, and what's still owed to us. Try one of these to start.",
+    "You can ask me about four areas of the business, in plain language. Customers & Sales — find any customer and see where new enquiries come from. Installments & Payments — who's behind, what we collected, and plan health. Garage & Vehicles — open jobs, cars stuck waiting for parts, cars in stock, and parts running low. Money & Reports — monthly sales, spending, and what's still owed to us. Try one of these to start.",
   tables: [],
   followups: [Q.overdue, Q.waitingParts, Q.collections, Q.carsInStock],
   trace: [],

@@ -1,0 +1,633 @@
+/* =============================================================================
+   Garage & Vehicles — the workshop and the yard on one board.
+   Additive layer: gv-* classes only, every colour from the theme tokens in
+   app/globals.css, so light and dark both just work. Full-bleed and calm:
+   a KPI strip, then a two-column working area — the jobs board left (wider),
+   the stock + parts rail right — collapsing to one column under ~1000px.
+   Same visual vocabulary as the payment tracker (trk-*), on purpose.
+   ============================================================================= */
+
+/* --- page frame: wide, centered, breathing room ----------------------------- */
+.gv-page {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+.gv-wrap {
+  /* Full-bleed working surface: the board drinks the whole screen, with a
+     sanity cap so ultrawide monitors don't stretch cards into ribbons. */
+  max-width: 1760px;
+  margin: 0 auto;
+  padding: 24px clamp(20px, 3vw, 48px) 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+@media (max-width: 720px) {
+  .gv-wrap {
+    padding: 20px 16px 48px;
+  }
+}
+.gv-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 60vh;
+  color: var(--ink-3);
+  text-align: center;
+  padding: 40px;
+}
+
+/* --- header: icon tile + title + period chip, Add job card on the right ----- */
+.gv-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.gv-head-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+}
+.gv-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  flex: none;
+  background: var(--sunk);
+  color: var(--ink-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.gv-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.gv-sub {
+  margin: 6px 0 0;
+}
+.gv-sub-link {
+  color: var(--ink);
+  font-weight: 560;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.gv-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 18px;
+  flex: none;
+}
+@media (max-width: 560px) {
+  .gv-add-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* --- KPI strip: 4 tiles, 2-up on phones ------------------------------------- */
+.gv-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+@media (max-width: 720px) {
+  .gv-kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.gv-kpi {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.gv-kpi-label {
+  font-size: var(--t-xs);
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gv-kpi-value {
+  font-size: 28px;
+  line-height: 1.15;
+  font-weight: 640;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.gv-kpi[data-urgent="true"] {
+  border-left: 3px solid var(--urgent);
+}
+.gv-kpi[data-urgent="true"] .gv-kpi-value {
+  color: var(--urgent);
+}
+
+/* --- the two-column working area --------------------------------------------- */
+.gv-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 1000px) {
+  .gv-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.gv-jobs {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.gv-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* --- jobs toolbar: search + count ------------------------------------------- */
+.gv-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.gv-search {
+  flex: 0 1 420px;
+  min-width: 220px;
+  min-height: 44px;
+  padding: 0 14px;
+  font-size: var(--t-sm);
+  color: var(--ink);
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.gv-search::placeholder {
+  color: var(--ink-3);
+}
+.gv-search:focus-visible {
+  outline: 2px solid var(--ink-3);
+  outline-offset: 1px;
+}
+.gv-search-count {
+  color: var(--ink-3);
+}
+
+/* --- job cards: responsive grid inside the left column ------------------------ */
+.gv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(330px, 100%), 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.gv-job {
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  min-width: 0;
+}
+.gv-job[data-closed="true"] {
+  background: var(--sunk);
+  border-color: var(--line-soft);
+  color: var(--ink-3);
+}
+.gv-job[data-closed="true"] .gv-job-no,
+.gv-job[data-closed="true"] .gv-job-name,
+.gv-job[data-closed="true"] .gv-job-update {
+  color: var(--ink-3);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .gv-job {
+    transition: box-shadow 0.15s ease, transform 0.15s ease, background 0.2s ease;
+  }
+  .gv-job:not([data-closed="true"]):hover {
+    box-shadow: var(--shadow);
+    transform: translateY(-1px);
+  }
+  /* Gentle entrance for cards that just changed or arrived — runs once. */
+  .gv-job[data-touched="true"] {
+    animation: gv-rise 0.22s ease;
+  }
+  .tag,
+  .gv-part-chip {
+    transition: background 0.18s ease, color 0.18s ease;
+  }
+}
+
+/* --- job card internals -------------------------------------------------------- */
+.gv-job-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.gv-job-no {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-md);
+  font-weight: 640;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+.gv-job-name {
+  margin: 0;
+  font-size: var(--t-lg);
+  font-weight: 620;
+  letter-spacing: -0.012em;
+}
+.gv-job-car {
+  margin: 3px 0 0;
+}
+.gv-vin {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-xs);
+  letter-spacing: 0.03em;
+  color: var(--ink-3);
+  word-break: break-all;
+}
+.gv-job-update {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+}
+.gv-job-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.gv-part-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--urgent-bg);
+  color: var(--urgent);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gv-days {
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* --- job actions: one contextual primary move, thumb-sized -------------------- */
+.gv-job-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: auto;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 12px;
+}
+.gv-act {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+.gv-part-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+.gv-part-prompt input {
+  min-height: 42px;
+}
+.gv-part-prompt-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.gv-job-closed {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+  border-top: 1px solid var(--line-soft);
+  padding-top: 12px;
+  margin-top: auto;
+}
+.gv-job-closed svg {
+  flex: none;
+}
+
+/* --- add-a-job-card panel ------------------------------------------------------ */
+.gv-add {
+  padding: 18px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.gv-add-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.gv-form {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px 16px;
+}
+@media (max-width: 560px) {
+  .gv-form {
+    grid-template-columns: 1fr;
+  }
+}
+.gv-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.gv-label {
+  font-size: var(--t-xs);
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.gv-field input {
+  min-height: 42px;
+}
+.gv-vin-input {
+  text-transform: uppercase;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.03em;
+}
+.gv-span2 {
+  grid-column: 1 / -1;
+}
+@media (max-width: 560px) {
+  .gv-span2 {
+    grid-column: auto;
+  }
+}
+.gv-form-err {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--urgent);
+}
+.gv-form-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.gv-form-actions .btn {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+.gv-form-cap {
+  margin: 0;
+  color: var(--ink-3);
+}
+
+/* --- the rail: cars in stock + parts running low ------------------------------- */
+.gv-rail-card {
+  padding: 16px 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.gv-rail-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.gv-rail-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  flex: none;
+  background: var(--sunk);
+  color: var(--ink-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.gv-rail-icon[data-urgent="true"] {
+  background: var(--urgent-bg);
+  color: var(--urgent);
+}
+.gv-rail-search {
+  flex: none;
+  width: 100%;
+  min-height: 42px;
+}
+.gv-stock-list,
+.gv-parts-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.gv-stock-row,
+.gv-part-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 2px;
+}
+.gv-stock-row + .gv-stock-row,
+.gv-part-row + .gv-part-row {
+  border-top: 1px solid var(--line-soft);
+}
+.gv-stock-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.gv-stock-model {
+  font-size: var(--t-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.gv-stock-note {
+  color: var(--ink-3);
+}
+.gv-stock-count {
+  font-size: var(--t-xl);
+  font-weight: 640;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  flex: none;
+}
+.gv-stock-none {
+  margin: 0;
+  padding: 6px 2px 2px;
+}
+.gv-part-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.gv-part-name {
+  font-size: var(--t-sm);
+  font-weight: 580;
+}
+.gv-part-no {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--t-xs);
+  letter-spacing: 0.03em;
+  color: var(--ink-3);
+}
+.gv-part-qty {
+  font-size: var(--t-md);
+  font-weight: 640;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex: none;
+}
+.gv-part-row[data-urgent="true"] .gv-part-qty {
+  color: var(--urgent);
+}
+.gv-part-qty[data-out="true"] {
+  text-transform: uppercase;
+  font-size: var(--t-sm);
+  letter-spacing: 0.04em;
+}
+.gv-part-min {
+  font-size: var(--t-xs);
+  font-weight: 520;
+  color: var(--ink-3);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.gv-rail-foot {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 10px;
+}
+
+/* --- the mark-delivered dialog -------------------------------------------------- */
+.gv-dlg {
+  margin: auto;
+  width: min(420px, calc(100vw - 32px));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--ink);
+  padding: 0;
+  box-shadow: var(--shadow);
+}
+.gv-dlg::backdrop {
+  /* Engines that don't pass tokens into ::backdrop keep their default dim. */
+  background: color-mix(in srgb, var(--ink) 28%, transparent);
+}
+.gv-dlg-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+}
+.gv-dlg-sub {
+  margin: 4px 0 0;
+}
+.gv-dlg-text {
+  margin: 12px 0 0;
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+}
+.gv-dlg-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.gv-dlg-actions .btn {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+.gv-dlg-cap {
+  margin: 10px 0 0;
+  color: var(--ink-3);
+}
+
+/* Calm entrances — skipped entirely when the person prefers reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .gv-dlg[open] {
+    animation: gv-dlg-in 0.18s ease;
+  }
+}
+@keyframes gv-dlg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes gv-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --- edge states + quiet footnotes ---------------------------------------------- */
+.gv-none {
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.gv-foot {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--t-xs);
+}
+
+/* Every action inside the board is a comfortable tap target. */
+.gv-wrap .btn {
+  min-height: 44px;
+}
