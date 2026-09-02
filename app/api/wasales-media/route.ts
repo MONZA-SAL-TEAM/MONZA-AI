@@ -104,9 +104,21 @@ export async function POST(request: Request): Promise<NextResponse> {
   const url =
     process.env.NEXT_PUBLIC_AI_SUPABASE_URL ??
     "https://fpsgsgldepgcowyivoow.supabase.co";
-  const serviceKey = process.env.AI_SUPABASE_SERVICE_ROLE_KEY;
+  const rawKey = process.env.AI_SUPABASE_SERVICE_ROLE_KEY;
+  const serviceKey = typeof rawKey === "string" ? rawKey.trim() : rawKey;
   if (!url || !serviceKey) {
-    return NextResponse.json({ error: "keyMissing" }, { status: 503 });
+    // Diagnostic detail only — says whether the variable exists at all and
+    // roughly how long it is. Never any part of the value.
+    const detail =
+      rawKey === undefined
+        ? "absent"
+        : rawKey.trim() === ""
+          ? "empty"
+          : "present";
+    return NextResponse.json(
+      { error: "keyMissing", keyState: detail, keyLength: rawKey ? rawKey.length : 0 },
+      { status: 503 }
+    );
   }
 
   const svc = createClient(url, serviceKey, {
