@@ -81,10 +81,10 @@ export type AddFileResult =
 // shared mode on without any dashboard configuration. The SERVICE key is the
 // secret — it lives only in the server environment, never here.
 const STORAGE_URL =
-  process.env.NEXT_PUBLIC_AI_SUPABASE_URL ??
+  (process.env.NEXT_PUBLIC_AI_SUPABASE_URL ?? "").trim() ||
   "https://fpsgsgldepgcowyivoow.supabase.co";
 const STORAGE_ANON =
-  process.env.NEXT_PUBLIC_AI_SUPABASE_ANON_KEY ??
+  (process.env.NEXT_PUBLIC_AI_SUPABASE_ANON_KEY ?? "").trim() ||
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZwc2dzZ2xkZXBnY293eWl2b293Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNDA1MjYsImV4cCI6MjEwMzkxNjUyNn0.dg3OftDJZMdi4mQdSdeqY76kV-_mTULr10iUPSqtfEA";
 
 /** True when the shared Supabase media library is configured. Build-time

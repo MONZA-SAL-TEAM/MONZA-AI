@@ -101,8 +101,10 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   // Same public default as the client (env wins). Only the service key is
   // secret and must come from the environment.
+  // ||, not ??: a dashboard row saved with an EMPTY value must fall back to
+  // the default too (exactly what happened in production).
   const url =
-    process.env.NEXT_PUBLIC_AI_SUPABASE_URL ??
+    (process.env.NEXT_PUBLIC_AI_SUPABASE_URL ?? "").trim() ||
     "https://fpsgsgldepgcowyivoow.supabase.co";
   const rawKey = process.env.AI_SUPABASE_SERVICE_ROLE_KEY;
   const serviceKey = typeof rawKey === "string" ? rawKey.trim() : rawKey;
