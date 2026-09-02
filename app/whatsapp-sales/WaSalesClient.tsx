@@ -253,8 +253,7 @@ function CarMediaDialog({
   }, [car?.id]);
 
   const uploadFiles = useCallback(
-    async (kind: MediaKind, list: FileList | null) => {
-      const files = Array.from(list ?? []);
+    async (kind: MediaKind, files: File[]) => {
       if (files.length === 0) return;
       setUploadError(null);
       setBusy(true);
@@ -271,7 +270,10 @@ function CarMediaDialog({
 
   const onVideoPick = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
-      const picked = e.target.files;
+      // SNAPSHOT before clearing: e.target.files is a LIVE list — resetting
+      // the input's value empties it, and the upload would silently see zero
+      // files (the bug Samer hit: "is not uploading", no error, nothing).
+      const picked = Array.from(e.target.files ?? []);
       // Clear the input so picking the same file again re-fires onChange.
       e.target.value = "";
       void uploadFiles("video", picked);
@@ -281,7 +283,7 @@ function CarMediaDialog({
 
   const onPdfPick = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
-      const picked = e.target.files;
+      const picked = Array.from(e.target.files ?? []);
       e.target.value = "";
       void uploadFiles("brochure", picked);
     },
