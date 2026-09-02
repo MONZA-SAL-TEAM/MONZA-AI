@@ -348,102 +348,42 @@
   color: var(--urgent);
 }
 
-/* --- alias chips with inline add/remove --------------------------------------- */
-.ws-aliases {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  border-top: 1px solid var(--line-soft);
-  padding-top: 11px;
-}
-.ws-aliases-label {
-  font-size: var(--t-xs);
-  font-weight: 650;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-.ws-alias-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-}
-.ws-alias {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: var(--t-xs);
-  font-weight: 560;
-  color: var(--ink-2);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 3px 5px 3px 10px;
-}
-.ws-alias-x {
-  appearance: none;
-  border: none;
-  background: none;
+/* --- the pressable card: the whole card opens the car's media dialog ---------- */
+.ws-card--press {
   cursor: pointer;
-  color: var(--ink-3);
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  padding: 8px;
-  box-sizing: content-box;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
 }
-.ws-alias-x:hover {
-  background: var(--urgent-bg);
-  color: var(--urgent);
+.ws-card--press:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
-.ws-alias-add {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+/* Layout-transparent wrapper that stops clicks on inner controls (the
+   enabled switch) from also opening the media dialog. */
+.ws-stop {
+  display: contents;
 }
-.ws-alias-add input {
-  width: 108px;
-  min-height: 44px;
-  padding: 3px 10px;
-  font-size: var(--t-xs);
-  border-radius: 999px;
-}
-.ws-alias-plus {
-  appearance: none;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--ink-2);
-  cursor: pointer;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  flex: none;
-}
-.ws-alias-plus:hover {
+
+/* --- the "N uploaded" tag on the card face ------------------------------------ */
+.ws-up-tag {
+  align-self: flex-start;
   background: var(--accent-bg);
   color: var(--accent);
-  border-color: var(--accent);
 }
 
 .ws-card-actions {
   display: flex;
   gap: 10px;
   margin-top: auto;
+  align-items: center;
+  flex-wrap: wrap;
 }
 .ws-card-actions .btn {
   min-height: 44px;
   display: inline-flex;
   align-items: center;
+}
+.ws-card-open-hint {
+  color: var(--ink-3);
+  font-size: var(--t-xs);
 }
 
 /* --- the simulator card -------------------------------------------------------- */
@@ -688,6 +628,161 @@
     opacity: 1;
     transform: none;
   }
+}
+
+/* --- the car media dialog: real uploads, playable + openable -------------------- */
+.ws-dlg--media {
+  width: min(760px, calc(100vw - 32px));
+}
+.ws-media-body {
+  max-height: min(86vh, 820px);
+  overflow-y: auto; /* many videos: the dialog scrolls, not the page */
+  gap: 16px;
+}
+.ws-media-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 14px;
+}
+.ws-media-sec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ws-media-sec-title {
+  margin: 0;
+}
+.ws-media-upload-btn {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* uploaded video tiles: 16:9 players on the sunk panel tone */
+.ws-media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+  gap: 12px;
+}
+.ws-media-tile {
+  margin: 0;
+  background: var(--sunk);
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.ws-media-tile video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  background: var(--sunk);
+  object-fit: contain;
+}
+.ws-media-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ws-media-name {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--t-xs);
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-media-size {
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+  white-space: nowrap;
+  flex: none;
+}
+.ws-media-remove {
+  min-height: 44px;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* the one uploaded brochure row */
+.ws-media-doc {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: var(--sunk);
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.ws-media-doc > svg {
+  flex: none;
+  color: var(--accent-2);
+}
+.ws-media-open {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* seed example placeholders: quiet, dashed — clearly not real files */
+.ws-media-eg-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.ws-media-eg-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+.ws-media-eg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-xs);
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px dashed var(--line);
+  color: var(--ink-3);
+  min-width: 0;
+  max-width: 100%;
+}
+.ws-media-eg svg {
+  flex: none;
+  color: var(--ink-3);
+}
+.ws-media-hint {
+  margin: 0;
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+}
+.ws-media-err {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--urgent);
+}
+.ws-media-foot {
+  margin: 0;
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+  border-top: 1px solid var(--line-soft);
+  padding-top: 12px;
 }
 
 /* --- edge states + quiet footnotes ---------------------------------------------- */

@@ -14,6 +14,10 @@
  *     KPI shows "—", never an invented count.
  *   - Every catalog change (add / edit / toggle / alias) updates this screen
  *     only and resets on refresh; added cars wear "Added by you — example".
+ *   - The ONE exception: uploaded videos/brochures are REAL files stored in
+ *     IndexedDB (lib/wasales/media-store.ts) — saved in this browser on this
+ *     computer, they survive refreshes; they move to shared team storage when
+ *     WhatsApp is connected. The banner says exactly that.
  *   - The simulator runs the REAL brain (lib/wasales/matcher.ts decide()) on
  *     the catalog as edited — the last run is kept as an input snapshot and
  *     the decision derives from it, so flipping the master Auto-send switch
@@ -27,10 +31,19 @@ import Link from "next/link";
 import type { Decision, WaAsset, WaCar, WaSource } from "@/lib/wasales/matcher";
 import { decide } from "@/lib/wasales/matcher";
 import { SAMPLE_MESSAGES } from "@/lib/wasales/catalog-data";
+import type { MediaKind } from "@/lib/wasales/media-store";
+import {
+  listAllFiles,
+  subscribeMediaChanges,
+  useCarMedia, deleteFile } from "@/lib/wasales/media-store";
 
 /* ------------------------------------------------------------- constants --- */
 
 const DEMO_NOTE = "Example data — not connected to the Monza systems yet.";
+
+/** The honest one-liner about where uploaded files actually live. */
+const MEDIA_HONESTY =
+  "Saved in this browser on this computer — files move to shared team storage when WhatsApp is connected.";
 const LOGIN_HREF = "/login?next=" + encodeURIComponent("/whatsapp-sales");
 
 const SOURCE_LABEL: Record<WaSource, string> = {
@@ -174,6 +187,296 @@ function Switch({
   );
 }
 
+/* ------------------------------------------------------- car media dialog --- */
+
+/** "12.4 MB", "830 KB" — deterministic, plain. */
+function formatSize(bytes: number): string {
+  const kb = 1024;
+  const mb = kb * 1024;
+  const gb = mb * 1024;
+  if (bytes >= gb) return `${(bytes / gb).toFixed(1)} GB`;
+  if (bytes >= mb) return `${(bytes / mb).toFixed(1)} MB`;
+  if (bytes >= kb) return `${Math.round(bytes / kb)} KB`;
+  return `${bytes} B`;
+}
+
+/**
+ * The CAR MEDIA dialog — opened by pressing a catalog card. Shows the car's
+ * REAL uploads (playable videos, openable PDF) from this browser's IndexedDB
+ * store, next to the seed example placeholders, and takes new uploads.
+ * Native <dialog>, same family pattern as the add/edit dialog below.
+ */
+function CarMediaDialog({
+  car,
+  onClose,
+}: {
+  car: WaCar | null;
+  onClose: () => void;
+}) {
+  const dlgRef = useRef<HTMLDialogElement | null>(null);
+  const { loaded, videos, brochure, add, remove } = useCarMedia(car?.id ?? null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
+  const pdfInputRef = useRef<HTMLInputElement | null>(null);
+
+  const open = car !== null;
+
+  // Drive the native <dialog>: showModal gives focus trapping + Esc for free.
+  // The guard covers engines where showModal throws (already-open, old WebKit).
+  useEffect(() => {
+    const d = dlgRef.current;
+    if (!d) return;
+    if (open) {
+      if (!d.open) {
+        try {
+          d.showModal();
+        } catch {
+          d.setAttribute("open", "");
+        }
+      }
+    } else if (d.open) {
+      d.close();
+    }
+    if (!open) return;
+    // The non-modal fallback gets no free Esc handling — cover it ourselves.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  // A fresh car gets a fresh error slate.
+  useEffect(() => {
+    setUploadError(null);
+  }, [car?.id]);
+
+  const uploadFiles = useCallback(
+    async (kind: MediaKind, list: FileList | null) => {
+      const files = Array.from(list ?? []);
+      if (files.length === 0) return;
+      setUploadError(null);
+      setBusy(true);
+      const errors: string[] = [];
+      for (const f of files) {
+        const result = await add(kind, f);
+        if (!result.ok) errors.push(`${f.name}: ${result.error}`);
+      }
+      setBusy(false);
+      if (errors.length > 0) setUploadError(errors.join(" "));
+    },
+    [add]
+  );
+
+  const onVideoPick = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const picked = e.target.files;
+      // Clear the input so picking the same file again re-fires onChange.
+      e.target.value = "";
+      void uploadFiles("video", picked);
+    },
+    [uploadFiles]
+  );
+
+  const onPdfPick = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const picked = e.target.files;
+      e.target.value = "";
+      void uploadFiles("brochure", picked);
+    },
+    [uploadFiles]
+  );
+
+  return (
+    <dialog
+      ref={dlgRef}
+      className="ws-dlg ws-dlg--media"
+      aria-label={car ? `${car.name} — videos and brochure` : "Car media"}
+      onClose={onClose}
+      onClick={(e) => {
+        // Backdrop click: the dialog element itself is the target only
+        // when the click lands outside its content box.
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      {car !== null && (
+        <div className="ws-dlg-body ws-media-body">
+          <div className="ws-dlg-head">
+            <h2 className="h2">{car.name}</h2>
+            <p className="cap ws-dlg-sub">
+              The videos and brochure this car would send on WhatsApp.
+            </p>
+          </div>
+
+          {/* ------------------------------------------------- videos --- */}
+          <section className="ws-media-sec" aria-label={`Videos for ${car.name}`}>
+            <div className="ws-media-sec-head">
+              <h3 className="eyebrow ws-media-sec-title">Videos</h3>
+              <button
+                type="button"
+                className="btn ws-media-upload-btn"
+                onClick={() => videoInputRef.current?.click()}
+                disabled={busy}
+              >
+                <PlusGlyph />
+                Upload video
+              </button>
+              <input
+                ref={videoInputRef}
+                type="file"
+                accept="video/*"
+                multiple
+                hidden
+                onChange={onVideoPick}
+                aria-label={`Upload video files for ${car.name}`}
+              />
+            </div>
+
+            {!loaded ? (
+              <p className="cap ws-media-hint">
+                Checking this browser&apos;s saved files…
+              </p>
+            ) : videos.length > 0 ? (
+              <div className="ws-media-grid">
+                {videos.map((v) => (
+                  <figure className="ws-media-tile" key={v.id}>
+                    <video controls preload="metadata" src={v.url} />
+                    <figcaption className="ws-media-meta">
+                      <span className="ws-media-name" title={v.name}>
+                        {v.name}
+                      </span>
+                      <span className="ws-media-size">{formatSize(v.size)}</span>
+                    </figcaption>
+                    <button
+                      type="button"
+                      className="btn quiet ws-media-remove"
+                      aria-label={`Remove the uploaded video ${v.name}`}
+                      onClick={() => void remove(v.id)}
+                    >
+                      Remove
+                    </button>
+                  </figure>
+                ))}
+              </div>
+            ) : (
+              <p className="cap ws-media-hint">
+                No real videos uploaded yet for this car.
+              </p>
+            )}
+
+            {car.videos.length > 0 && (
+              <div className="ws-media-eg-wrap">
+                <div className="ws-media-eg-row">
+                  {car.videos.map((v, i) => (
+                    <span className="ws-media-eg" key={`${v.fileName}-${i}`}>
+                      <PlayGlyph />
+                      <span className="ws-file-label">{v.label}</span>
+                      <span className="ws-file-name">{v.fileName}</span>
+                    </span>
+                  ))}
+                </div>
+                <p className="ws-media-hint">
+                  Example placeholders — no real file behind them; your real
+                  uploads replace them.
+                </p>
+              </div>
+            )}
+          </section>
+
+          {/* ----------------------------------------------- brochure --- */}
+          <section
+            className="ws-media-sec"
+            aria-label={`Brochure for ${car.name}`}
+          >
+            <div className="ws-media-sec-head">
+              <h3 className="eyebrow ws-media-sec-title">Brochure</h3>
+              <button
+                type="button"
+                className="btn ws-media-upload-btn"
+                onClick={() => pdfInputRef.current?.click()}
+                disabled={busy}
+              >
+                <PlusGlyph />
+                {brochure ? "Replace brochure" : "Upload brochure (PDF)"}
+              </button>
+              <input
+                ref={pdfInputRef}
+                type="file"
+                accept="application/pdf"
+                hidden
+                onChange={onPdfPick}
+                aria-label={`Upload the brochure PDF for ${car.name}`}
+              />
+            </div>
+
+            {!loaded ? (
+              <p className="cap ws-media-hint">
+                Checking this browser&apos;s saved files…
+              </p>
+            ) : brochure ? (
+              <div className="ws-media-doc">
+                <DocGlyph />
+                <span className="ws-media-name" title={brochure.name}>
+                  {brochure.name}
+                </span>
+                <span className="ws-media-size">{formatSize(brochure.size)}</span>
+                <a
+                  className="btn ws-media-open"
+                  href={brochure.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open PDF
+                </a>
+                <button
+                  type="button"
+                  className="btn quiet ws-media-remove"
+                  aria-label={`Remove the uploaded brochure ${brochure.name}`}
+                  onClick={() => void remove(brochure.id)}
+                >
+                  Remove
+                </button>
+              </div>
+            ) : car.brochure ? (
+              <div className="ws-media-eg-wrap">
+                <div className="ws-media-eg-row">
+                  <span className="ws-media-eg" data-doc="true">
+                    <DocGlyph />
+                    <span className="ws-file-label">{car.brochure.label}</span>
+                    <span className="ws-file-name">{car.brochure.fileName}</span>
+                  </span>
+                </div>
+                <p className="ws-media-hint">
+                  Example placeholder — no real file behind it; your real upload
+                  replaces it.
+                </p>
+              </div>
+            ) : (
+              <p className="cap ws-media-hint">
+                No brochure yet — the car won&apos;t auto-send until it has one.
+              </p>
+            )}
+          </section>
+
+          {uploadError && (
+            <p className="ws-media-err" role="alert">
+              {uploadError}
+            </p>
+          )}
+
+          <div className="ws-dlg-actions">
+            <button type="button" className="btn" onClick={onClose}>
+              Close
+            </button>
+          </div>
+          <p className="cap ws-media-foot">{MEDIA_HONESTY}</p>
+        </div>
+      )}
+    </dialog>
+  );
+}
+
 /* ------------------------------------------------------ add / edit dialog --- */
 
 interface VideoRow {
@@ -255,8 +558,52 @@ export default function WaSalesClient() {
   const dlgRef = useRef<HTMLDialogElement | null>(null);
   /** Plain counter for added-car ids — deterministic, no Date, no random. */
   const addSeq = useRef(1);
-  /** Per-card alias drafts for the inline add box. */
-  const [aliasDraft, setAliasDraft] = useState<Record<string, string>>({});
+
+  /* car media dialog + this browser's uploaded files (metadata only) */
+  const [mediaCarId, setMediaCarId] = useState<string | null>(null);
+  /**
+   * Every uploaded file across all cars, blob-free — feeds the card-face
+   * "N uploaded" tags, the readiness math and the simulator overlay. Loaded
+   * in an effect (IndexedDB is never touched during render, so the server
+   * and the first client render agree) and re-read after every add/delete
+   * via the media store's change broadcast.
+   */
+  const [uploads, setUploads] = useState<
+    { id: string; carId: string; kind: MediaKind; name: string; size: number }[]
+  >([]);
+
+  useEffect(() => {
+    let alive = true;
+    const loadUploads = () => {
+      listAllFiles().then(async (files) => {
+        if (!alive) return;
+        // Files attached to a session-added car (ADD-*) are orphans after a
+        // refresh — the car they belonged to no longer exists and can never
+        // legitimately come back. Delete them so they neither pile up nor
+        // reattach to anything. Seed cars have stable ids and keep theirs.
+        const orphans = files.filter((u) => u.carId.startsWith("ADD-"));
+        if (orphans.length > 0) {
+          await Promise.all(orphans.map((u) => deleteFile(u.id).catch(() => {})));
+          files = files.filter((u) => !u.carId.startsWith("ADD-"));
+        }
+        setUploads(
+          files.map(({ id, carId, kind, name, size }) => ({
+            id,
+            carId,
+            kind,
+            name,
+            size,
+          }))
+        );
+      });
+    };
+    loadUploads();
+    const unsubscribe = subscribeMediaChanges(loadUploads);
+    return () => {
+      alive = false;
+      unsubscribe();
+    };
+  }, []);
 
   const load = useCallback(async () => {
     setScreen("loading");
@@ -283,6 +630,7 @@ export default function WaSalesClient() {
         setAddedIds([]);
         setSimRun(null);
         setDlgCarId(null);
+        setMediaCarId(null);
         setScreen("ready");
         return;
       }
@@ -305,11 +653,61 @@ export default function WaSalesClient() {
 
   /* ----- derived: KPIs + the live simulator verdict ----- */
 
+  /** Uploaded-file metadata grouped per car id. */
+  const uploadsByCar = useMemo(() => {
+    const map: Record<string, typeof uploads> = {};
+    for (const u of uploads) {
+      (map[u.carId] ??= []).push(u);
+    }
+    return map;
+  }, [uploads]);
+
+  /**
+   * PURE OVERLAY — matcher.ts is untouched. Before the catalog reaches
+   * decide(), each car's videos/brochure fields are overlaid with the REAL
+   * files uploaded in this browser: uploaded video names FIRST, then the
+   * example placeholders; an uploaded brochure PDF stands in for the example
+   * one. Uploads are additive truth: a car counts as having videos/brochure
+   * when it has EITHER example entries or uploaded files, so readiness, the
+   * missing-asset lines and the simulator verdict all respect uploads.
+   */
+  const carsForBrain = useMemo<WaCar[]>(
+    () =>
+      cars.map((car) => {
+        const ups = uploadsByCar[car.id];
+        if (!ups || ups.length === 0) return car;
+        const uploadedVideos: WaAsset[] = ups
+          .filter((u) => u.kind === "video")
+          .map((u) => ({ label: "Uploaded", fileName: u.name }));
+        const uploadedBrochure = ups.find((u) => u.kind === "brochure");
+        return {
+          ...car,
+          // Real uploads REPLACE the example placeholders (the dialog says
+          // so, and the would-send preview must never promise a video that
+          // has no real file behind it). Examples only count while a car has
+          // no uploads at all.
+          videos: uploadedVideos.length > 0 ? uploadedVideos : car.videos,
+          brochure: uploadedBrochure
+            ? { label: "Uploaded (PDF)", fileName: uploadedBrochure.name }
+            : car.brochure,
+        };
+      }),
+    [cars, uploadsByCar]
+  );
+
+  /** Overlaid car by id — the card face reads missing-asset truth from here. */
+  const brainCarById = useMemo(() => {
+    const map = new Map<string, WaCar>();
+    for (const c of carsForBrain) map.set(c.id, c);
+    return map;
+  }, [carsForBrain]);
+
   const readyCount = useMemo(
     () =>
-      cars.filter((c) => c.enabled && c.videos.length > 0 && c.brochure !== null)
-        .length,
-    [cars]
+      carsForBrain.filter(
+        (c) => c.enabled && c.videos.length > 0 && c.brochure !== null
+      ).length,
+    [carsForBrain]
   );
 
   /**
@@ -325,8 +723,10 @@ export default function WaSalesClient() {
         reason: "Type a message above (or tap a quick try) to see what the brain would do.",
       } as Decision;
     }
-    return decide({ ...simRun, autoSendEnabled: autoSend }, cars);
-  }, [simRun, autoSend, cars]);
+    // The overlaid catalog: same cars, same aliases, same matcher — only the
+    // videos/brochure fields carry the real uploads on top of the examples.
+    return decide({ ...simRun, autoSendEnabled: autoSend }, carsForBrain);
+  }, [simRun, autoSend, carsForBrain]);
 
   const runSim = useCallback(() => {
     setSimRun({
@@ -360,29 +760,11 @@ export default function WaSalesClient() {
     );
   }, []);
 
-  const removeAlias = useCallback((id: string, alias: string) => {
-    setCars((prev) =>
-      prev.map((c) =>
-        c.id === id ? { ...c, aliases: c.aliases.filter((a) => a !== alias) } : c
-      )
-    );
+  const openMedia = useCallback((id: string) => {
+    setMediaCarId(id);
   }, []);
 
-  const addAlias = useCallback(
-    (id: string) => {
-      const draft = (aliasDraft[id] ?? "").trim().toLowerCase();
-      if (draft === "") return;
-      setCars((prev) =>
-        prev.map((c) =>
-          c.id === id && !c.aliases.includes(draft)
-            ? { ...c, aliases: [...c.aliases, draft] }
-            : c
-        )
-      );
-      setAliasDraft((prev) => ({ ...prev, [id]: "" }));
-    },
-    [aliasDraft]
-  );
+  const closeMedia = useCallback(() => setMediaCarId(null), []);
 
   const openAdd = useCallback(() => {
     setForm(EMPTY_FORM);
@@ -485,7 +867,15 @@ export default function WaSalesClient() {
       const oneLiner = form.oneLiner.trim();
 
       if (dlgCarId === "new") {
-        const id = `ADD-${addSeq.current++}`;
+        // Uploads persist across sessions keyed by carId, while session
+        // cars reset — a plain counter would restart at ADD-1 and let a new
+        // car inherit another car's real files. A UUID (handler-only, never
+        // in render) makes collisions impossible; the counter is the
+        // fallback for engines without crypto.randomUUID.
+        const id =
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? `ADD-${crypto.randomUUID()}`
+            : `ADD-${addSeq.current++}-${name.replace(/\W+/g, "").slice(0, 12)}`;
         const car: WaCar = {
           id,
           name,
@@ -589,6 +979,7 @@ export default function WaSalesClient() {
   /* ----- the control panel itself ----- */
 
   const dlgCar = dlgCarId && dlgCarId !== "new" ? cars.find((c) => c.id === dlgCarId) ?? null : null;
+  const mediaCar = mediaCarId ? cars.find((c) => c.id === mediaCarId) ?? null : null;
 
   return (
     <div className="ws-page">
@@ -627,7 +1018,10 @@ export default function WaSalesClient() {
             <div className="note">{DEMO_NOTE}</div>
             <p className="ws-foot">
               Adding or editing cars, aliases and switches updates this screen
-              only — refreshing the page resets everything.
+              only — refreshing the page resets them. Uploaded videos and
+              brochures are the one exception: they are real files, saved in
+              this browser on this computer, and they survive a refresh — they
+              move to shared team storage when WhatsApp is connected.
             </p>
           </div>
         )}
@@ -680,11 +1074,31 @@ export default function WaSalesClient() {
             ) : (
               <div className="ws-grid">
                 {cars.map((car) => {
+                  // The overlaid car carries uploads on top of the examples —
+                  // the missing-asset line and readiness respect real uploads.
+                  const eff = brainCarById.get(car.id) ?? car;
                   const missing: string[] = [];
-                  if (car.videos.length === 0) missing.push("videos");
-                  if (!car.brochure) missing.push("brochure");
+                  if (eff.videos.length === 0) missing.push("videos");
+                  if (!eff.brochure) missing.push("brochure");
+                  const uploadCount = (uploadsByCar[car.id] ?? []).length;
                   return (
-                    <article className="card ws-card" key={car.id} aria-label={car.name}>
+                    <article
+                      className="card ws-card ws-card--press"
+                      key={car.id}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Open ${car.name} — videos and brochure`}
+                      onClick={() => openMedia(car.id)}
+                      onKeyDown={(e) => {
+                        // Only the card itself — Enter on an inner button
+                        // must not also open the media dialog.
+                        if (e.target !== e.currentTarget) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openMedia(car.id);
+                        }
+                      }}
+                    >
                       <div className="ws-card-top">
                         <div className="grow">
                           <div className="ws-name-row">
@@ -697,11 +1111,16 @@ export default function WaSalesClient() {
                             <p className="cap ws-oneliner">{car.oneLiner}</p>
                           )}
                         </div>
-                        <Switch
-                          on={car.enabled}
-                          onFlip={() => toggleCar(car.id)}
-                          label={`Enable auto-send for ${car.name}`}
-                        />
+                        <span
+                          className="ws-stop"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Switch
+                            on={car.enabled}
+                            onFlip={() => toggleCar(car.id)}
+                            label={`Enable auto-send for ${car.name}`}
+                          />
+                        </span>
                       </div>
 
                       <div className="ws-assets">
@@ -721,62 +1140,31 @@ export default function WaSalesClient() {
                         )}
                       </div>
 
+                      {uploadCount > 0 && (
+                        <span className="tag ws-up-tag">
+                          {uploadCount} uploaded — saved in this browser
+                        </span>
+                      )}
+
                       {missing.length > 0 && (
                         <p className="ws-missing">
                           Won&apos;t auto-send — missing {missing.join(" and ")}.
                         </p>
                       )}
 
-                      <div className="ws-aliases">
-                        <span className="ws-aliases-label">Also answers to</span>
-                        <div className="ws-alias-row">
-                          {car.aliases.map((a) => (
-                            <span className="ws-alias" key={a}>
-                              {a}
-                              <button
-                                type="button"
-                                className="ws-alias-x"
-                                aria-label={`Remove alias ${a} from ${car.name}`}
-                                onClick={() => removeAlias(car.id, a)}
-                              >
-                                <XGlyph />
-                              </button>
-                            </span>
-                          ))}
-                          <span className="ws-alias-add">
-                            <input
-                              value={aliasDraft[car.id] ?? ""}
-                              onChange={(e) =>
-                                setAliasDraft((prev) => ({
-                                  ...prev,
-                                  [car.id]: e.target.value,
-                                }))
-                              }
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  addAlias(car.id);
-                                }
-                              }}
-                              placeholder="add alias"
-                              aria-label={`Add an alias for ${car.name}`}
-                            />
-                            <button
-                              type="button"
-                              className="ws-alias-plus"
-                              aria-label={`Add the typed alias to ${car.name}`}
-                              onClick={() => addAlias(car.id)}
-                            >
-                              <PlusGlyph />
-                            </button>
-                          </span>
-                        </div>
-                      </div>
-
                       <div className="ws-card-actions">
-                        <button className="btn" onClick={() => openEdit(car.id)}>
+                        <button
+                          className="btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEdit(car.id);
+                          }}
+                        >
                           Edit
                         </button>
+                        <span className="cap ws-card-open-hint" aria-hidden>
+                          Press the card for videos &amp; brochure
+                        </span>
                       </div>
                     </article>
                   );
@@ -928,6 +1316,9 @@ export default function WaSalesClient() {
           auto-sender. It never claims a message was sent — because none is,
           until the WhatsApp Business number is connected.
         </p>
+
+        {/* Car media dialog — the car's real uploads + example placeholders. */}
+        <CarMediaDialog car={mediaCar} onClose={closeMedia} />
 
         {/* Add / edit dialog — native <dialog> for focus trap + Esc. */}
         <dialog
