@@ -1,47 +1,62 @@
 "use client";
 
 /**
- * WhatsApp Sales — the local media store.
+ * WhatsApp Sales — the media store, in TWO modes behind one interface.
  *
- * Real uploads with no backend yet: files live in IndexedDB in THIS browser
- * on THIS computer, so they survive refreshes, videos play inline and PDFs
- * open. They move to shared team storage when the WhatsApp Business
- * connection work lands. This is DELIBERATELY different from the rest of the
- * /whatsapp-sales page, which resets on refresh — the page says so in plain
- * words wherever it matters.
+ * STORAGE MODE (NEXT_PUBLIC_AI_SUPABASE_URL + NEXT_PUBLIC_AI_SUPABASE_ANON_KEY
+ * both set): files live in the shared Supabase Storage bucket "wasales-media",
+ * so every person with this dashboard sees the same catalog. Reads and lists
+ * use the anon key directly (the bucket is public-read). Writes NEVER go
+ * through the anon key — the bucket deliberately has no anon write policy.
+ * Instead the server route /api/wasales-media (service-role key) mints a
+ * signed upload URL and the BROWSER uploads the bytes straight to Supabase,
+ * so no file ever squeezes through a serverless body limit. Deletes are
+ * server-side by path. Until Samer pastes the service-role key into the
+ * server env, the route answers 503 keyMissing and uploads show the honest
+ * sentence: "Shared uploads are almost ready — one server key is still
+ * missing."
  *
- * Hydration safety: nothing here touches window/indexedDB at module scope,
- * and no function in this file is ever called during render — every entry
- * point runs inside an effect or an event handler. That is also why ids may
- * use crypto.randomUUID (guarded — with a name+size+counter fallback):
- * randomness is fine in effect-only code, and the records persist across
- * sessions, so ids must be unique across sessions, which a bare counter
- * alone could not guarantee.
+ * Object path scheme: <carId>/<kind>/<uuid>__<safeOriginalName> — the display
+ * name is the part after the first "__", so cards always show the REAL name
+ * of the uploaded file.
  *
- * Every API fails soft: a blocked or broken IndexedDB never throws into the
- * UI — lists come back empty and writes come back { ok: false, error } with
- * the error in plain words.
+ * LOCAL MODE (env absent — local dev): today's behavior, unchanged. Files
+ * live in IndexedDB in THIS browser on THIS computer; playback uses object
+ * URLs managed by the hook.
+ *
+ * Hydration safety: storageMode() reads process.env.NEXT_PUBLIC_* inline —
+ * build-time constants, identical on server and client, safe in render.
+ * Everything that touches indexedDB / fetch / crypto.randomUUID runs only in
+ * effects and handlers, never during render.
+ *
+ * Every API fails soft: lists come back empty and writes come back
+ * { ok: false, error } with the error in plain words.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 /* ---------------------------------------------------------------- types --- */
 
 export type MediaKind = "video" | "brochure";
 
-/** The record as it sits in IndexedDB. */
+/** One media record, either mode.
+ *  Local mode:   id = generated id, blob set, url unset (the hook makes one).
+ *  Storage mode: id = the full object path, url = public URL, blob unset. */
 export interface StoredMediaFile {
   id: string;
   carId: string;
   kind: MediaKind;
+  /** The ORIGINAL file name, as shown on cards and chips. */
   name: string;
-  /** The file's MIME type as the browser reported it (may be ""). */
+  /** MIME type ("" when unknown). */
   type: string;
   size: number;
-  blob: Blob;
+  blob?: Blob;
+  url?: string;
 }
 
-/** What the UI renders: the stored record plus a ready-to-use object URL. */
+/** What the UI renders: the record plus a ready-to-use URL. */
 export interface CarMediaItem {
   id: string;
   carId: string;
@@ -49,7 +64,7 @@ export interface CarMediaItem {
   name: string;
   type: string;
   size: number;
-  /** Object URL created by useCarMedia; "" if creation failed. */
+  /** Playable/openable URL; "" if none could be made. */
   url: string;
 }
 
@@ -57,13 +72,65 @@ export type AddFileResult =
   | { ok: true; file: StoredMediaFile }
   | { ok: false; error: string };
 
+/* ----------------------------------------------------------------- mode --- */
+
+// The Monza AI Supabase project's PUBLIC client pair. These are public by
+// design — the anon key ships in every visitor's browser bundle and grants
+// only what the database's RLS and storage policies allow (here: read-only
+// on the media bucket). Env vars win when set; the committed defaults keep
+// shared mode on without any dashboard configuration. The SERVICE key is the
+// secret — it lives only in the server environment, never here.
+const STORAGE_URL =
+  process.env.NEXT_PUBLIC_AI_SUPABASE_URL ??
+  "https://fpsgsgldepgcowyivoow.supabase.co";
+const STORAGE_ANON =
+  process.env.NEXT_PUBLIC_AI_SUPABASE_ANON_KEY ??
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZwc2dzZ2xkZXBnY293eWl2b293Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNDA1MjYsImV4cCI6MjEwMzkxNjUyNn0.dg3OftDJZMdi4mQdSdeqY76kV-_mTULr10iUPSqtfEA";
+
+/** True when the shared Supabase media library is configured. Build-time
+ *  constant — safe to call during render. */
+export function storageMode(): boolean {
+  return STORAGE_URL !== "" && STORAGE_ANON !== "";
+}
+
+const BUCKET = "wasales-media";
+const API_ROUTE = "/api/wasales-media";
+
+/** The exact honest sentence for the not-yet-configured server key. */
+const KEY_MISSING_MSG =
+  "Shared uploads are almost ready — one server key is still missing.";
+
+let sbClient: SupabaseClient | null = null;
+
+/** Anon Supabase client for the shared library (reads + signed uploads). */
+function getStorageClient(): SupabaseClient {
+  if (!sbClient) {
+    sbClient = createClient(STORAGE_URL, STORAGE_ANON, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+  return sbClient;
+}
+
 /* ---------------------------------------------------------------- limits --- */
 
-const MAX_BYTES = 300 * 1024 * 1024; // 300 MB
+const LOCAL_MAX_BYTES = 300 * 1024 * 1024; // 300 MB (this browser only)
+const STORAGE_MAX_BYTES = 50 * 1024 * 1024; // 50 MB (the bucket's cap)
 
-const VIDEO_EXTENSIONS = [
+const LOCAL_VIDEO_EXTENSIONS = [
   "mp4", "mov", "m4v", "webm", "mkv", "avi", "3gp", "mpg", "mpeg", "ogv",
 ];
+
+/** The shared bucket's allowlist: these extensions, these MIME types. */
+const STORAGE_VIDEO_EXTENSIONS = ["mp4", "mov", "webm", "mkv"];
+
+const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
+  mp4: "video/mp4",
+  mov: "video/quicktime",
+  webm: "video/webm",
+  mkv: "video/x-matroska",
+  pdf: "application/pdf",
+};
 
 function extensionOf(name: string): string {
   const dot = name.lastIndexOf(".");
@@ -74,7 +141,7 @@ function extensionOf(name: string): string {
 function looksLikeVideo(file: File): boolean {
   const t = (file.type || "").toLowerCase();
   if (t.startsWith("video/")) return true;
-  return t === "" && VIDEO_EXTENSIONS.includes(extensionOf(file.name));
+  return t === "" && LOCAL_VIDEO_EXTENSIONS.includes(extensionOf(file.name));
 }
 
 /** PDFs only: the .pdf extension is required, and the MIME (when the browser
@@ -102,7 +169,29 @@ function makeId(name: string, size: number): string {
   return `f-${idSeq++}-${size}-${safeName}`;
 }
 
-/* ---------------------------------------------------------------- the db --- */
+/** Keep the original name recognizable while fitting the object-name rules
+ *  ([A-Za-z0-9_.-] only). "__" is collapsed so the display split at the FIRST
+ *  "__" in the path stays unambiguous. */
+function safeObjectName(original: string): string {
+  const ext = extensionOf(original);
+  const dot = original.lastIndexOf(".");
+  const base = dot > 0 ? original.slice(0, dot) : original;
+  let safeBase = base
+    .replace(/[^A-Za-z0-9_.-]+/g, "-")
+    .replace(/_{2,}/g, "_")
+    .replace(/^[-.]+|[-.]+$/g, "")
+    .slice(0, 100);
+  if (safeBase === "") safeBase = "file";
+  return ext ? `${safeBase}.${ext}` : safeBase;
+}
+
+/** The display name of a stored object: the part after the first "__". */
+function displayNameOf(objectName: string): string {
+  const sep = objectName.indexOf("__");
+  return sep >= 0 ? objectName.slice(sep + 2) : objectName;
+}
+
+/* ------------------------------------------------------- the local db --- */
 
 const DB_NAME = "monza-wasales-media";
 const DB_VERSION = 1;
@@ -179,19 +268,250 @@ function notifyChanged(): void {
   });
 }
 
-/* ------------------------------------------------------------- operations --- */
+/* ------------------------------------------------- storage-mode helpers --- */
 
-/**
- * Store one uploaded file for a car. Validates size and kind first, in plain
- * words. A brochure REPLACES the car's previous uploaded brochure (one per
- * car); videos append. Resolves { ok: false, error } instead of throwing.
- */
-export async function addFile(
+/** Ask the server route for something; null on network failure. */
+async function postApi(body: object): Promise<Response | null> {
+  try {
+    return await fetch(API_ROUTE, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    return null;
+  }
+}
+
+interface RawEntry {
+  name?: unknown;
+  id?: unknown;
+  metadata?: unknown;
+}
+
+/** List one <carId>/<kind> prefix of the shared bucket. Fails soft: []. */
+async function listPrefixStorage(
+  carId: string,
+  kind: MediaKind
+): Promise<StoredMediaFile[]> {
+  try {
+    const sb = getStorageClient();
+    const { data, error } = await sb.storage
+      .from(BUCKET)
+      .list(`${carId}/${kind}`, {
+        limit: 100,
+        sortBy: { column: "created_at", order: "asc" },
+      });
+    if (error || !Array.isArray(data)) return [];
+    const out: StoredMediaFile[] = [];
+    for (const raw of data as RawEntry[]) {
+      const name = typeof raw.name === "string" ? raw.name : "";
+      // Folders come back with a null id and no metadata — skip them, and
+      // skip Supabase's placeholder objects.
+      if (name === "" || name.startsWith(".")) continue;
+      if (raw.id === null || raw.id === undefined) continue;
+      const meta =
+        raw.metadata && typeof raw.metadata === "object"
+          ? (raw.metadata as Record<string, unknown>)
+          : {};
+      const path = `${carId}/${kind}/${name}`;
+      out.push({
+        id: path,
+        carId,
+        kind,
+        name: displayNameOf(name),
+        type: typeof meta.mimetype === "string" ? meta.mimetype : "",
+        size: typeof meta.size === "number" ? meta.size : 0,
+        url: sb.storage.from(BUCKET).getPublicUrl(path).data.publicUrl,
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+async function listFilesStorage(carId: string): Promise<StoredMediaFile[]> {
+  const [videos, brochures] = await Promise.all([
+    listPrefixStorage(carId, "video"),
+    listPrefixStorage(carId, "brochure"),
+  ]);
+  return [...videos, ...brochures];
+}
+
+async function listAllFilesStorage(): Promise<StoredMediaFile[]> {
+  try {
+    const sb = getStorageClient();
+    const { data, error } = await sb.storage.from(BUCKET).list("", { limit: 200 });
+    if (error || !Array.isArray(data)) return [];
+    const carIds = (data as RawEntry[])
+      .map((e) => (typeof e.name === "string" ? e.name : ""))
+      .filter((n) => /^[a-z0-9-]+$/.test(n));
+    const lists = await Promise.all(carIds.map((id) => listFilesStorage(id)));
+    return lists.flat();
+  } catch {
+    return [];
+  }
+}
+
+async function addFileStorage(
   carId: string,
   kind: MediaKind,
   file: File
 ): Promise<AddFileResult> {
-  if (file.size > MAX_BYTES) {
+  // Session-added cars reset on refresh, so their files would sit orphaned
+  // in the shared library forever. Honest refusal instead.
+  if (!/^[a-z0-9-]+$/.test(carId)) {
+    return {
+      ok: false,
+      error:
+        "This car lives on this screen only until the live catalog is connected — files can be uploaded to the catalog cars for now.",
+    };
+  }
+  if (file.size > STORAGE_MAX_BYTES) {
+    return {
+      ok: false,
+      error:
+        "That file is over 50 MB — the shared library caps files at 50 MB, so please compress it or pick a smaller file.",
+    };
+  }
+  const ext = extensionOf(file.name);
+  if (kind === "video" && !STORAGE_VIDEO_EXTENSIONS.includes(ext)) {
+    return {
+      ok: false,
+      error:
+        "Videos in the shared library must be MP4, MOV, WebM or MKV files.",
+    };
+  }
+  if (kind === "brochure" && !looksLikePdf(file)) {
+    return {
+      ok: false,
+      error: "The brochure must be a PDF file (ending in .pdf).",
+    };
+  }
+  const contentType = CONTENT_TYPE_BY_EXTENSION[ext];
+  if (!contentType) {
+    return {
+      ok: false,
+      error: "That file type isn't supported in the shared library.",
+    };
+  }
+
+  const path = `${carId}/${kind}/${makeId(file.name, file.size)}__${safeObjectName(file.name)}`;
+
+  const res = await postApi({ action: "sign-upload", path, contentType });
+  if (!res) {
+    return {
+      ok: false,
+      error: "Couldn't reach the server — please check the connection and try again.",
+    };
+  }
+  if (res.status === 503) {
+    // Only the route's own signal means the key is missing — a proxy or
+    // deploy 503 must not masquerade as a configuration message.
+    let keyMissing = false;
+    try {
+      const b: unknown = await res.clone().json();
+      keyMissing =
+        typeof b === "object" && b !== null &&
+        (b as { error?: string }).error === "keyMissing";
+    } catch { /* not JSON — treat as an ordinary outage */ }
+    return {
+      ok: false,
+      error: keyMissing
+        ? KEY_MISSING_MSG
+        : "The upload service didn't answer — please try again in a moment.",
+    };
+  }
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: "The server couldn't prepare the upload — please try again.",
+    };
+  }
+  let token = "";
+  try {
+    const parsed: unknown = await res.json();
+    if (parsed && typeof parsed === "object") {
+      const t = (parsed as Record<string, unknown>).token;
+      if (typeof t === "string") token = t;
+    }
+  } catch {
+    /* falls through to the empty-token error below */
+  }
+  if (token === "") {
+    return {
+      ok: false,
+      error: "The server couldn't prepare the upload — please try again.",
+    };
+  }
+
+  try {
+    const sb = getStorageClient();
+    const { error } = await sb.storage
+      .from(BUCKET)
+      .uploadToSignedUrl(path, token, file, { contentType });
+    if (error) {
+      return {
+        ok: false,
+        error: "The upload didn't finish — please check the connection and try again.",
+      };
+    }
+  } catch {
+    return {
+      ok: false,
+      error: "The upload didn't finish — please check the connection and try again.",
+    };
+  }
+
+  // Brochure replace, loss-proof: the old file is retired only now that the
+  // new one is safely up.
+  if (kind === "brochure") {
+    await sweepOldBrochure(path);
+  }
+
+  notifyChanged();
+  return {
+    ok: true,
+    file: {
+      id: path,
+      carId,
+      kind,
+      name: file.name,
+      type: contentType,
+      size: file.size,
+      url: getStorageClient().storage.from(BUCKET).getPublicUrl(path).data.publicUrl,
+    },
+  };
+}
+
+/** After a brochure upload lands, retire the car's previous brochure. */
+async function sweepOldBrochure(keepPath: string): Promise<void> {
+  await postApi({ action: "sweep-brochure", keepPath });
+}
+
+/** Server-side delete by path. Every failure comes back in plain words. */
+async function deleteFileStorage(path: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await postApi({ action: "delete", path });
+  if (res && res.ok) {
+    notifyChanged();
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    error:
+      "Couldn't remove that file — please check the connection and try again.",
+  };
+}
+
+/* --------------------------------------------------- local-mode operations --- */
+
+async function addFileLocal(
+  carId: string,
+  kind: MediaKind,
+  file: File
+): Promise<AddFileResult> {
+  if (file.size > LOCAL_MAX_BYTES) {
     return {
       ok: false,
       error: "That file is over 300 MB — please compress it or pick a smaller file.",
@@ -255,8 +575,7 @@ export async function addFile(
   }
 }
 
-/** All stored files for one car. Fails soft: an unavailable DB yields []. */
-export async function listFiles(carId: string): Promise<StoredMediaFile[]> {
+async function listFilesLocal(carId: string): Promise<StoredMediaFile[]> {
   try {
     const db = await openDb();
     return await new Promise<StoredMediaFile[]>((resolve, reject) => {
@@ -270,8 +589,7 @@ export async function listFiles(carId: string): Promise<StoredMediaFile[]> {
   }
 }
 
-/** Every stored file, all cars. Fails soft: an unavailable DB yields []. */
-export async function listAllFiles(): Promise<StoredMediaFile[]> {
+async function listAllFilesLocal(): Promise<StoredMediaFile[]> {
   try {
     const db = await openDb();
     return await new Promise<StoredMediaFile[]>((resolve, reject) => {
@@ -285,8 +603,7 @@ export async function listAllFiles(): Promise<StoredMediaFile[]> {
   }
 }
 
-/** Delete one file by id. Fails soft: resolves either way, notifies on success. */
-export async function deleteFile(id: string): Promise<void> {
+async function deleteFileLocal(id: string): Promise<void> {
   try {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
@@ -302,25 +619,62 @@ export async function deleteFile(id: string): Promise<void> {
   }
 }
 
+/* --------------------------------------------------- the shared interface --- */
+
+/**
+ * Store one uploaded file for a car. Validates size and kind first, in plain
+ * words. A brochure REPLACES the car's previous brochure (one per car);
+ * videos append. Resolves { ok: false, error } instead of throwing.
+ */
+export async function addFile(
+  carId: string,
+  kind: MediaKind,
+  file: File
+): Promise<AddFileResult> {
+  return storageMode()
+    ? addFileStorage(carId, kind, file)
+    : addFileLocal(carId, kind, file);
+}
+
+/** All stored files for one car. Fails soft: an unavailable store yields []. */
+export async function listFiles(carId: string): Promise<StoredMediaFile[]> {
+  return storageMode() ? listFilesStorage(carId) : listFilesLocal(carId);
+}
+
+/** Every stored file, all cars. Fails soft: an unavailable store yields []. */
+export async function listAllFiles(): Promise<StoredMediaFile[]> {
+  return storageMode() ? listAllFilesStorage() : listAllFilesLocal();
+}
+
+/** Delete one file by id (storage mode: id = the object path). */
+export async function deleteFile(
+  id: string
+): Promise<{ ok: boolean; error?: string }> {
+  if (storageMode()) return deleteFileStorage(id);
+  await deleteFileLocal(id);
+  return { ok: true };
+}
+
 /* ------------------------------------------------------------- the hook --- */
 
 export interface CarMediaState {
-  /** false until the first read of this browser's store has finished. */
+  /** false until the first read of the store has finished. */
   loaded: boolean;
-  /** Uploaded videos for the car, each with a playable object URL. */
+  /** Uploaded videos for the car, each with a playable URL. */
   videos: CarMediaItem[];
   /** The car's one uploaded brochure PDF, or null. */
   brochure: CarMediaItem | null;
   /** Validates + stores; returns the plain-words error on refusal. */
   add: (kind: MediaKind, file: File) => Promise<AddFileResult>;
   /** Removes one uploaded file. */
-  remove: (id: string) => Promise<void>;
+  remove: (id: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 /**
  * React hook: the uploaded media of one car, kept fresh after every
- * add/delete (from ANY hook instance, via the change broadcast), with object
- * URLs created once per file id and revoked on removal and on unmount.
+ * add/delete (from ANY hook instance, via the change broadcast). Storage-mode
+ * records carry their public URL; local-mode records get object URLs created
+ * once per file id and revoked on removal and on unmount.
  * Pass null to render the empty state (e.g. while no car is selected).
  */
 export function useCarMedia(carId: string | null): CarMediaState {
@@ -353,10 +707,11 @@ export function useCarMedia(carId: string | null): CarMediaState {
     };
   }, [carId]);
 
-  // Object URL lifecycle: create for new ids, revoke for removed ids.
+  // Object URL lifecycle (local-mode blobs only): create for new ids, revoke
+  // for removed ids. Storage-mode records carry a URL and are passed through.
   useEffect(() => {
     const map = urlMapRef.current;
-    const wanted = new Set(records.map((r) => r.id));
+    const wanted = new Set(records.filter((r) => r.blob).map((r) => r.id));
     for (const [id, url] of Array.from(map.entries())) {
       if (!wanted.has(id)) {
         try {
@@ -369,6 +724,14 @@ export function useCarMedia(carId: string | null): CarMediaState {
     }
     const next: Record<string, string> = {};
     for (const r of records) {
+      if (r.url) {
+        next[r.id] = r.url;
+        continue;
+      }
+      if (!r.blob) {
+        next[r.id] = "";
+        continue;
+      }
       let url = map.get(r.id);
       if (!url) {
         try {
@@ -428,9 +791,12 @@ export function useCarMedia(carId: string | null): CarMediaState {
     [carId]
   );
 
-  const remove = useCallback(async (id: string): Promise<void> => {
-    await deleteFile(id);
-  }, []);
+  const remove = useCallback(
+    async (id: string): Promise<{ ok: boolean; error?: string }> => {
+      return deleteFile(id);
+    },
+    []
+  );
 
   return { loaded, videos, brochure, add, remove };
 }

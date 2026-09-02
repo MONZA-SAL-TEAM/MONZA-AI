@@ -14,10 +14,12 @@
  *     KPI shows "—", never an invented count.
  *   - Every catalog change (add / edit / toggle / alias) updates this screen
  *     only and resets on refresh; added cars wear "Added by you — example".
- *   - The ONE exception: uploaded videos/brochures are REAL files stored in
- *     IndexedDB (lib/wasales/media-store.ts) — saved in this browser on this
- *     computer, they survive refreshes; they move to shared team storage when
- *     WhatsApp is connected. The banner says exactly that.
+ *   - The ONE exception: uploaded videos/brochures are REAL files
+ *     (lib/wasales/media-store.ts). In storage mode they live in the shared
+ *     Supabase library — everyone with this dashboard sees the same catalog;
+ *     in local mode they live in IndexedDB in this browser. NOTHING fake is
+ *     ever shown: cards, readiness, the simulator verdict and the reply
+ *     preview count ONLY real uploads, and a car with none says so.
  *   - The simulator runs the REAL brain (lib/wasales/matcher.ts decide()) on
  *     the catalog as edited — the last run is kept as an input snapshot and
  *     the decision derives from it, so flipping the master Auto-send switch
@@ -34,6 +36,7 @@ import { SAMPLE_MESSAGES } from "@/lib/wasales/catalog-data";
 import type { MediaKind } from "@/lib/wasales/media-store";
 import {
   listAllFiles,
+  storageMode,
   subscribeMediaChanges,
   useCarMedia, deleteFile } from "@/lib/wasales/media-store";
 
@@ -41,9 +44,18 @@ import {
 
 const DEMO_NOTE = "Example data — not connected to the Monza systems yet.";
 
+/** Build-time constant (NEXT_PUBLIC env) — identical on server and client. */
+const SHARED = storageMode();
+
 /** The honest one-liner about where uploaded files actually live. */
-const MEDIA_HONESTY =
-  "Saved in this browser on this computer — files move to shared team storage when WhatsApp is connected.";
+const MEDIA_HONESTY = SHARED
+  ? "Files are shared — everyone with this dashboard sees the same catalog."
+  : "Saved in this browser on this computer — files move to shared team storage when WhatsApp is connected.";
+
+/** The loading line while the store answers. */
+const MEDIA_CHECKING = SHARED
+  ? "Checking the shared files…"
+  : "Checking this browser's saved files…";
 const LOGIN_HREF = "/login?next=" + encodeURIComponent("/whatsapp-sales");
 
 const SOURCE_LABEL: Record<WaSource, string> = {
@@ -149,14 +161,6 @@ function DocGlyph() {
   );
 }
 
-function XGlyph() {
-  return (
-    <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" aria-hidden>
-      <path d="M5 5l14 14M19 5L5 19" />
-    </svg>
-  );
-}
-
 /* ----------------------------------------------------------- small pieces --- */
 
 /** A 44px-tall labelled switch — the only toggle drawing on the page. */
@@ -202,9 +206,9 @@ function formatSize(bytes: number): string {
 
 /**
  * The CAR MEDIA dialog — opened by pressing a catalog card. Shows the car's
- * REAL uploads (playable videos, openable PDF) from this browser's IndexedDB
- * store, next to the seed example placeholders, and takes new uploads.
- * Native <dialog>, same family pattern as the add/edit dialog below.
+ * REAL uploads (playable videos, openable PDF) — and nothing else — and
+ * takes new uploads. Native <dialog>, same family pattern as the add/edit
+ * dialog below.
  */
 function CarMediaDialog({
   car,
@@ -336,9 +340,7 @@ function CarMediaDialog({
             </div>
 
             {!loaded ? (
-              <p className="cap ws-media-hint">
-                Checking this browser&apos;s saved files…
-              </p>
+              <p className="cap ws-media-hint">{MEDIA_CHECKING}</p>
             ) : videos.length > 0 ? (
               <div className="ws-media-grid">
                 {videos.map((v) => (
@@ -354,7 +356,11 @@ function CarMediaDialog({
                       type="button"
                       className="btn quiet ws-media-remove"
                       aria-label={`Remove the uploaded video ${v.name}`}
-                      onClick={() => void remove(v.id)}
+                      onClick={() =>
+                        void remove(v.id).then((r) => {
+                          if (!r.ok) setUploadError(r.error ?? "Couldn't remove that file.");
+                        })
+                      }
                     >
                       Remove
                     </button>
@@ -363,26 +369,9 @@ function CarMediaDialog({
               </div>
             ) : (
               <p className="cap ws-media-hint">
-                No real videos uploaded yet for this car.
+                No videos yet — the car won&apos;t auto-send until it has at
+                least one.
               </p>
-            )}
-
-            {car.videos.length > 0 && (
-              <div className="ws-media-eg-wrap">
-                <div className="ws-media-eg-row">
-                  {car.videos.map((v, i) => (
-                    <span className="ws-media-eg" key={`${v.fileName}-${i}`}>
-                      <PlayGlyph />
-                      <span className="ws-file-label">{v.label}</span>
-                      <span className="ws-file-name">{v.fileName}</span>
-                    </span>
-                  ))}
-                </div>
-                <p className="ws-media-hint">
-                  Example placeholders — no real file behind them; your real
-                  uploads replace them.
-                </p>
-              </div>
             )}
           </section>
 
@@ -413,9 +402,7 @@ function CarMediaDialog({
             </div>
 
             {!loaded ? (
-              <p className="cap ws-media-hint">
-                Checking this browser&apos;s saved files…
-              </p>
+              <p className="cap ws-media-hint">{MEDIA_CHECKING}</p>
             ) : brochure ? (
               <div className="ws-media-doc">
                 <DocGlyph />
@@ -435,24 +422,14 @@ function CarMediaDialog({
                   type="button"
                   className="btn quiet ws-media-remove"
                   aria-label={`Remove the uploaded brochure ${brochure.name}`}
-                  onClick={() => void remove(brochure.id)}
+                  onClick={() =>
+                    void remove(brochure.id).then((r) => {
+                      if (!r.ok) setUploadError(r.error ?? "Couldn't remove that file.");
+                    })
+                  }
                 >
                   Remove
                 </button>
-              </div>
-            ) : car.brochure ? (
-              <div className="ws-media-eg-wrap">
-                <div className="ws-media-eg-row">
-                  <span className="ws-media-eg" data-doc="true">
-                    <DocGlyph />
-                    <span className="ws-file-label">{car.brochure.label}</span>
-                    <span className="ws-file-name">{car.brochure.fileName}</span>
-                  </span>
-                </div>
-                <p className="ws-media-hint">
-                  Example placeholder — no real file behind it; your real upload
-                  replaces it.
-                </p>
               </div>
             ) : (
               <p className="cap ws-media-hint">
@@ -481,30 +458,18 @@ function CarMediaDialog({
 
 /* ------------------------------------------------------ add / edit dialog --- */
 
-interface VideoRow {
-  label: string;
-  fileName: string;
-}
-
+/** Name, one-liner and aliases only — the ACTUAL videos and brochure are
+ *  uploaded through the car's media dialog, never typed as file names. */
 interface CarFormState {
   name: string;
   oneLiner: string;
   aliases: string; // comma-separated in the box
-  videos: VideoRow[];
-  brochureLabel: string;
-  brochureFile: string;
 }
 
 const EMPTY_FORM: CarFormState = {
   name: "",
   oneLiner: "",
   aliases: "",
-  videos: [
-    { label: "", fileName: "" },
-    { label: "", fileName: "" },
-  ],
-  brochureLabel: "Brochure (PDF)",
-  brochureFile: "",
 };
 
 function formFromCar(car: WaCar): CarFormState {
@@ -512,12 +477,6 @@ function formFromCar(car: WaCar): CarFormState {
     name: car.name,
     oneLiner: car.oneLiner,
     aliases: car.aliases.join(", "),
-    videos:
-      car.videos.length > 0
-        ? car.videos.map((v) => ({ label: v.label, fileName: v.fileName }))
-        : [{ label: "", fileName: "" }],
-    brochureLabel: car.brochure?.label ?? "Brochure (PDF)",
-    brochureFile: car.brochure?.fileName ?? "",
   };
 }
 
@@ -579,14 +538,18 @@ export default function WaSalesClient() {
     const loadUploads = () => {
       listAllFiles().then(async (files) => {
         if (!alive) return;
-        // Files attached to a session-added car (ADD-*) are orphans after a
-        // refresh — the car they belonged to no longer exists and can never
-        // legitimately come back. Delete them so they neither pile up nor
-        // reattach to anything. Seed cars have stable ids and keep theirs.
-        const orphans = files.filter((u) => u.carId.startsWith("ADD-"));
-        if (orphans.length > 0) {
-          await Promise.all(orphans.map((u) => deleteFile(u.id).catch(() => {})));
-          files = files.filter((u) => !u.carId.startsWith("ADD-"));
+        // LOCAL MODE ONLY: files attached to a session-added car (ADD-*) are
+        // orphans after a refresh — the car they belonged to no longer exists
+        // and can never legitimately come back. Delete them so they neither
+        // pile up nor reattach to anything. Seed cars have stable ids and
+        // keep theirs. In storage mode the store refuses uploads for
+        // session-added cars, so there is nothing to sweep.
+        if (!SHARED) {
+          const orphans = files.filter((u) => u.carId.startsWith("ADD-"));
+          if (orphans.length > 0) {
+            await Promise.all(orphans.map((u) => deleteFile(u.id).catch(() => {})));
+            files = files.filter((u) => !u.carId.startsWith("ADD-"));
+          }
         }
         setUploads(
           files.map(({ id, carId, kind, name, size }) => ({
@@ -666,32 +629,26 @@ export default function WaSalesClient() {
 
   /**
    * PURE OVERLAY — matcher.ts is untouched. Before the catalog reaches
-   * decide(), each car's videos/brochure fields are overlaid with the REAL
-   * files uploaded in this browser: uploaded video names FIRST, then the
-   * example placeholders; an uploaded brochure PDF stands in for the example
-   * one. Uploads are additive truth: a car counts as having videos/brochure
-   * when it has EITHER example entries or uploaded files, so readiness, the
-   * missing-asset lines and the simulator verdict all respect uploads.
+   * decide(), each car's videos/brochure fields are REPLACED with the REAL
+   * uploaded files, and nothing else: no uploads means no videos and no
+   * brochure, whatever anyone typed anywhere. Readiness, the missing-asset
+   * lines, the simulator verdict and the would-send chips all count only
+   * files that actually exist.
    */
   const carsForBrain = useMemo<WaCar[]>(
     () =>
       cars.map((car) => {
-        const ups = uploadsByCar[car.id];
-        if (!ups || ups.length === 0) return car;
+        const ups = uploadsByCar[car.id] ?? [];
         const uploadedVideos: WaAsset[] = ups
           .filter((u) => u.kind === "video")
-          .map((u) => ({ label: "Uploaded", fileName: u.name }));
+          .map((u) => ({ label: "Video", fileName: u.name }));
         const uploadedBrochure = ups.find((u) => u.kind === "brochure");
         return {
           ...car,
-          // Real uploads REPLACE the example placeholders (the dialog says
-          // so, and the would-send preview must never promise a video that
-          // has no real file behind it). Examples only count while a car has
-          // no uploads at all.
-          videos: uploadedVideos.length > 0 ? uploadedVideos : car.videos,
+          videos: uploadedVideos,
           brochure: uploadedBrochure
-            ? { label: "Uploaded (PDF)", fileName: uploadedBrochure.name }
-            : car.brochure,
+            ? { label: "Brochure (PDF)", fileName: uploadedBrochure.name }
+            : null,
         };
       }),
     [cars, uploadsByCar]
@@ -725,8 +682,8 @@ export default function WaSalesClient() {
         reason: "Type a message above (or tap a quick try) to see what the brain would do.",
       } as Decision;
     }
-    // The overlaid catalog: same cars, same aliases, same matcher — only the
-    // videos/brochure fields carry the real uploads on top of the examples.
+    // The overlaid catalog: same cars, same aliases, same matcher — the
+    // videos/brochure fields carry ONLY the real uploads.
     return decide({ ...simRun, autoSendEnabled: autoSend }, carsForBrain);
   }, [simRun, autoSend, carsForBrain]);
 
@@ -813,35 +770,13 @@ export default function WaSalesClient() {
   }, [dlgCarId]);
 
   const setField = useCallback(
-    (key: "name" | "oneLiner" | "aliases" | "brochureLabel" | "brochureFile") =>
+    (key: "name" | "oneLiner" | "aliases") =>
       (e: ChangeEvent<HTMLInputElement>) => {
         const value = e.target.value;
         setForm((f) => ({ ...f, [key]: value }));
       },
     []
   );
-
-  const setVideoField = useCallback(
-    (index: number, key: keyof VideoRow) =>
-      (e: ChangeEvent<HTMLInputElement>) => {
-        const value = e.target.value;
-        setForm((f) => ({
-          ...f,
-          videos: f.videos.map((v, i) =>
-            i === index ? { ...v, [key]: value } : v
-          ),
-        }));
-      },
-    []
-  );
-
-  const addVideoRow = useCallback(() => {
-    setForm((f) => ({ ...f, videos: [...f.videos, { label: "", fileName: "" }] }));
-  }, []);
-
-  const removeVideoRow = useCallback((index: number) => {
-    setForm((f) => ({ ...f, videos: f.videos.filter((_, i) => i !== index) }));
-  }, []);
 
   const submitCar = useCallback(
     (e: FormEvent) => {
@@ -855,17 +790,10 @@ export default function WaSalesClient() {
         .split(",")
         .map((a) => a.trim().toLowerCase())
         .filter((a, i, arr) => a !== "" && arr.indexOf(a) === i);
-      const videos: WaAsset[] = form.videos
-        .map((v) => ({ label: v.label.trim(), fileName: v.fileName.trim() }))
-        .filter((v) => v.fileName !== "")
-        .map((v) => ({ label: v.label || "Video", fileName: v.fileName }));
-      const brochure: WaAsset | null =
-        form.brochureFile.trim() !== ""
-          ? {
-              label: form.brochureLabel.trim() || "Brochure",
-              fileName: form.brochureFile.trim(),
-            }
-          : null;
+      // Media is NEVER typed as file names — a car starts with none and gets
+      // its real videos and brochure through the media dialog uploads.
+      const videos: WaAsset[] = [];
+      const brochure: WaAsset | null = null;
       const oneLiner = form.oneLiner.trim();
 
       if (dlgCarId === "new") {
@@ -1021,9 +949,10 @@ export default function WaSalesClient() {
             <p className="ws-foot">
               Adding or editing cars, aliases and switches updates this screen
               only — refreshing the page resets them. Uploaded videos and
-              brochures are the one exception: they are real files, saved in
-              this browser on this computer, and they survive a refresh — they
-              move to shared team storage when WhatsApp is connected.
+              brochures are the one exception: they are real files.{" "}
+              {SHARED
+                ? "Files are shared — everyone with this dashboard sees the same catalog."
+                : "They are saved in this browser on this computer and survive a refresh — they move to shared team storage when WhatsApp is connected."}
             </p>
           </div>
         )}
@@ -1076,13 +1005,14 @@ export default function WaSalesClient() {
             ) : (
               <div className="ws-grid">
                 {cars.map((car) => {
-                  // The overlaid car carries uploads on top of the examples —
-                  // the missing-asset line and readiness respect real uploads.
+                  // The overlaid car carries ONLY real uploads — the
+                  // missing-asset line and readiness count nothing else.
                   const eff = brainCarById.get(car.id) ?? car;
                   const missing: string[] = [];
                   if (eff.videos.length === 0) missing.push("videos");
-                  if (!eff.brochure) missing.push("brochure");
-                  const uploadCount = (uploadsByCar[car.id] ?? []).length;
+                  if (!eff.brochure) missing.push("its brochure");
+                  const carUploads = uploadsByCar[car.id] ?? [];
+                  const uploadCount = carUploads.length;
                   return (
                     <article
                       className="card ws-card ws-card--press"
@@ -1125,27 +1055,39 @@ export default function WaSalesClient() {
                         </span>
                       </div>
 
-                      <div className="ws-assets">
-                        {car.videos.map((v, i) => (
-                          <span className="ws-file" key={`${v.fileName}-${i}`}>
-                            <PlayGlyph />
-                            <span className="ws-file-label">{v.label}</span>
-                            <span className="ws-file-name">{v.fileName}</span>
+                      {uploadCount > 0 ? (
+                        <>
+                          {/* REAL uploaded file names only — up to 3 + the rest counted. */}
+                          <div className="ws-assets">
+                            {carUploads.slice(0, 3).map((u) => (
+                              <span
+                                className="ws-file"
+                                data-doc={u.kind === "brochure" ? "true" : undefined}
+                                key={u.id}
+                              >
+                                {u.kind === "brochure" ? <DocGlyph /> : <PlayGlyph />}
+                                <span className="ws-file-name">{u.name}</span>
+                              </span>
+                            ))}
+                            {uploadCount > 3 && (
+                              <span className="ws-file">
+                                <span className="ws-file-label">
+                                  +{uploadCount - 3} more
+                                </span>
+                              </span>
+                            )}
+                          </div>
+                          <span className="tag ws-up-tag">
+                            {uploadCount} uploaded —{" "}
+                            {SHARED
+                              ? "shared with the team"
+                              : "saved in this browser"}
                           </span>
-                        ))}
-                        {car.brochure && (
-                          <span className="ws-file" data-doc="true">
-                            <DocGlyph />
-                            <span className="ws-file-label">{car.brochure.label}</span>
-                            <span className="ws-file-name">{car.brochure.fileName}</span>
-                          </span>
-                        )}
-                      </div>
-
-                      {uploadCount > 0 && (
-                        <span className="tag ws-up-tag">
-                          {uploadCount} uploaded — saved in this browser
-                        </span>
+                        </>
+                      ) : (
+                        <p className="cap ws-nofiles">
+                          No files yet — press to add videos and the brochure.
+                        </p>
                       )}
 
                       {missing.length > 0 && (
@@ -1319,7 +1261,7 @@ export default function WaSalesClient() {
           until the WhatsApp Business number is connected.
         </p>
 
-        {/* Car media dialog — the car's real uploads + example placeholders. */}
+        {/* Car media dialog — the car's real uploads, nothing else. */}
         <CarMediaDialog car={mediaCar} onClose={closeMedia} />
 
         {/* Add / edit dialog — native <dialog> for focus trap + Esc. */}
@@ -1374,58 +1316,11 @@ export default function WaSalesClient() {
               </label>
 
               <div className="ws-field">
-                <span className="ws-label">Videos</span>
-                <div className="ws-dlg-videos">
-                  {form.videos.map((v, i) => (
-                    <div className="ws-dlg-video-row" key={i}>
-                      <input
-                        value={v.label}
-                        onChange={setVideoField(i, "label")}
-                        placeholder="Label — e.g. Walkaround"
-                        aria-label={`Video ${i + 1} label`}
-                      />
-                      <input
-                        value={v.fileName}
-                        onChange={setVideoField(i, "fileName")}
-                        placeholder="file — e.g. passion-l-walkaround.mp4"
-                        aria-label={`Video ${i + 1} file name`}
-                      />
-                      <button
-                        type="button"
-                        className="btn quiet ws-dlg-row-x"
-                        aria-label={`Remove video row ${i + 1}`}
-                        onClick={() => removeVideoRow(i)}
-                      >
-                        <XGlyph />
-                      </button>
-                    </div>
-                  ))}
-                  <button type="button" className="btn ws-dlg-addrow" onClick={addVideoRow}>
-                    <PlusGlyph />
-                    Add a video
-                  </button>
-                </div>
-              </div>
-
-              <div className="ws-field">
-                <span className="ws-label">Brochure</span>
-                <div className="ws-dlg-video-row" data-nobtn="true">
-                  <input
-                    value={form.brochureLabel}
-                    onChange={setField("brochureLabel")}
-                    placeholder="Label — e.g. Brochure (PDF)"
-                    aria-label="Brochure label"
-                  />
-                  <input
-                    value={form.brochureFile}
-                    onChange={setField("brochureFile")}
-                    placeholder="file — e.g. passion-l-brochure.pdf"
-                    aria-label="Brochure file name"
-                  />
-                </div>
+                <span className="ws-label">Videos &amp; brochure</span>
                 <p className="cap ws-dlg-cap" style={{ margin: 0 }}>
-                  Leave the file empty if there is no brochure yet — the car
-                  simply won&apos;t auto-send until it has one.
+                  Upload the actual files by pressing the car&apos;s card — no
+                  file names are typed here. The car won&apos;t auto-send until
+                  it has at least one video and its brochure.
                 </p>
               </div>
 
