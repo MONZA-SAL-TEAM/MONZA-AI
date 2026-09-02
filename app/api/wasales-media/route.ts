@@ -190,8 +190,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     .from(BUCKET)
     .createSignedUploadUrl(path);
   if (error || !data?.token) {
+    // The storage service's own message (never any key material) — needed to
+    // tell a bad key from a missing bucket from a policy problem.
     return NextResponse.json(
-      { error: "Couldn't prepare the upload — please try again." },
+      {
+        error: "Couldn't prepare the upload — please try again.",
+        storageSaid: error ? String(error.message ?? error) : "no token returned",
+      },
       { status: 500 }
     );
   }
