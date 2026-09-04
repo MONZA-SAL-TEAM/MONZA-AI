@@ -320,28 +320,10 @@ export const SALES_MANIFEST: SalesManifest = {
           "aliases": [
             "black"
           ],
-          "videos": [
-            {
-              "fileName": "Crafted to stand apart. The all-new Voyah Passion L in Black with a Grey interior.#voyah #voyahl.mp4",
-              "bytes": 3716029
-            }
-          ]
-        },
-        {
-          "id": "white",
-          "name": "White",
-          "aliases": [
-            "white"
-          ],
-          "videos": [
-            {
-              "fileName": "Pearly white elegance, electrifying power & the freedom to explore.Explore the Voyah Passion wit.mp4",
-              "bytes": 3566131
-            }
-          ]
+          "videos": []
         }
       ],
-      "readyToSend": true
+      "readyToSend": false
     },
     {
       "id": "voyah-passion-l",
@@ -444,6 +426,6 @@ export const SALES_MANIFEST: SalesManifest = {
   "warnings": [
     "Mhero 1 / Black: folder is empty — cannot be offered.",
     "Voyah Dream: videos are not in colour folders — treated as one option with no colour choice.",
-    "THE SAME VIDEO IS IN Voyah Passion / Black AND Voyah Passion L / Black — \"Crafted to stand apart. The all-new Voyah Passion L in Black with a Grey interior.#voyah #voyahl.mp4\". One of them is the wrong car; only you know which."
+    "Voyah Passion / Black: folder is empty — cannot be offered."
   ]
 };

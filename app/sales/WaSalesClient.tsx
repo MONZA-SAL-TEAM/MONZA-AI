@@ -225,6 +225,18 @@ function Switch({
 /* ------------------------------------------------------- car media dialog --- */
 
 /** "12.4 MB", "830 KB" — deterministic, plain. */
+/**
+ * The colour a stored video belongs to, in words.
+ *
+ * Falls back to the raw id rather than hiding an unknown: a video filed under
+ * a colour the catalogue no longer lists is exactly the thing somebody needs
+ * to see, and printing nothing would make it look correctly filed.
+ */
+function colourNameOf(car: WaCar, colourId: string | null): string {
+  if (!colourId) return "No colour";
+  return car.colours.find((c) => c.id === colourId)?.name ?? colourId;
+}
+
 function formatSize(bytes: number): string {
   const kb = 1024;
   const mb = kb * 1024;
@@ -250,6 +262,16 @@ function CarMediaDialog({
 }) {
   const dlgRef = useRef<HTMLDialogElement | null>(null);
   const { loaded, videos, brochure, add, remove } = useCarMedia(car?.id ?? null);
+
+  /**
+   * Which colour the next uploaded video shows.
+   *
+   * A video has to say this — the flow sends "the colour they asked for", so a
+   * video filed under no colour could never be sent. Defaulting to the car's
+   * first colour keeps the common case one click, and the picker sits next to
+   * the button so it is impossible to upload without having seen it.
+   */
+  const [uploadColour, setUploadColour] = useState<string>("");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
@@ -282,10 +304,11 @@ function CarMediaDialog({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  // A fresh car gets a fresh error slate.
+  // A fresh car gets a fresh error slate and its own first colour.
   useEffect(() => {
     setUploadError(null);
-  }, [car?.id]);
+    setUploadColour(car?.colours[0]?.id ?? "");
+  }, [car?.id, car?.colours]);
 
   const uploadFiles = useCallback(
     async (kind: MediaKind, files: File[]) => {
@@ -294,13 +317,13 @@ function CarMediaDialog({
       setBusy(true);
       const errors: string[] = [];
       for (const f of files) {
-        const result = await add(kind, f);
+        const result = await add(kind, kind === "video" ? uploadColour : null, f);
         if (!result.ok) errors.push(`${f.name}: ${result.error}`);
       }
       setBusy(false);
       if (errors.length > 0) setUploadError(errors.join(" "));
     },
-    [add]
+    [add, uploadColour]
   );
 
   const onVideoPick = useCallback(
@@ -350,11 +373,35 @@ function CarMediaDialog({
           <section className="ws-media-sec" aria-label={`Videos for ${car.name}`}>
             <div className="ws-media-sec-head">
               <h3 className="eyebrow ws-media-sec-title">Videos</h3>
+              <label className="ws-media-colour">
+                <span className="cap">Colour</span>
+                <select
+                  value={uploadColour}
+                  onChange={(e) => setUploadColour(e.target.value)}
+                  disabled={busy || car.colours.length === 0}
+                  aria-label={`Which colour the next ${car.name} video shows`}
+                >
+                  {car.colours.length === 0 ? (
+                    <option value="">No colours yet</option>
+                  ) : (
+                    car.colours.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
               <button
                 type="button"
                 className="btn ws-media-upload-btn"
                 onClick={() => videoInputRef.current?.click()}
-                disabled={busy}
+                disabled={busy || uploadColour === ""}
+                title={
+                  uploadColour === ""
+                    ? "This car has no colours yet — import the sales folder first."
+                    : undefined
+                }
               >
                 <PlusGlyph />
                 Upload video
@@ -381,7 +428,9 @@ function CarMediaDialog({
                       <span className="ws-media-name" title={v.name}>
                         {v.name}
                       </span>
-                      <span className="ws-media-size">{formatSize(v.size)}</span>
+                      <span className="ws-media-size">
+                        {colourNameOf(car, v.colourId)} · {formatSize(v.size)}
+                      </span>
                     </figcaption>
                     <button
                       type="button"

@@ -24,17 +24,23 @@ import {
 } from "@/lib/wasales/media-paths";
 
 describe("parseMediaPath accepts only well-formed paths", () => {
-  test("a normal upload path parses into its three parts", () => {
-    const p = parseMediaPath("voyah-free/video/abc123__walkaround.mp4");
-    assert.deepEqual(p, {
+  test("a normal upload path parses into its parts", () => {
+    assert.deepEqual(parseMediaPath("voyah-free/video/black/abc123__walkaround.mp4"), {
       carId: "voyah-free",
       kind: "video",
+      colourId: "black",
       objectName: "abc123__walkaround.mp4",
+    });
+    assert.deepEqual(parseMediaPath("voyah-free/brochure/abc123__cat.pdf"), {
+      carId: "voyah-free",
+      kind: "brochure",
+      colourId: null,
+      objectName: "abc123__cat.pdf",
     });
   });
 
   test("both kinds are recognised and nothing else is", () => {
-    assert.ok(parseMediaPath("car/video/a.mp4"));
+    assert.ok(parseMediaPath("car/video/black/a.mp4"));
     assert.ok(parseMediaPath("car/brochure/a.pdf"));
     assert.equal(parseMediaPath("car/photo/a.jpg"), null);
     assert.equal(parseMediaPath("car/VIDEO/a.mp4"), null);
@@ -54,6 +60,10 @@ describe("parseMediaPath refuses traversal", () => {
     "car//video/x.mp4",
     "car/video/x.mp4/",
     "car/video/sub/dir/x.mp4",
+    // The same attacks, now wearing a colour segment.
+    "car/video/black/../x.mp4",
+    "car/video/black/sub/x.mp4",
+    "car/video/black/",
   ];
 
   for (const attack of attacks) {
@@ -70,7 +80,7 @@ describe("parseMediaPath refuses traversal", () => {
 
   test("refuses a dot-only or dot-leading object name", () => {
     assert.equal(parseMediaPath("car/video/..."), null);
-    assert.equal(parseMediaPath("car/video/.hidden.mp4"), null);
+    assert.equal(parseMediaPath("car/video/black/.hidden.mp4"), null);
   });
 });
 
@@ -83,11 +93,11 @@ describe("parseMediaPath refuses malformed input", () => {
 
   test("an empty or over-long path is refused", () => {
     assert.equal(parseMediaPath(""), null);
-    assert.equal(parseMediaPath(`car/video/${"a".repeat(400)}.mp4`), null);
+    assert.equal(parseMediaPath(`car/video/black/${"a".repeat(400)}.mp4`), null);
   });
 
   test("an over-long car id is refused", () => {
-    assert.equal(parseMediaPath(`${"c".repeat(65)}/video/a.mp4`), null);
+    assert.equal(parseMediaPath(`${"c".repeat(65)}/video/black/a.mp4`), null);
   });
 });
 
@@ -109,7 +119,7 @@ describe("car ids", () => {
 
 describe("checkUpload — the type and extension must agree", () => {
   test("a valid video upload passes", () => {
-    const r = checkUpload("car/video/u__clip.mp4", "video/mp4");
+    const r = checkUpload("car/video/black/u__clip.mp4", "video/mp4");
     assert.equal(r.ok, true);
   });
 
@@ -119,7 +129,7 @@ describe("checkUpload — the type and extension must agree", () => {
   });
 
   test("a PDF declared as video is refused", () => {
-    const r = checkUpload("car/video/u__spec.pdf", "video/mp4");
+    const r = checkUpload("car/video/black/u__spec.pdf", "video/mp4");
     assert.equal(r.ok, false);
   });
 
@@ -135,7 +145,7 @@ describe("checkUpload — the type and extension must agree", () => {
 
   test("an extension that disagrees with the declared type is refused", () => {
     // .mov with video/mp4: both are individually allowed, together they lie.
-    const r = checkUpload("car/video/u__clip.mov", "video/mp4");
+    const r = checkUpload("car/video/black/u__clip.mov", "video/mp4");
     assert.equal(r.ok, false);
   });
 
@@ -148,7 +158,7 @@ describe("checkUpload — the type and extension must agree", () => {
       "",
     ]) {
       assert.equal(
-        checkUpload("car/video/u__clip.mp4", type).ok,
+        checkUpload("car/video/black/u__clip.mp4", type).ok,
         false,
         type || "(empty)"
       );
@@ -156,7 +166,7 @@ describe("checkUpload — the type and extension must agree", () => {
   });
 
   test("the content type is matched case-insensitively and trimmed", () => {
-    assert.equal(checkUpload("car/video/u__c.mp4", " VIDEO/MP4 ").ok, true);
+    assert.equal(checkUpload("car/video/black/u__c.mp4", " VIDEO/MP4 ").ok, true);
   });
 
   test("a traversal path is refused before the type is even considered", () => {
@@ -198,14 +208,14 @@ describe("names", () => {
     // name containing separators.
     const name = safeObjectName("../../etc/passwd");
     assert.ok(!name.includes("/"), name);
-    assert.notEqual(parseMediaPath(`car/video/${name}`), null);
+    assert.notEqual(parseMediaPath(`car/video/black/${name}`), null);
   });
 
   test("safeObjectName always returns something a path can hold", () => {
     for (const input of ["", "...", "///", "!!!"]) {
       const name = safeObjectName(input);
       assert.ok(
-        parseMediaPath(`car/video/${name}`) !== null,
+        parseMediaPath(`car/video/black/${name}`) !== null,
         `${JSON.stringify(input)} produced ${JSON.stringify(name)}`
       );
     }
@@ -214,7 +224,7 @@ describe("names", () => {
   test("safeObjectName collapses underscore runs so the display split holds", () => {
     // The display name is everything after the FIRST "__" — a name that
     // introduced its own "__" would make that split ambiguous.
-    const built = buildMediaPath("car", "video", "uuid", "my__file.mp4");
+    const built = buildMediaPath("car", "video", "black", "uuid", "my__file.mp4");
     const parsed = parseMediaPath(built);
     assert.ok(parsed);
     assert.equal(displayNameOf(parsed.objectName), "my_file.mp4");
@@ -228,7 +238,7 @@ describe("names", () => {
       "..\\..\\windows\\system32.mp4",
       "a".repeat(300) + ".mp4",
     ]) {
-      const built = buildMediaPath("voyah-free", "video", "abc", name);
+      const built = buildMediaPath("voyah-free", "video", "grey", "abc", name);
       assert.notEqual(parseMediaPath(built), null, name.slice(0, 30));
     }
   });
@@ -239,5 +249,80 @@ describe("names", () => {
 
   test("mediaPrefix builds the listing prefix", () => {
     assert.equal(mediaPrefix("voyah-free", "brochure"), "voyah-free/brochure");
+    assert.equal(mediaPrefix("voyah-free", "video"), "voyah-free/video");
+    assert.equal(
+      mediaPrefix("voyah-free", "video", "black"),
+      "voyah-free/video/black"
+    );
+  });
+});
+
+/**
+ * THE COLOUR SEGMENT.
+ *
+ * A video says which colour it shows, in the path, because the sales flow
+ * sends "the colour the customer asked for" and can only do that if every
+ * stored video is attributable to one. A brochure says nothing, because one
+ * PDF covers every colour — filing it under a colour would silently create as
+ * many brochures as there are colours, each looking authoritative.
+ *
+ * Both halves are enforced in parseMediaPath, so no caller can opt out.
+ */
+describe("colour in the path", () => {
+  test("a video path carries its colour, and it round-trips", () => {
+    const parsed = parseMediaPath("voyah-taishan/video/blue/id__clip.mp4");
+    assert.ok(parsed);
+    assert.equal(parsed.carId, "voyah-taishan");
+    assert.equal(parsed.kind, "video");
+    assert.equal(parsed.colourId, "blue");
+    assert.equal(parsed.objectName, "id__clip.mp4");
+  });
+
+  test("a video with NO colour is refused", () => {
+    // The old three-segment shape. There is no migration to worry about: the
+    // bucket was empty when the colour became required.
+    assert.equal(parseMediaPath("voyah-taishan/video/id__clip.mp4"), null);
+  });
+
+  test("a brochure never carries a colour", () => {
+    const parsed = parseMediaPath("voyah-taishan/brochure/id__cat.pdf");
+    assert.ok(parsed);
+    assert.equal(parsed.colourId, null);
+    // ...and one filed under a colour is refused outright.
+    assert.equal(parseMediaPath("voyah-taishan/brochure/blue/id__cat.pdf"), null);
+  });
+
+  test("the colour segment cannot be used to escape the bucket", () => {
+    for (const bad of [
+      "car/video/../id__c.mp4",
+      "car/video/./id__c.mp4",
+      "car/video//id__c.mp4",
+      "car/video/a b/id__c.mp4",
+      "car/video/a.b/id__c.mp4",
+      "car/video/" + "x".repeat(65) + "/id__c.mp4",
+      "car/video/black/extra/id__c.mp4",
+    ]) {
+      assert.equal(parseMediaPath(bad), null, bad);
+    }
+  });
+
+  test("buildMediaPath puts a video under its colour and a brochure beside it", () => {
+    assert.equal(
+      buildMediaPath("mhero-2", "video", "green", "u1", "walk.mp4"),
+      "mhero-2/video/green/u1__walk.mp4"
+    );
+    assert.equal(
+      buildMediaPath("mhero-2", "brochure", null, "u2", "cat.pdf"),
+      "mhero-2/brochure/u2__cat.pdf"
+    );
+  });
+
+  test("every built video path parses back to the colour it was built with", () => {
+    for (const colour of ["black", "grey", "sage", "passion-l", "a", "x".repeat(64)]) {
+      const built = buildMediaPath("car", "video", colour, "u", "clip.mp4");
+      const parsed = parseMediaPath(built);
+      assert.ok(parsed, colour);
+      assert.equal(parsed.colourId, colour);
+    }
   });
 });

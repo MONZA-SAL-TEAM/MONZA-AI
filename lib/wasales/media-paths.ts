@@ -10,11 +10,29 @@
  * Pure and deterministic: no I/O, no Date, no randomness. Everything here is
  * directly testable.
  *
- * Object path scheme:   <carId>/<video|brochure>/<objectName>
+ * Object path scheme:
+ *
+ *     video     <carId>/video/<colourId>/<objectName>
+ *     brochure  <carId>/brochure/<objectName>
+ *
  *   carId       1–64 of [A-Za-z0-9_-]   — no dots and no slashes, so neither
  *                                          "." nor ".." can ever be a segment
+ *   colourId    1–64 of [A-Za-z0-9_-]   — same rule, same reason
  *   objectName  1–200 of [A-Za-z0-9_.-] — no slashes; may not start with a dot
  *                                          and may not be dots only
+ *
+ * WHY A VIDEO CARRIES ITS COLOUR IN THE PATH. The sales flow asks which colour
+ * the customer wants and then sends that colour's videos. It can only do that
+ * if every stored video says which colour it shows, and the storage layout is
+ * the one place that cannot drift from the file itself — a database column
+ * describing an object in a bucket can go stale; a path cannot.
+ *
+ * So the colour is REQUIRED for videos and REFUSED for brochures. A brochure
+ * is colour-independent (one PDF per car, covering every colour), and letting
+ * one sit under a colour would quietly create as many "different" brochures as
+ * there are colours. Both halves of that rule are enforced in parseMediaPath,
+ * which means a video with no colour cannot exist in the bucket — not by
+ * convention, but because no code can build a path for one.
  *
  * The stored object name is "<uuid>__<safeOriginalName>"; the name shown to
  * people is the part after the first "__".
@@ -55,11 +73,15 @@ export const CONTENT_TYPE_BY_EXTENSION: Readonly<Record<string, string>> = {
 };
 
 const CAR_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+/** Colour ids obey the same rule as car ids, for the same safety reason. */
+const COLOUR_ID_RE = CAR_ID_RE;
 const OBJECT_NAME_RE = /^[A-Za-z0-9_.-]{1,200}$/;
 
 export interface ParsedMediaPath {
   carId: string;
   kind: MediaKindName;
+  /** Which colour this video shows. Always null for a brochure. */
+  colourId: string | null;
   objectName: string;
 }
 
@@ -79,32 +101,67 @@ export function isValidCarId(carId: string): boolean {
   return CAR_ID_RE.test(carId);
 }
 
+/** True when the id is safe to use as a colour path segment. */
+export function isValidColourId(colourId: string): boolean {
+  return COLOUR_ID_RE.test(colourId);
+}
+
 /**
- * Parse and validate a full object path. Returns null for anything that is not
- * exactly three well-formed segments — which is what makes traversal
- * ("../", "..%2F", "a/../../b") impossible rather than merely unlikely.
+ * Parse and validate a full object path.
+ *
+ * Returns null for anything that is not an exactly-shaped path — four
+ * well-formed segments for a video, three for a brochure. Every segment is
+ * matched against a character class with no dot and no slash in it, which is
+ * what makes traversal ("../", "..%2F", "a/../../b") impossible rather than
+ * merely unlikely.
+ *
+ * The video/brochure asymmetry is deliberate and is the whole point: a video
+ * MUST name its colour, a brochure MUST NOT. Anything else is refused here, so
+ * the rule holds for every caller at once rather than being re-remembered in
+ * each of them.
  */
 export function parseMediaPath(path: unknown): ParsedMediaPath | null {
   if (typeof path !== "string") return null;
   if (path.length === 0 || path.length > 300) return null;
 
   const parts = path.split("/");
-  if (parts.length !== 3) return null;
+  if (parts.length < 3 || parts.length > 4) return null;
 
-  const [carId, kind, objectName] = parts;
+  const [carId, kind] = parts;
   if (!isValidCarId(carId)) return null;
   if (kind !== "video" && kind !== "brochure") return null;
+
+  // A video names its colour; a brochure covers every colour and names none.
+  const wantsColour = kind === "video";
+  if (wantsColour !== (parts.length === 4)) return null;
+
+  const colourId = wantsColour ? parts[2] : null;
+  if (colourId !== null && !isValidColourId(colourId)) return null;
+
+  const objectName = parts[parts.length - 1];
   if (!OBJECT_NAME_RE.test(objectName)) return null;
   // A name of only dots, or a leading dot, is never a real upload.
   if (objectName.startsWith(".")) return null;
   if (/^\.+$/.test(objectName)) return null;
 
-  return { carId, kind, objectName };
+  return { carId, kind, colourId, objectName };
 }
 
-/** The storage prefix holding one car's files of one kind. */
-export function mediaPrefix(carId: string, kind: MediaKindName): string {
-  return `${carId}/${kind}`;
+/**
+ * The storage prefix holding one car's files of one kind.
+ *
+ * For videos a colour narrows it to that colour's own folder; omitting the
+ * colour gives the parent, whose immediate children are FOLDERS rather than
+ * files — callers listing it must descend, not expect objects.
+ */
+export function mediaPrefix(
+  carId: string,
+  kind: MediaKindName,
+  colourId?: string | null
+): string {
+  return kind === "video" && colourId
+    ? `${carId}/video/${colourId}`
+    : `${carId}/${kind}`;
 }
 
 export type UploadCheck =
@@ -186,8 +243,12 @@ export function displayNameOf(objectName: string): string {
 export function buildMediaPath(
   carId: string,
   kind: MediaKindName,
+  colourId: string | null,
   uniquePrefix: string,
   originalName: string
 ): string {
-  return `${carId}/${kind}/${uniquePrefix}__${safeObjectName(originalName)}`;
+  const name = `${uniquePrefix}__${safeObjectName(originalName)}`;
+  return kind === "video"
+    ? `${carId}/video/${colourId}/${name}`
+    : `${carId}/brochure/${name}`;
 }

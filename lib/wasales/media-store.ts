@@ -45,6 +45,8 @@ import {
   displayNameOf,
   extensionOf,
   isValidCarId,
+  isValidColourId,
+  mediaPrefix,
 } from "@/lib/wasales/media-paths";
 
 /* ---------------------------------------------------------------- types --- */
@@ -58,6 +60,8 @@ export interface StoredMediaFile {
   id: string;
   carId: string;
   kind: MediaKind;
+  /** Which colour a video shows; always null for a brochure. */
+  colourId: string | null;
   /** The ORIGINAL file name, as shown on cards and chips. */
   name: string;
   /** MIME type ("" when unknown). */
@@ -72,6 +76,8 @@ export interface CarMediaItem {
   id: string;
   carId: string;
   kind: MediaKind;
+  /** Which colour a video shows; always null for a brochure. */
+  colourId: string | null;
   name: string;
   type: string;
   size: number;
@@ -301,18 +307,43 @@ interface RawEntry {
 }
 
 /** List one <carId>/<kind> prefix of the shared bucket. Fails soft: []. */
-async function listPrefixStorage(
-  carId: string,
-  kind: MediaKind
-): Promise<StoredMediaFile[]> {
+/** The immediate child FOLDER names under a prefix (Supabase marks them with
+ *  a null id and no metadata — the same signal we skip when listing files). */
+async function listFolderNames(prefix: string): Promise<string[]> {
   try {
     const sb = getStorageClient();
     const { data, error } = await sb.storage
       .from(BUCKET)
-      .list(`${carId}/${kind}`, {
-        limit: 100,
-        sortBy: { column: "created_at", order: "asc" },
-      });
+      .list(prefix, { limit: 200, sortBy: { column: "name", order: "asc" } });
+    if (error || !Array.isArray(data)) return [];
+    return (data as RawEntry[])
+      .filter((raw) => raw.id === null || raw.id === undefined)
+      .map((raw) => (typeof raw.name === "string" ? raw.name : ""))
+      .filter((name) => name !== "" && !name.startsWith("."));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The files sitting directly under one prefix.
+ *
+ * `colourId` is what the caller already knows about where it is looking — it
+ * is recorded on each record rather than parsed back out of the path, so the
+ * colour a file reports is the folder it was actually found in.
+ */
+async function listPrefixStorage(
+  carId: string,
+  kind: MediaKind,
+  colourId: string | null
+): Promise<StoredMediaFile[]> {
+  try {
+    const sb = getStorageClient();
+    const prefix = mediaPrefix(carId, kind, colourId);
+    const { data, error } = await sb.storage.from(BUCKET).list(prefix, {
+      limit: 100,
+      sortBy: { column: "created_at", order: "asc" },
+    });
     if (error || !Array.isArray(data)) return [];
     const out: StoredMediaFile[] = [];
     for (const raw of data as RawEntry[]) {
@@ -325,11 +356,12 @@ async function listPrefixStorage(
         raw.metadata && typeof raw.metadata === "object"
           ? (raw.metadata as Record<string, unknown>)
           : {};
-      const path = `${carId}/${kind}/${name}`;
+      const path = `${prefix}/${name}`;
       out.push({
         id: path,
         carId,
         kind,
+        colourId: kind === "video" ? colourId : null,
         name: displayNameOf(name),
         type: typeof meta.mimetype === "string" ? meta.mimetype : "",
         size: typeof meta.size === "number" ? meta.size : 0,
@@ -342,12 +374,20 @@ async function listPrefixStorage(
   }
 }
 
+/**
+ * One car's files. Videos live a level deeper than brochures — under a folder
+ * per colour — so this discovers the colours that actually exist in the bucket
+ * rather than asking the catalogue what it expects. A colour somebody uploaded
+ * before the catalogue knew about it still shows up; a catalogue colour with
+ * nothing in it costs no request.
+ */
 async function listFilesStorage(carId: string): Promise<StoredMediaFile[]> {
-  const [videos, brochures] = await Promise.all([
-    listPrefixStorage(carId, "video"),
-    listPrefixStorage(carId, "brochure"),
+  const colourIds = await listFolderNames(`${carId}/video`);
+  const [brochures, ...videoLists] = await Promise.all([
+    listPrefixStorage(carId, "brochure", null),
+    ...colourIds.map((colourId) => listPrefixStorage(carId, "video", colourId)),
   ]);
-  return [...videos, ...brochures];
+  return [...videoLists.flat(), ...brochures];
 }
 
 async function listAllFilesStorage(): Promise<StoredMediaFile[]> {
@@ -368,6 +408,7 @@ async function listAllFilesStorage(): Promise<StoredMediaFile[]> {
 async function addFileStorage(
   carId: string,
   kind: MediaKind,
+  colourId: string | null,
   file: File
 ): Promise<AddFileResult> {
   // Session-added cars reset on refresh, so their files would sit orphaned
@@ -380,6 +421,15 @@ async function addFileStorage(
       ok: false,
       error:
         "This car lives on this screen only until the live catalog is connected — files can be uploaded to the catalog cars for now.",
+    };
+  }
+  // A video without a colour has nowhere correct to go: the sales flow sends
+  // "this colour's videos", so an uncoloured one could never be sent and would
+  // sit in the bucket looking like material we have. Refuse it at the door.
+  if (kind === "video" && (!colourId || !isValidColourId(colourId))) {
+    return {
+      ok: false,
+      error: "Pick which colour this video shows before uploading it.",
     };
   }
   if (file.size > STORAGE_MAX_BYTES) {
@@ -414,7 +464,13 @@ async function addFileStorage(
     };
   }
 
-  const path = buildMediaPath(carId, kind, makeId(file.name, file.size), file.name);
+  const path = buildMediaPath(
+    carId,
+    kind,
+    kind === "video" ? colourId : null,
+    makeId(file.name, file.size),
+    file.name
+  );
 
   const res = await postApi({ action: "sign-upload", path, contentType });
   if (!res) {
@@ -474,6 +530,7 @@ async function addFileStorage(
       id: path,
       carId,
       kind,
+      colourId: kind === "video" ? colourId : null,
       name: file.name,
       type: contentType,
       size: file.size,
@@ -511,6 +568,7 @@ async function deleteFileStorage(path: string): Promise<{ ok: boolean; error?: s
 async function addFileLocal(
   carId: string,
   kind: MediaKind,
+  colourId: string | null,
   file: File
 ): Promise<AddFileResult> {
   if (file.size > LOCAL_MAX_BYTES) {
@@ -536,6 +594,7 @@ async function addFileLocal(
     id: makeId(file.name, file.size),
     carId,
     kind,
+    colourId: kind === "video" ? colourId : null,
     name: file.name,
     type: file.type || "",
     size: file.size,
@@ -631,11 +690,12 @@ async function deleteFileLocal(id: string): Promise<void> {
 export async function addFile(
   carId: string,
   kind: MediaKind,
+  colourId: string | null,
   file: File
 ): Promise<AddFileResult> {
   return storageMode()
-    ? addFileStorage(carId, kind, file)
-    : addFileLocal(carId, kind, file);
+    ? addFileStorage(carId, kind, colourId, file)
+    : addFileLocal(carId, kind, colourId, file);
 }
 
 /** All stored files for one car. Fails soft: an unavailable store yields []. */
@@ -664,10 +724,24 @@ export interface CarMediaState {
   loaded: boolean;
   /** Uploaded videos for the car, each with a playable URL. */
   videos: CarMediaItem[];
+  /**
+   * How many uploaded videos each colour has, keyed by colour id — the shape
+   * the sales flow's CarMedia takes, so the screen can show what would really
+   * be sent instead of what the folder on somebody's disk contains.
+   */
+  videosByColour: Record<string, number>;
   /** The car's one uploaded brochure PDF, or null. */
   brochure: CarMediaItem | null;
-  /** Validates + stores; returns the plain-words error on refusal. */
-  add: (kind: MediaKind, file: File) => Promise<AddFileResult>;
+  /**
+   * Validates + stores; returns the plain-words error on refusal. `colourId`
+   * says which colour a video shows and is required for one — pass null for a
+   * brochure, which covers every colour.
+   */
+  add: (
+    kind: MediaKind,
+    colourId: string | null,
+    file: File
+  ) => Promise<AddFileResult>;
   /** Removes one uploaded file. */
   remove: (id: string) => Promise<{ ok: boolean; error?: string }>;
 }
@@ -769,6 +843,7 @@ export function useCarMedia(carId: string | null): CarMediaState {
         id: r.id,
         carId: r.carId,
         kind: r.kind,
+        colourId: r.colourId ?? null,
         name: r.name,
         type: r.type,
         size: r.size,
@@ -778,17 +853,36 @@ export function useCarMedia(carId: string | null): CarMediaState {
   );
 
   const videos = useMemo(() => items.filter((f) => f.kind === "video"), [items]);
+
+  /**
+   * How many videos each colour has, keyed by colour id — the exact shape the
+   * sales flow's CarMedia wants. Built from what is really in the library, so
+   * a colour the catalogue lists but nobody has filmed reports nothing rather
+   * than being absent from the map entirely.
+   */
+  const videosByColour = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const v of videos) {
+      if (!v.colourId) continue;
+      counts[v.colourId] = (counts[v.colourId] ?? 0) + 1;
+    }
+    return counts;
+  }, [videos]);
   const brochure = useMemo(
     () => items.find((f) => f.kind === "brochure") ?? null,
     [items]
   );
 
   const add = useCallback(
-    async (kind: MediaKind, file: File): Promise<AddFileResult> => {
+    async (
+      kind: MediaKind,
+      colourId: string | null,
+      file: File
+    ): Promise<AddFileResult> => {
       if (!carId) {
         return { ok: false, error: "No car selected." };
       }
-      return addFile(carId, kind, file);
+      return addFile(carId, kind, colourId, file);
     },
     [carId]
   );
@@ -800,5 +894,5 @@ export function useCarMedia(carId: string | null): CarMediaState {
     []
   );
 
-  return { loaded, videos, brochure, add, remove };
+  return { loaded, videos, videosByColour, brochure, add, remove };
 }
