@@ -31,15 +31,40 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-import {
-  ALLOWED_CONTENT_TYPES,
-  MEDIA_BUCKET,
-  STORAGE_MAX_BYTES,
-  buildMediaPath,
-  contentTypeFor,
-} from "@/lib/wasales/media-paths";
-import { SALES_MANIFEST } from "@/lib/wasales/sales-manifest";
-import { AI_URL } from "@/lib/env-public";
+/**
+ * The project's own modules are TypeScript, and this script imports them
+ * rather than restating their rules. Node runs .ts directly from 22.18 and 24
+ * onward; before that it refuses the extension outright.
+ *
+ * Loading them DYNAMICALLY, inside a try, is the difference between a person
+ * reading "update Node" and a person reading a nine-line ERR_UNKNOWN_FILE_
+ * EXTENSION stack trace and concluding the tool is broken.
+ */
+async function loadProjectModules() {
+  try {
+    const [paths, manifest, env] = await Promise.all([
+      import("@/lib/wasales/media-paths"),
+      import("@/lib/wasales/sales-manifest"),
+      import("@/lib/env-public"),
+    ]);
+    return { paths, manifest, env };
+  } catch (err) {
+    if (err?.code === "ERR_UNKNOWN_FILE_EXTENSION") {
+      console.error(
+        [
+          `This needs Node 22.18 or newer — you are on ${process.version}.`,
+          "",
+          "Older versions cannot run the project's TypeScript files directly,",
+          "which is also why `npm test` would fail here.",
+          "",
+          "Install the current LTS from https://nodejs.org and run this again.",
+        ].join("\n")
+      );
+      process.exit(2);
+    }
+    throw err;
+  }
+}
 
 /* ── Credentials ─────────────────────────────────────────────────────────── */
 
@@ -117,7 +142,12 @@ async function indexFiles(dir, into = new Map(), depth = 0) {
 
 /* ── Supabase storage ────────────────────────────────────────────────────── */
 
-const BASE = `${AI_URL}/storage/v1`;
+/* Both are set in main(), once the project's modules have loaded. Module-level
+   because the request helpers below are module-level too. */
+/** The storage API root. */
+let BASE = "";
+/** The bucket name, from lib/wasales/media-paths. */
+let BUCKET = "";
 
 /** Every object already in the bucket, as a Set of full paths. */
 async function listEverything(key) {
@@ -125,7 +155,7 @@ async function listEverything(key) {
 
   async function walk(prefix, depth) {
     if (depth > 3) return;
-    const res = await fetch(`${BASE}/object/list/${MEDIA_BUCKET}`, {
+    const res = await fetch(`${BASE}/object/list/${BUCKET}`, {
       method: "POST",
       headers: {
         apikey: key,
@@ -152,7 +182,7 @@ async function listEverything(key) {
 }
 
 async function uploadOne(key, objectPath, body, contentType) {
-  const res = await fetch(`${BASE}/object/${MEDIA_BUCKET}/${objectPath}`, {
+  const res = await fetch(`${BASE}/object/${BUCKET}/${objectPath}`, {
     method: "POST",
     headers: {
       apikey: key,
@@ -190,6 +220,17 @@ function mb(bytes) {
 }
 
 async function main() {
+  const { paths, manifest, env } = await loadProjectModules();
+  const {
+    ALLOWED_CONTENT_TYPES,
+    STORAGE_MAX_BYTES,
+    buildMediaPath,
+    contentTypeFor,
+  } = paths;
+  const { SALES_MANIFEST } = manifest;
+  BASE = `${env.AI_URL}/storage/v1`;
+  BUCKET = paths.MEDIA_BUCKET;
+
   const args = process.argv.slice(2);
   /**
    * Report what would be uploaded and where, and send nothing.
