@@ -1,11 +1,11 @@
 /**
- * The imported sales material - GENERATED, do not edit by hand.
+ * The imported sales material — GENERATED, do not edit by hand.
  *
  * Written by:
  *   node scripts/import-sales-folder.mjs "<path to Monza AI sales>" --write
  *
  * The application never invents a model or a colour: everything below is the
- * folder's own directory and file names, scanned on 4 September 2026.
+ * folder's own directory and file names.
  */
 
 export interface ManifestFile {
@@ -48,7 +48,8 @@ export const SALES_MANIFEST: SalesManifest = {
       "aliases": [
         "mhero 1",
         "m hero 1",
-        "m-hero 1"
+        "m-hero 1",
+        "mhero i"
       ],
       "brochure": {
         "fileName": "M-Hero I 2026 catalogue.pdf",
@@ -86,7 +87,8 @@ export const SALES_MANIFEST: SalesManifest = {
       "aliases": [
         "mhero 2",
         "m hero 2",
-        "m-hero 2"
+        "m-hero 2",
+        "mhero ii"
       ],
       "brochure": {
         "fileName": "M-Hero II 2026 catalogue .pdf",
@@ -440,10 +442,11 @@ export const SALES_MANIFEST: SalesManifest = {
     }
   ],
   "warnings": [
-    "Mhero 1 / Black : empty folder",
-    "Voyah Courage / White / Courage White.mov : 115.5 MB over the 50 MB limit",
-    "Voyah Dream : videos not in colour folders",
-    "Voyah Free Comp / Green / VOYAH FREE - COMPETITION.mp4 : 62.6 MB over the 50 MB limit",
-    "Voyah Passion / Voyah passion 2026 catalogue.pdf : 68.3 MB over the 50 MB limit"
+    "Mhero 1 / Black: folder is empty — cannot be offered.",
+    "Voyah Courage / White / Courage White.mov: 115.5 MB is over the 50 MB limit — compress before uploading.",
+    "Voyah Dream: videos are not in colour folders — treated as one option with no colour choice.",
+    "Voyah Free Comp / Green / VOYAH FREE - COMPETITION.mp4: 62.6 MB is over the 50 MB limit — compress before uploading.",
+    "Voyah Passion / Voyah passion 2026 catalogue.pdf: 68.3 MB is over the 50 MB limit — compress before uploading.",
+    "THE SAME VIDEO IS IN Voyah Passion / Black AND Voyah Passion L / Black — \"Crafted to stand apart. The all-new Voyah Passion L in Black with a Grey interior.#voyah #voyahl.mp4\". One of them is the wrong car; only you know which."
   ]
 };

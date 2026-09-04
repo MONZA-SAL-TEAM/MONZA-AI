@@ -275,9 +275,14 @@ async function importFolder(root) {
   for (const car of cars) {
     for (const other of cars) {
       if (other.id === car.id) continue;
-      // Only flag a model whose name is not a prefix of this one, or the
-      // Passion would flag every Passion L video and vice versa.
-      if (other.name.toLowerCase().startsWith(car.name.toLowerCase())) continue;
+      // Skip when either name is a prefix of the other. "Voyah Passion L in
+      // Black" legitimately contains "Voyah Passion", so without BOTH
+      // directions every Passion L file was flagged as belonging to the
+      // Passion. The genuine mix-up is still caught by the duplicate-file
+      // check above, which does not depend on names at all.
+      const a = car.name.toLowerCase();
+      const b = other.name.toLowerCase();
+      if (a.startsWith(b) || b.startsWith(a)) continue;
       for (const colour of car.colours) {
         for (const video of colour.videos) {
           if (video.fileName.toLowerCase().includes(other.name.toLowerCase())) {
