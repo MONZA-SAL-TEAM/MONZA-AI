@@ -124,9 +124,28 @@ async function listFiles(dir, extensions) {
   return out.sort((a, b) => a.fileName.localeCompare(b.fileName));
 }
 
+/**
+ * Find the "Car Models" directory, wherever it sits under `root`.
+ *
+ * Real folders arrive nested: unzipping produced
+ * "Monza AI sales\Monza AI sales\Car Models". Only checking the top level
+ * found no Car Models, fell back to treating `root` itself as the model list,
+ * and produced one "car" named after the inner folder. Searching a few levels
+ * down makes the script work on whatever the person actually points it at.
+ */
+async function findCarModels(root, depth = 4) {
+  const direct = path.join(root, "Car Models");
+  if (existsSync(direct)) return direct;
+  if (depth <= 0) return null;
+  for (const name of await listDirs(root)) {
+    const found = await findCarModels(path.join(root, name), depth - 1);
+    if (found) return found;
+  }
+  return null;
+}
+
 async function importFolder(root) {
-  const carModelsDir = path.join(root, "Car Models");
-  const base = existsSync(carModelsDir) ? carModelsDir : root;
+  const base = (await findCarModels(root)) ?? root;
 
   const modelNames = await listDirs(base);
   const cars = [];
@@ -147,6 +166,15 @@ async function importFolder(root) {
       );
     }
     const brochure = pdfs[0] ?? null;
+    // A catalogue can be over the cap too — the real Voyah Passion PDF is 68 MB.
+    // Only videos were checked before, so the one file that actually blocks the
+    // upload went unmentioned.
+    if (brochure && brochure.bytes > MAX_FILE_BYTES) {
+      warnings.push(
+        `${modelName} / ${brochure.fileName}: ` +
+          `${(brochure.bytes / 1024 / 1024).toFixed(1)} MB is over the 50 MB limit — compress before uploading.`
+      );
+    }
 
     /* ── colours ───────────────────────────────────────────────────────── */
     const colourDirs = await listDirs(videosDir);

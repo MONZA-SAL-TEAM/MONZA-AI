@@ -34,8 +34,19 @@ if (-not (Test-Path -LiteralPath $Root)) {
   exit 1
 }
 
-$base = Join-Path $Root "Car Models"
-if (-not (Test-Path -LiteralPath $base)) { $base = $Root }
+# Find "Car Models" wherever it sits. Real folders arrive nested - unzipping
+# produced "Monza AI sales\Monza AI sales\Car Models". Checking only the top
+# level found nothing, fell back to treating $Root as the model list, and
+# produced one "car" named after the inner folder.
+$base = $null
+if (Test-Path -LiteralPath (Join-Path $Root "Car Models")) {
+  $base = Join-Path $Root "Car Models"
+} else {
+  $found = Get-ChildItem -LiteralPath $Root -Directory -Recurse -Depth 4 -Filter "Car Models" -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($found) { $base = $found.FullName }
+}
+if (-not $base) { $base = $Root }
+Write-Host "Reading: $base"
 
 function Get-Slug([string]$name) {
   $s = $name.ToLower() -replace '[^a-z0-9]+', '-'
@@ -88,6 +99,11 @@ foreach ($modelDir in (Get-ChildItem -LiteralPath $base -Directory | Sort-Object
     $warnings += "$model : $($pdfs.Count) PDFs in Catalog; using '$($pdfs[0].fileName)'."
   }
   $brochure = if ($pdfs.Count -gt 0) { $pdfs[0] } else { $null }
+  # A catalogue can be over the cap too - the real Voyah Passion PDF is 68 MB.
+  if ($brochure -and $brochure.bytes -gt $MaxBytes) {
+    $mb = [math]::Round($brochure.bytes / 1MB, 1)
+    $warnings += "$model / $($brochure.fileName) : $mb MB is over the 50 MB limit - compress before uploading."
+  }
 
   $colours = @()
   $colourDirs = @()
