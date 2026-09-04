@@ -241,6 +241,56 @@ async function importFolder(root) {
     });
   }
 
+  /* ── The same file under two models ────────────────────────────────────
+   * Found in the real folder: "Voyah Passion / Black" holds the identical
+   * file as "Voyah Passion L / Black", and its name says "Passion L". A
+   * customer asking about the Passion would be sent a video of a different
+   * car — the exact wrong-but-confident failure the matcher was built to
+   * avoid, arriving from the folder rather than from the code.
+   *
+   * This cannot be fixed automatically: only a person knows which folder is
+   * wrong. So it is reported loudly and left alone. */
+  const byFile = new Map();
+  for (const car of cars) {
+    for (const colour of car.colours) {
+      for (const video of colour.videos) {
+        const where = `${car.name} / ${colour.name}`;
+        const list = byFile.get(video.fileName) ?? [];
+        list.push(where);
+        byFile.set(video.fileName, list);
+      }
+    }
+  }
+  for (const [fileName, places] of byFile) {
+    if (places.length > 1) {
+      warnings.push(
+        `THE SAME VIDEO IS IN ${places.join(" AND ")} — "${fileName}". ` +
+          `One of them is the wrong car; only you know which.`
+      );
+    }
+  }
+
+  /* A video whose NAME names a different model than its folder. Catches the
+   * mixed-up file even when it has not been duplicated. */
+  for (const car of cars) {
+    for (const other of cars) {
+      if (other.id === car.id) continue;
+      // Only flag a model whose name is not a prefix of this one, or the
+      // Passion would flag every Passion L video and vice versa.
+      if (other.name.toLowerCase().startsWith(car.name.toLowerCase())) continue;
+      for (const colour of car.colours) {
+        for (const video of colour.videos) {
+          if (video.fileName.toLowerCase().includes(other.name.toLowerCase())) {
+            warnings.push(
+              `${car.name} / ${colour.name}: the file is named after the ` +
+                `${other.name} — "${video.fileName}". Check it is the right car.`
+            );
+          }
+        }
+      }
+    }
+  }
+
   return { root, cars, warnings };
 }
 
