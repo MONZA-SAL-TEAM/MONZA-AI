@@ -11,7 +11,8 @@
     "test:watch": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tests/_alias.mjs --test --watch \"tests/**/*.test.ts\"",
     "verify": "npm run typecheck && npm test && npm run build",
     "import-sales": "node --experimental-strip-types scripts/import-sales-folder.mjs \"../Monza AI sales\" --write",
-    "upload-sales": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tests/_alias.mjs scripts/upload-sales-folder.mjs"
+    "upload-sales": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tests/_alias.mjs scripts/upload-sales-folder.mjs",
+    "upload-sales:plan": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tests/_alias.mjs scripts/upload-sales-folder.mjs --plan"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

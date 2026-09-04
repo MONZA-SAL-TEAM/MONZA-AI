@@ -1,12 +1,18 @@
 /**
  * Upload the real sales folder into the shared media bucket.
  *
- *     npm run upload-sales -- "C:\\Users\\you\\Downloads\\Monza AI sales" --plan
- *     npm run upload-sales -- "C:\\Users\\you\\Downloads\\Monza AI sales"
+ *     npm run upload-sales:plan -- "C:\\Users\\you\\Downloads\\Monza AI sales"
+ *     npm run upload-sales      -- "C:\\Users\\you\\Downloads\\Monza AI sales"
  *
- * --plan previews and sends nothing. It is NOT called --dry-run because npm
- * claims that flag and silently declines to forward it, which once turned an
- * intended preview into a real 302 MB upload.
+ * The first previews and sends nothing; the second uploads.
+ *
+ * TWO SCRIPTS RATHER THAN A FLAG, because npm will not carry a flag through.
+ * `npm run <script> -- --anything` looks like it forwards --anything; npm's
+ * config parser absorbs any unrecognised --flag instead, and the script never
+ * sees it. This was learned twice: --dry-run vanished and 302 MB uploaded
+ * while the screen said nothing would be, then --plan vanished the same way.
+ * In upload-sales:plan the flag sits INSIDE the script string, where it is
+ * part of the shell command and npm never parses it.
  *
  * WHAT THIS IS FOR. `npm run import-sales` reads the folder and writes the
  * catalogue — the models, the colours, the file names. That makes the SCREEN
@@ -260,10 +266,11 @@ async function main() {
   if (!root) {
     console.error(
       [
-        'Usage: npm run upload-sales -- "<path to the Monza AI sales folder>"',
+        'Preview:  npm run upload-sales:plan -- "<path to the Monza AI sales folder>"',
+        'Upload:   npm run upload-sales      -- "<path to the Monza AI sales folder>"',
         "",
-        "Add --plan to preview without uploading anything.",
-        "(--plan, not --dry-run: npm keeps --dry-run for itself.)",
+        "Use the two scripts, not a flag: npm silently swallows any --flag you",
+        "pass after --, so the script would never see it.",
       ].join("\n")
     );
     process.exit(2);
