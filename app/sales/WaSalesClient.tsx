@@ -866,11 +866,17 @@ export default function WaSalesClient() {
   /** True once the real sales folder has been imported. */
   const [imported, setImported] = useState(false);
   /**
-   * Preview using the folder listing rather than what is really uploaded.
-   * Defaults ON while nothing is uploaded, because otherwise the simulator can
-   * only ever say "nothing to send" and the flow cannot be seen at all.
+   * Preview using the sales-folder listing instead of the shared library.
+   *
+   * OFF by default, because the library is the truth about what could be sent
+   * and it is no longer empty. It defaulted ON back when uploads carried no
+   * colour and the library branch could only ever answer "nothing to send" —
+   * that limitation is gone.
+   *
+   * The toggle stays because the difference is worth being able to see: it is
+   * how you spot material that exists in the folder and was never uploaded.
    */
-  const [previewFromFolder, setPreviewFromFolder] = useState(true);
+  const [previewFromFolder, setPreviewFromFolder] = useState(false);
 
   /* add / edit dialog */
   const [dlgCarId, setDlgCarId] = useState<string | null>(null); // "new" = add
@@ -890,7 +896,15 @@ export default function WaSalesClient() {
    * via the media store's change broadcast.
    */
   const [uploads, setUploads] = useState<
-    { id: string; carId: string; kind: MediaKind; name: string; size: number }[]
+    {
+      id: string;
+      carId: string;
+      kind: MediaKind;
+      /** Which colour a video shows; null for a brochure. */
+      colourId: string | null;
+      name: string;
+      size: number;
+    }[]
   >([]);
 
   useEffect(() => {
@@ -912,10 +926,11 @@ export default function WaSalesClient() {
           }
         }
         setUploads(
-          files.map(({ id, carId, kind, name, size }) => ({
+          files.map(({ id, carId, kind, colourId, name, size }) => ({
             id,
             carId,
             kind,
+            colourId: colourId ?? null,
             name,
             size,
           }))
@@ -995,6 +1010,52 @@ export default function WaSalesClient() {
   }, [uploads]);
 
   /**
+   * How many UPLOADED videos each colour of each car has.
+   *
+   * This is the number that matters: it is what could actually be sent. The
+   * folder counts describe files on somebody's disk and are shown separately.
+   */
+  const libraryVideoCounts = useMemo(() => {
+    const out: Record<string, Record<string, number>> = {};
+    for (const u of uploads) {
+      if (u.kind !== "video" || !u.colourId) continue;
+      (out[u.carId] ??= {});
+      out[u.carId][u.colourId] = (out[u.carId][u.colourId] ?? 0) + 1;
+    }
+    return out;
+  }, [uploads]);
+
+  /**
+   * The catalogue's cars, plus any colour that exists only in the library.
+   *
+   * Somebody can add a colour on the media dialog and upload its video without
+   * touching the sales folder. That colour is real — it can be sent — so it has
+   * to appear on the card and be offerable by the flow, not wait for a
+   * re-import to be acknowledged.
+   */
+  const carsWithLibrary = useMemo<WaCar[]>(
+    () =>
+      cars.map((car) => {
+        const extra = Object.keys(libraryVideoCounts[car.id] ?? {}).filter(
+          (id) => !car.colours.some((c) => c.id === id)
+        );
+        if (extra.length === 0) return car;
+        return {
+          ...car,
+          colours: [
+            ...car.colours,
+            ...extra.map((id) => ({
+              id,
+              name: colourNameFrom(id),
+              aliases: [id],
+            })),
+          ],
+        };
+      }),
+    [cars, libraryVideoCounts]
+  );
+
+  /**
    * PURE OVERLAY — matcher.ts is untouched. Before the catalog reaches
    * decide(), each car's videos/brochure fields are REPLACED with the REAL
    * uploaded files, and nothing else: no uploads means no videos and no
@@ -1004,7 +1065,7 @@ export default function WaSalesClient() {
    */
   const carsForBrain = useMemo<WaCar[]>(
     () =>
-      cars.map((car) => {
+      carsWithLibrary.map((car) => {
         const ups = uploadsByCar[car.id] ?? [];
         const uploadedVideos: WaAsset[] = ups
           .filter((u) => u.kind === "video")
@@ -1018,7 +1079,7 @@ export default function WaSalesClient() {
             : null,
         };
       }),
-    [cars, uploadsByCar]
+    [carsWithLibrary, uploadsByCar]
   );
 
   /** Overlaid car by id — the card face reads missing-asset truth from here. */
@@ -1052,7 +1113,7 @@ export default function WaSalesClient() {
    */
   const mediaLookup = useCallback(
     (carId: string): CarMedia => {
-      const car = cars.find((c) => c.id === carId);
+      const car = carsWithLibrary.find((c) => c.id === carId);
       if (!car) return { hasBrochure: false, videosByColour: {} };
 
       if (previewFromFolder) {
@@ -1062,17 +1123,18 @@ export default function WaSalesClient() {
         };
       }
 
-      // Uploaded files are stored per car and kind, not per colour, so an
-      // upload cannot yet be attributed to one. Rather than guess, uploads
-      // count toward NO colour — which is why the screen defaults to the
-      // folder preview and says so.
+      // Every uploaded video sits in a colour's folder, so it counts toward
+      // that colour. (It did not always: videos used to be stored per car and
+      // kind only, and an upload could not be attributed to a colour at all,
+      // which is why this branch once reported none and the screen defaulted
+      // to the folder.)
       const ups = uploadsByCar[carId] ?? [];
       return {
         hasBrochure: ups.some((u) => u.kind === "brochure"),
-        videosByColour: {},
+        videosByColour: libraryVideoCounts[carId] ?? {},
       };
     },
-    [cars, previewFromFolder, folderVideoCounts, uploadsByCar]
+    [carsWithLibrary, previewFromFolder, folderVideoCounts, uploadsByCar, libraryVideoCounts]
   );
 
   /**
@@ -1421,6 +1483,16 @@ export default function WaSalesClient() {
                 <li key={w}>{w}</li>
               ))}
             </ul>
+            {/* These describe the FOLDER as it was when it was imported. A gap
+                filled by uploading here is already fixed, and the colours on
+                each card show the live position — so this list can name a
+                colour the cards show as ready. Saying so beats letting the two
+                appear to contradict each other. */}
+            <p className="cap ws-warnings-foot">
+              From the last sales-folder import. Anything you have since
+              uploaded here is already fixed — each card&rsquo;s colours show
+              what the shared library really holds.
+            </p>
           </div>
         )}
 
@@ -1516,28 +1588,40 @@ export default function WaSalesClient() {
                         </span>
                       </div>
 
-                      {/* The colours this model actually has, straight from the
-                          folder. A colour with no video is shown greyed rather
-                          than hidden: the gap belongs on this screen, where the
-                          person who can fill it is looking. */}
+                      {/* THE COLOURS, counted from the shared library — what
+                          could really be sent — with the sales folder as a
+                          fallback only where nothing has been uploaded yet.
+                          A colour with nothing behind it is shown greyed
+                          rather than hidden: the gap belongs on this screen,
+                          where the person who can fill it is looking. */}
                       {car.colours.length > 0 && (
                         <div className="ws-colours">
                           {car.colours.map((colour) => {
-                            const count =
+                            const inLibrary =
+                              libraryVideoCounts[car.id]?.[colour.id] ?? 0;
+                            const inFolder =
                               folderVideoCounts[car.id]?.[colour.id] ?? 0;
+                            const count = inLibrary > 0 ? inLibrary : 0;
+                            const title =
+                              inLibrary > 0
+                                ? `${colour.name}: ${inLibrary} video${inLibrary === 1 ? "" : "s"} in the shared library`
+                                : inFolder > 0
+                                  ? `${colour.name}: ${inFolder} video${inFolder === 1 ? "" : "s"} in the sales folder, not uploaded yet`
+                                  : `${colour.name}: no video anywhere, so it is never offered`;
                             return (
                               <span
                                 className="ws-colour"
                                 data-empty={count === 0}
+                                data-pending={inLibrary === 0 && inFolder > 0}
                                 key={colour.id}
-                                title={
-                                  count === 0
-                                    ? `${colour.name}: no video in the folder, so it is never offered`
-                                    : `${colour.name}: ${count} video${count === 1 ? "" : "s"}`
-                                }
+                                title={title}
                               >
                                 {colour.name}
-                                {count === 0 ? " — no video" : ""}
+                                {inLibrary > 0
+                                  ? ""
+                                  : inFolder > 0
+                                    ? " — not uploaded"
+                                    : " — no video"}
                               </span>
                             );
                           })}
@@ -1677,12 +1761,12 @@ export default function WaSalesClient() {
                     setPreviewFromFolder((v) => !v);
                     resetSim();
                   }}
-                  label="Preview using the folder listing"
+                  label="Preview using the sales folder instead"
                 />
                 <p className="cap">
                   {previewFromFolder
-                    ? "Counting the files the sales folder import found. They are not uploaded to the shared library yet, so nothing here could actually go out."
-                    : "Counting only what is really uploaded to the shared library — the truth about what could be sent."}
+                    ? "Counting what the sales folder import found on disk. Files that were never uploaded cannot actually go out — this is for spotting the gap, not for judging readiness."
+                    : "Counting what is really in the shared library — the truth about what could be sent."}
                 </p>
               </div>
 
@@ -1720,22 +1804,28 @@ export default function WaSalesClient() {
                         {a.kind === "send" && (
                           <>
                             <div className="ws-assets">
-                              {(folderVideoCounts[a.car.id]?.[a.colour.id] ?? 0) >
-                                0 && (
-                                <span className="ws-file">
-                                  <PlayGlyph />
-                                  <span className="ws-file-label">
-                                    {a.colour.name} video
+                              {/* Count from the SAME source the decision used,
+                                  or the panel contradicts the verdict above it
+                                  — a send with no video listed, because the
+                                  folder had none and the library did. */}
+                              {(() => {
+                                const n =
+                                  (previewFromFolder
+                                    ? folderVideoCounts[a.car.id]?.[a.colour.id]
+                                    : libraryVideoCounts[a.car.id]?.[a.colour.id]) ?? 0;
+                                if (n === 0) return null;
+                                return (
+                                  <span className="ws-file">
+                                    <PlayGlyph />
+                                    <span className="ws-file-label">
+                                      {a.colour.name} video
+                                    </span>
+                                    <span className="ws-file-name">
+                                      {n} file{n === 1 ? "" : "s"}
+                                    </span>
                                   </span>
-                                  <span className="ws-file-name">
-                                    {folderVideoCounts[a.car.id]?.[a.colour.id]} file
-                                    {(folderVideoCounts[a.car.id]?.[a.colour.id] ??
-                                      0) === 1
-                                      ? ""
-                                      : "s"}
-                                  </span>
-                                </span>
-                              )}
+                                );
+                              })()}
                               {a.car.brochure && (
                                 <span className="ws-file" data-doc="true">
                                   <DocGlyph />

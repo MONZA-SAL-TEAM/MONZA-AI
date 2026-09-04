@@ -953,3 +953,11 @@
   margin: 0 0 8px;
   color: var(--ink-3);
 }
+
+/* The import warnings describe the folder at import time; the cards describe
+   the library now. This footnote is what stops the two reading as a
+   contradiction when somebody fills a gap by uploading. */
+.ws-warnings-foot {
+  margin: 8px 0 0;
+  opacity: 0.85;
+}
