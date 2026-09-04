@@ -4,8 +4,7 @@
  * Monza WhatsApp Sales Control — the whole control panel + simulator.
  *
  * Server API this client speaks (GET /api/whatsapp-sales, exactly):
- *   { demo: true,  catalog: WaCar[] }             — example catalog
- *   { demo: false, catalog: null, notReady: "…" } — honest not-wired state
+ *   { imported, source, warnings, catalog: WaCar[], folderVideoCounts }
  *   401                                            — link to /login
  *
  * Honesty rules baked in:
@@ -20,18 +19,30 @@
  *     in local mode they live in IndexedDB in this browser. NOTHING fake is
  *     ever shown: cards, readiness, the simulator verdict and the reply
  *     preview count ONLY real uploads, and a car with none says so.
- *   - The simulator runs the REAL brain (lib/wasales/matcher.ts decide()) on
- *     the catalog as edited — the last run is kept as an input snapshot and
- *     the decision derives from it, so flipping the master Auto-send switch
- *     or editing a car updates the verdict live.
+ *   - The simulator runs the REAL flow (lib/wasales/flow.ts advance()) with the
+ *     same conversation state a webhook handler will thread through, so what
+ *     appears here IS production behaviour rather than a description of it. It
+ *     is a conversation, not a verdict: ask the colour, take the answer, show
+ *     what would go out.
+ *   - Two sources of "what is sendable", never blended: the FOLDER listing
+ *     (what the import found on disk) and UPLOADS (what is really in the
+ *     shared bucket). The screen says which is in use every single time — a
+ *     preview that promises a video nobody can send is worse than none.
  *   - Hydration-safe: no Date, no random; new-car ids come from a ref counter.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import Link from "next/link";
-import type { Decision, WaAsset, WaCar, WaSource } from "@/lib/wasales/matcher";
-import { decide } from "@/lib/wasales/matcher";
+import type { WaAsset, WaCar, WaSource } from "@/lib/wasales/matcher";
+import type { WaColour } from "@/lib/wasales/colours";
+import {
+  INITIAL_STATE,
+  advance,
+  type CarMedia,
+  type SalesAction,
+  type SalesState,
+} from "@/lib/wasales/flow";
 import { SAMPLE_MESSAGES } from "@/lib/wasales/catalog-data";
 import type { MediaKind } from "@/lib/wasales/media-store";
 import {
@@ -105,9 +116,26 @@ function asCar(v: unknown): WaCar | null {
     videos: c.videos.map(asAsset).filter((a): a is WaAsset => a !== null),
     // Colours are discovered from the imported sales folder, never invented
     // here, so a car arriving over the wire without them has none yet.
-    colours: Array.isArray(c.colours) ? (c.colours as WaCar["colours"]) : [],
+    colours: Array.isArray(c.colours)
+      ? (c.colours as unknown[])
+          .map(asColour)
+          .filter((x): x is WaColour => x !== null)
+      : [],
     brochure: c.brochure ? asAsset(c.brochure) : null,
     oneLiner: c.oneLiner,
+  };
+}
+
+function asColour(v: unknown): WaColour | null {
+  if (!v || typeof v !== "object") return null;
+  const c = v as { id?: unknown; name?: unknown; aliases?: unknown };
+  if (typeof c.id !== "string" || typeof c.name !== "string") return null;
+  return {
+    id: c.id,
+    name: c.name,
+    aliases: Array.isArray(c.aliases)
+      ? c.aliases.filter((a): a is string => typeof a === "string")
+      : [],
   };
 }
 
@@ -469,6 +497,13 @@ interface CarFormState {
   aliases: string; // comma-separated in the box
 }
 
+/** One line of the simulated conversation. */
+interface SimTurn {
+  from: "customer" | "monza";
+  text?: string;
+  action?: SalesAction;
+}
+
 const EMPTY_FORM: CarFormState = {
   name: "",
   oneLiner: "",
@@ -513,7 +548,24 @@ export default function WaSalesClient() {
   const [simNew, setSimNew] = useState(true);
   const [simFirst, setSimFirst] = useState(true);
   const [simSource, setSimSource] = useState<WaSource>("facebook");
-  const [simRun, setSimRun] = useState<SimRun | null>(null);
+  /** The conversation so far, and where the flow has got to in it. */
+  const [simTurns, setSimTurns] = useState<SimTurn[]>([]);
+  const [simState, setSimState] = useState<SalesState>(INITIAL_STATE);
+
+  /** Which colours the import found on disk, per car. */
+  const [folderVideoCounts, setFolderVideoCounts] = useState<
+    Record<string, Record<string, number>>
+  >({});
+  /** What the import flagged for a person to fix. */
+  const [warnings, setWarnings] = useState<string[]>([]);
+  /** True once the real sales folder has been imported. */
+  const [imported, setImported] = useState(false);
+  /**
+   * Preview using the folder listing rather than what is really uploaded.
+   * Defaults ON while nothing is uploaded, because otherwise the simulator can
+   * only ever say "nothing to send" and the flow cannot be seen at all.
+   */
+  const [previewFromFolder, setPreviewFromFolder] = useState(true);
 
   /* add / edit dialog */
   const [dlgCarId, setDlgCarId] = useState<string | null>(null); // "new" = add
@@ -587,26 +639,33 @@ export default function WaSalesClient() {
       }
       const raw: unknown = await res.json();
       const d = (raw && typeof raw === "object" ? raw : {}) as {
-        demo?: unknown;
+        imported?: unknown;
         catalog?: unknown;
-        notReady?: unknown;
+        warnings?: unknown;
+        folderVideoCounts?: unknown;
       };
       const parsed = asCatalog(d.catalog);
       if (parsed) {
-        setDemo(d.demo === true);
+        setImported(d.imported === true);
+        // "Example data" is now only true BEFORE the real folder is imported.
+        setDemo(d.imported !== true);
         setCars(parsed);
+        setWarnings(
+          Array.isArray(d.warnings)
+            ? d.warnings.filter((w): w is string => typeof w === "string")
+            : []
+        );
+        setFolderVideoCounts(
+          d.folderVideoCounts && typeof d.folderVideoCounts === "object"
+            ? (d.folderVideoCounts as Record<string, Record<string, number>>)
+            : {}
+        );
         setAddedIds([]);
-        setSimRun(null);
+        setSimTurns([]);
+        setSimState(INITIAL_STATE);
         setDlgCarId(null);
         setMediaCarId(null);
         setScreen("ready");
-        return;
-      }
-      if (d.demo === false) {
-        if (typeof d.notReady === "string" && d.notReady.trim() !== "") {
-          setNotReady(d.notReady);
-        }
-        setScreen("notReady");
         return;
       }
       setScreen("error");
@@ -673,46 +732,119 @@ export default function WaSalesClient() {
   );
 
   /**
-   * The verdict re-derives from the last Run whenever the master switch or
-   * the catalog changes — flipping Auto-send visibly flips the decision.
+   * What the flow may treat as sendable.
+   *
+   * TWO SOURCES, never mixed silently:
+   *
+   *   the FOLDER   what the sales-folder import found on disk. Lets you see the
+   *                real conversation today, but those files are not in the
+   *                shared bucket, so nothing could actually go out.
+   *   UPLOADS      what is really in the bucket. This is the truth about what
+   *                could be sent — and it is empty until somebody uploads.
+   *
+   * The screen says which one is in use every time it shows a result. Blending
+   * them would produce a preview that promises a video nobody can send.
    */
-  const simDecision: Decision | null = useMemo(() => {
-    if (!simRun) return null;
-    // An empty box isn't a mystery car — say the obvious thing instead.
-    if (simRun.text.trim() === "") {
+  const mediaLookup = useCallback(
+    (carId: string): CarMedia => {
+      const car = cars.find((c) => c.id === carId);
+      if (!car) return { hasBrochure: false, videosByColour: {} };
+
+      if (previewFromFolder) {
+        return {
+          hasBrochure: car.brochure !== null,
+          videosByColour: folderVideoCounts[carId] ?? {},
+        };
+      }
+
+      // Uploaded files are stored per car and kind, not per colour, so an
+      // upload cannot yet be attributed to one. Rather than guess, uploads
+      // count toward NO colour — which is why the screen defaults to the
+      // folder preview and says so.
+      const ups = uploadsByCar[carId] ?? [];
       return {
-        decision: "hold",
-        reason: "Type a message above (or tap a quick try) to see what the brain would do.",
-      } as Decision;
-    }
-    // The overlaid catalog: same cars, same aliases, same matcher — the
-    // videos/brochure fields carry ONLY the real uploads.
-    return decide({ ...simRun, autoSendEnabled: autoSend }, carsForBrain);
-  }, [simRun, autoSend, carsForBrain]);
+        hasBrochure: ups.some((u) => u.kind === "brochure"),
+        videosByColour: {},
+      };
+    },
+    [cars, previewFromFolder, folderVideoCounts, uploadsByCar]
+  );
 
-  const runSim = useCallback(() => {
-    setSimRun({
-      text: simText,
-      isNewNumber: simNew,
-      isFirstMessage: simFirst,
-      source: simSource,
-    });
-  }, [simText, simNew, simFirst, simSource]);
+  /**
+   * Send one message into the simulator.
+   *
+   * This calls the SAME advance() a webhook handler will call, with the same
+   * state threaded through, so what appears here is production behaviour
+   * rather than a description of it.
+   */
+  const sendSim = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (trimmed === "") return;
+      const first = simTurns.length === 0;
+      const result = advance(
+        {
+          text: trimmed,
+          isNewNumber: simNew,
+          isFirstMessage: first ? simFirst : false,
+          source: simSource,
+          autoSendEnabled: autoSend,
+        },
+        simState,
+        cars,
+        mediaLookup
+      );
+      setSimTurns((prev) => [
+        ...prev,
+        { from: "customer", text: trimmed },
+        { from: "monza", action: result.action },
+      ]);
+      setSimState(result.next);
+      setSimText("");
+    },
+    [simTurns, simNew, simFirst, simSource, autoSend, simState, cars, mediaLookup]
+  );
 
-  const tryChip = useCallback((i: number) => {
-    const s = SAMPLE_MESSAGES[i];
-    if (!s) return;
-    setSimText(s.text);
-    setSimNew(s.isNewNumber);
-    setSimFirst(s.isFirstMessage);
-    setSimSource(s.source);
-    setSimRun({
-      text: s.text,
-      isNewNumber: s.isNewNumber,
-      isFirstMessage: s.isFirstMessage,
-      source: s.source,
-    });
+  const resetSim = useCallback(() => {
+    setSimTurns([]);
+    setSimState(INITIAL_STATE);
+    setSimText("");
   }, []);
+
+  const runSim = useCallback(() => sendSim(simText), [sendSim, simText]);
+
+  /** A quick try starts a FRESH conversation — otherwise it would arrive as
+   *  the answer to whatever question is already on screen. */
+  const tryChip = useCallback(
+    (i: number) => {
+      const sample = SAMPLE_MESSAGES[i];
+      if (!sample) return;
+      setSimNew(sample.isNewNumber);
+      setSimFirst(sample.isFirstMessage);
+      setSimSource(sample.source);
+      setSimTurns([]);
+      setSimState(INITIAL_STATE);
+      const result = advance(
+        {
+          text: sample.text,
+          isNewNumber: sample.isNewNumber,
+          isFirstMessage: sample.isFirstMessage,
+          source: sample.source,
+          autoSendEnabled: autoSend,
+        },
+        INITIAL_STATE,
+        cars,
+        mediaLookup
+      );
+      setSimTurns([
+        { from: "customer", text: sample.text },
+        { from: "monza", action: result.action },
+      ]);
+      setSimState(result.next);
+      setSimText("");
+    },
+    [autoSend, cars, mediaLookup]
+  );
 
   /* ----- catalog editing (this screen only) ----- */
 
@@ -968,6 +1100,25 @@ export default function WaSalesClient() {
           nothing is ever sent from here.
         </div>
 
+        {/* What the folder import flagged. Shown HERE rather than left in a
+            terminal, because the person who can fix these is the one looking
+            at this page — and one of them (the same video under two models)
+            would send a customer the wrong car. */}
+        {warnings.length > 0 && (
+          <div className="note urgent ws-warnings">
+            <p className="ws-warnings-title">
+              {warnings.length === 1
+                ? "One thing needs your attention in the sales folder"
+                : `${warnings.length} things need your attention in the sales folder`}
+            </p>
+            <ul className="ws-warning-list">
+              {warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <div className="ws-kpis">
           <div className="ws-kpi">
             <span className="ws-kpi-label">Cars in the catalog</span>
@@ -1059,6 +1210,34 @@ export default function WaSalesClient() {
                           />
                         </span>
                       </div>
+
+                      {/* The colours this model actually has, straight from the
+                          folder. A colour with no video is shown greyed rather
+                          than hidden: the gap belongs on this screen, where the
+                          person who can fill it is looking. */}
+                      {car.colours.length > 0 && (
+                        <div className="ws-colours">
+                          {car.colours.map((colour) => {
+                            const count =
+                              folderVideoCounts[car.id]?.[colour.id] ?? 0;
+                            return (
+                              <span
+                                className="ws-colour"
+                                data-empty={count === 0}
+                                key={colour.id}
+                                title={
+                                  count === 0
+                                    ? `${colour.name}: no video in the folder, so it is never offered`
+                                    : `${colour.name}: ${count} video${count === 1 ? "" : "s"}`
+                                }
+                              >
+                                {colour.name}
+                                {count === 0 ? " — no video" : ""}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
 
                       {uploadCount > 0 ? (
                         <>
@@ -1172,64 +1351,128 @@ export default function WaSalesClient() {
                 </select>
               </label>
 
-              <button className="btn primary ws-run" onClick={runSim}>
-                Run the brain
-              </button>
+              <div className="ws-run-row">
+                <button className="btn primary ws-run" onClick={runSim}>
+                  {simTurns.length === 0 ? "Run the brain" : "Send"}
+                </button>
+                {simTurns.length > 0 && (
+                  <button type="button" className="btn quiet" onClick={resetSim}>
+                    Start over
+                  </button>
+                )}
+              </div>
 
-              {simDecision && (
-                <div
-                  className="ws-result"
-                  data-send={simDecision.decision === "send"}
-                  aria-live="polite"
-                >
-                  {simDecision.decision === "send" && simDecision.model ? (
-                    <>
-                      <p className="ws-result-title">Would send now</p>
-                      <p className="ws-result-sub">
-                        {simDecision.reason}
-                        {simDecision.confidence === "fuzzy" &&
-                          " The spelling was corrected automatically."}
-                      </p>
-                      <div className="ws-assets">
-                        {simDecision.model.videos.map((v, i) => (
-                          <span className="ws-file" key={`${v.fileName}-${i}`}>
-                            <PlayGlyph />
-                            <span className="ws-file-label">{v.label}</span>
-                            <span className="ws-file-name">{v.fileName}</span>
-                          </span>
-                        ))}
-                        {simDecision.model.brochure && (
-                          <span className="ws-file" data-doc="true">
-                            <DocGlyph />
-                            <span className="ws-file-label">
-                              {simDecision.model.brochure.label}
-                            </span>
-                            <span className="ws-file-name">
-                              {simDecision.model.brochure.fileName}
-                            </span>
-                          </span>
+              {/* Which files the flow is allowed to count. Never blended: a
+                  preview that promises a video nobody can send is worse than
+                  one that says nothing. */}
+              <div className="ws-preview-toggle">
+                <Switch
+                  on={previewFromFolder}
+                  onFlip={() => {
+                    setPreviewFromFolder((v) => !v);
+                    resetSim();
+                  }}
+                  label="Preview using the folder listing"
+                />
+                <p className="cap">
+                  {previewFromFolder
+                    ? "Counting the files the sales folder import found. They are not uploaded to the shared library yet, so nothing here could actually go out."
+                    : "Counting only what is really uploaded to the shared library — the truth about what could be sent."}
+                </p>
+              </div>
+
+              {simTurns.length > 0 && (
+                <ol className="ws-convo" aria-live="polite">
+                  {simTurns.map((turn, i) => {
+                    if (turn.from === "customer") {
+                      return (
+                        <li className="ws-turn ws-turn-customer" key={i}>
+                          <span className="ws-turn-who">Customer</span>
+                          <p className="ws-turn-text">{turn.text}</p>
+                        </li>
+                      );
+                    }
+                    const a = turn.action;
+                    if (!a) return null;
+                    const sends = a.kind === "send";
+                    return (
+                      <li
+                        className="ws-turn ws-turn-monza"
+                        data-send={sends}
+                        key={i}
+                      >
+                        <span className="ws-turn-who">
+                          {a.kind === "hold"
+                            ? "Nothing sent — handed to your team"
+                            : sends
+                              ? "Would send now"
+                              : "Would ask"}
+                        </span>
+                        <p className="ws-turn-text">
+                          {a.kind === "hold" ? a.reason : a.message}
+                        </p>
+
+                        {a.kind === "send" && (
+                          <>
+                            <div className="ws-assets">
+                              {(folderVideoCounts[a.car.id]?.[a.colour.id] ?? 0) >
+                                0 && (
+                                <span className="ws-file">
+                                  <PlayGlyph />
+                                  <span className="ws-file-label">
+                                    {a.colour.name} video
+                                  </span>
+                                  <span className="ws-file-name">
+                                    {folderVideoCounts[a.car.id]?.[a.colour.id]} file
+                                    {(folderVideoCounts[a.car.id]?.[a.colour.id] ??
+                                      0) === 1
+                                      ? ""
+                                      : "s"}
+                                  </span>
+                                </span>
+                              )}
+                              {a.car.brochure && (
+                                <span className="ws-file" data-doc="true">
+                                  <DocGlyph />
+                                  <span className="ws-file-label">Catalogue</span>
+                                  <span className="ws-file-name">
+                                    {a.car.brochure.fileName}
+                                  </span>
+                                </span>
+                              )}
+                            </div>
+                            <p className="cap ws-result-cap">
+                              Preview only — nothing was sent. Sending starts when
+                              the WhatsApp Business number is connected.
+                            </p>
+                          </>
                         )}
-                      </div>
-                      <p className="ws-reply">
-                        &ldquo;Here&apos;s the {simDecision.model.name} —{" "}
-                        {simDecision.model.videos.length} video
-                        {simDecision.model.videos.length === 1 ? "" : "s"} and the
-                        brochure. A Monza team member will follow up.&rdquo;
-                      </p>
-                      <p className="cap ws-result-cap">
-                        Preview only — nothing was sent. Sending starts when the
-                        WhatsApp Business number is connected.
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="ws-result-title">
-                        Nothing sent — handed to your team
-                      </p>
-                      <p className="ws-result-sub">{simDecision.reason}</p>
-                    </>
-                  )}
-                </div>
+
+                        {(a.kind === "ask_colour" || a.kind === "reask_colour") && (
+                          <div className="chip-row ws-colour-answers">
+                            {a.colours.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                className="chip"
+                                onClick={() => sendSim(c.name)}
+                              >
+                                {c.name}
+                              </button>
+                            ))}
+                            <button
+                              type="button"
+                              className="chip"
+                              onClick={() => sendSim("any")}
+                            >
+                              any
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ol>
               )}
 
               <div className="ws-chips">

@@ -734,3 +734,102 @@
   color: var(--ink-3);
   font-size: var(--t-xs);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   The colour flow: what the folder holds, and the conversation it produces.
+   Tokens only, so both themes follow.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── The colours a model actually has ───────────────────────────────────── */
+
+.ws-colours { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+
+.ws-colour {
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: var(--t-xs);
+  font-weight: 600;
+}
+
+/* A colour with no video is greyed, not hidden — the gap belongs on screen. */
+.ws-colour[data-empty="true"] {
+  border-style: dashed;
+  color: var(--ink-3);
+  background: transparent;
+  font-weight: 500;
+}
+
+/* ── The import's findings ──────────────────────────────────────────────── */
+
+.ws-warnings { display: flex; flex-direction: column; gap: 6px; }
+.ws-warnings-title { margin: 0; font-weight: 700; font-size: var(--t-sm); }
+.ws-warning-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--t-sm);
+  line-height: 1.5;
+}
+
+/* ── The simulated conversation ─────────────────────────────────────────── */
+
+.ws-run-row { display: flex; align-items: center; gap: 8px; }
+
+.ws-preview-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--sunk);
+}
+
+.ws-convo {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ws-turn {
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line-soft);
+  background: var(--panel);
+}
+
+.ws-turn-customer { background: var(--sunk); border-color: transparent; }
+
+/* A turn that would actually send gets the accent edge; a hold does not. */
+.ws-turn-monza { border-left: 3px solid var(--line); }
+.ws-turn-monza[data-send="true"] { border-left-color: var(--accent); }
+
+.ws-turn-who {
+  display: block;
+  font-size: var(--t-xs);
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 4px;
+}
+
+.ws-turn-monza[data-send="true"] .ws-turn-who { color: var(--accent); }
+
+.ws-turn-text {
+  margin: 0;
+  font-size: var(--t-sm);
+  line-height: 1.55;
+  color: var(--ink);
+}
+
+/* Tap a colour to answer, exactly as a customer would type it. */
+.ws-colour-answers { margin-top: 10px; }

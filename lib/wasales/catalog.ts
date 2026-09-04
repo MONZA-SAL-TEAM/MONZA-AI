@@ -64,11 +64,13 @@ function toColour(c: ManifestColour): WaColour {
 }
 
 function toCar(m: ManifestCar): WaCar {
-  // A colour with no video cannot be sent, so it is not offered. It still
-  // exists in the folder, and the import report says so — the gap belongs on
-  // the dashboard, not in a customer's chat.
-  const sendable = m.colours.filter((c) => c.videos.length > 0);
-
+  // EVERY colour the folder has, including ones with no video.
+  //
+  // Filtering here looked tidy and was wrong twice over: the sales screen
+  // could not show that Mhero 1 has a Black folder waiting to be filled, and
+  // the decision about what may be OFFERED belongs to the flow, which already
+  // makes it — sendableColours() takes the media counts and drops anything
+  // with nothing to send. One filter, in the place that owns the rule.
   return {
     id: m.id,
     name: m.name,
@@ -78,7 +80,7 @@ function toCar(m: ManifestCar): WaCar {
     videos: m.colours.flatMap((c) =>
       c.videos.map((v) => toAsset(v, `${m.name} — ${c.name}`))
     ),
-    colours: sendable.map(toColour),
+    colours: m.colours.map(toColour),
     brochure: m.brochure ? toAsset(m.brochure, `${m.name} catalogue`) : null,
     oneLiner: "",
   };
