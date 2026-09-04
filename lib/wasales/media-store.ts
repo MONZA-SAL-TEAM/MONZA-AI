@@ -386,7 +386,10 @@ async function addFileStorage(
     return {
       ok: false,
       error:
-        "That file is over 50 MB — the shared library caps files at 50 MB, so please compress it or pick a smaller file.",
+        // Derived, never written out: a hardcoded number here told people to
+        // compress files that were already fine the day the bucket's cap was
+        // raised.
+        `That file is over ${Math.round(STORAGE_MAX_BYTES / 1024 / 1024)} MB, which is the shared library's limit — please compress it or pick a smaller file.`,
     };
   }
   const ext = extensionOf(file.name);

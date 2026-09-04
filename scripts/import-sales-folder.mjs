@@ -46,8 +46,9 @@ import path from "node:path";
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".m4v", ".webm", ".mkv"]);
 const DOC_EXTENSIONS = new Set([".pdf"]);
 
-/** The shared bucket's per-file ceiling. Anything larger needs compressing. */
-const MAX_FILE_BYTES = 50 * 1024 * 1024;
+/** The shared bucket's per-file ceiling. Keep in step with
+ *  STORAGE_MAX_BYTES in lib/wasales/media-paths.ts. */
+const MAX_FILE_BYTES = 200 * 1024 * 1024;
 
 /** Files an operating system leaves lying around, never real material. */
 const JUNK = new Set([".ds_store", "thumbs.db", "desktop.ini"]);
@@ -172,7 +173,7 @@ async function importFolder(root) {
     if (brochure && brochure.bytes > MAX_FILE_BYTES) {
       warnings.push(
         `${modelName} / ${brochure.fileName}: ` +
-          `${(brochure.bytes / 1024 / 1024).toFixed(1)} MB is over the 50 MB limit — compress before uploading.`
+          `${(brochure.bytes / 1024 / 1024).toFixed(1)} MB is over the 200 MB limit — compress before uploading.`
       );
     }
 
@@ -222,7 +223,7 @@ async function importFolder(root) {
         if (v.bytes > MAX_FILE_BYTES) {
           warnings.push(
             `${modelName} / ${c.name} / ${v.fileName}: ` +
-              `${(v.bytes / 1024 / 1024).toFixed(1)} MB is over the 50 MB limit — compress before uploading.`
+              `${(v.bytes / 1024 / 1024).toFixed(1)} MB is over the 200 MB limit — compress before uploading.`
           );
         }
       }

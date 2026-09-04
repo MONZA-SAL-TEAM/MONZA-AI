@@ -27,7 +27,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $VideoExt = @(".mp4", ".mov", ".m4v", ".webm", ".mkv")
-$MaxBytes = 50MB
+$MaxBytes = 200MB
 
 if (-not (Test-Path -LiteralPath $Root)) {
   Write-Error "That folder does not exist:`n  $Root"
@@ -102,7 +102,7 @@ foreach ($modelDir in (Get-ChildItem -LiteralPath $base -Directory | Sort-Object
   # A catalogue can be over the cap too - the real Voyah Passion PDF is 68 MB.
   if ($brochure -and $brochure.bytes -gt $MaxBytes) {
     $mb = [math]::Round($brochure.bytes / 1MB, 1)
-    $warnings += "$model / $($brochure.fileName) : $mb MB is over the 50 MB limit - compress before uploading."
+    $warnings += "$model / $($brochure.fileName) : $mb MB is over the 200 MB limit - compress before uploading."
   }
 
   $colours = @()
@@ -130,7 +130,7 @@ foreach ($modelDir in (Get-ChildItem -LiteralPath $base -Directory | Sort-Object
     foreach ($v in $videos) {
       if ($v.bytes -gt $MaxBytes) {
         $mb = [math]::Round($v.bytes / 1MB, 1)
-        $warnings += "$model / $($colourDir.Name) / $($v.fileName) : $mb MB is over the 50 MB limit - compress before uploading."
+        $warnings += "$model / $($colourDir.Name) / $($v.fileName) : $mb MB is over the 200 MB limit - compress before uploading."
       }
     }
     $colours += [ordered]@{

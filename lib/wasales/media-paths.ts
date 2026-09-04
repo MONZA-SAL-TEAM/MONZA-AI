@@ -24,8 +24,16 @@ export const MEDIA_BUCKET = "wasales-media";
 
 export type MediaKindName = "video" | "brochure";
 
-/** The shared bucket's per-file ceiling (set on the bucket itself). */
-export const STORAGE_MAX_BYTES = 50 * 1024 * 1024;
+/**
+ * The shared bucket's per-file ceiling. MUST match the bucket's own
+ * `file_size_limit`, or the browser refuses a file the bucket would have
+ * accepted (or worse, accepts one it then rejects mid-upload).
+ *
+ * Raised from 50 MiB on 4 September 2026: three real files were over it —
+ * Courage White (115.5 MB), the Voyah Passion catalogue (68.3 MB) and Free
+ * Comp Green (62.6 MB).
+ */
+export const STORAGE_MAX_BYTES = 200 * 1024 * 1024;
 
 /** The bucket's MIME allowlist. */
 export const ALLOWED_CONTENT_TYPES: readonly string[] = [
