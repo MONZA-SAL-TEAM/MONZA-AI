@@ -1,7 +1,12 @@
 /**
  * Upload the real sales folder into the shared media bucket.
  *
+ *     npm run upload-sales -- "C:\\Users\\you\\Downloads\\Monza AI sales" --plan
  *     npm run upload-sales -- "C:\\Users\\you\\Downloads\\Monza AI sales"
+ *
+ * --plan previews and sends nothing. It is NOT called --dry-run because npm
+ * claims that flag and silently declines to forward it, which once turned an
+ * intended preview into a real 302 MB upload.
  *
  * WHAT THIS IS FOR. `npm run import-sales` reads the folder and writes the
  * catalogue — the models, the colours, the file names. That makes the SCREEN
@@ -240,10 +245,27 @@ async function main() {
    * you confirm every video landed under the right colour BEFORE moving half a
    * gigabyte.
    */
-  const dryRun = args.includes("--dry-run");
+  //
+  // THE FLAG IS --plan, NOT --dry-run.
+  //
+  // npm has a --dry-run of its own and EATS it: `npm run upload-sales --
+  // "<folder>" --dry-run` never forwards the flag, so the script uploads while
+  // the person watching believes they are previewing. That is not theoretical
+  // — it happened, with 302 MB. --plan is a name npm does not claim.
+  //
+  // --dry-run is still honoured for anyone running node directly, where it
+  // does arrive: refusing it there would be a second surprise.
+  const dryRun = args.includes("--plan") || args.includes("--dry-run");
   const root = args.find((a) => !a.startsWith("--"));
   if (!root) {
-    console.error('Usage: npm run upload-sales -- "<path to the Monza AI sales folder>"');
+    console.error(
+      [
+        'Usage: npm run upload-sales -- "<path to the Monza AI sales folder>"',
+        "",
+        "Add --plan to preview without uploading anything.",
+        "(--plan, not --dry-run: npm keeps --dry-run for itself.)",
+      ].join("\n")
+    );
     process.exit(2);
   }
 
@@ -281,9 +303,13 @@ async function main() {
 
   const already = dryRun ? new Set() : await listEverything(key);
   if (dryRun) {
-    console.log("DRY RUN — nothing will be uploaded.\n");
+    console.log("PLAN ONLY — nothing will be uploaded.\n");
   } else {
-    console.log(`${already.size} objects already in the bucket.\n`);
+    // Say plainly that this run SENDS, so a flag npm swallowed is visible
+    // here rather than after half a gigabyte has already moved.
+    console.log(
+      `UPLOADING FOR REAL — ${already.size} object(s) already there will be skipped.\n`
+    );
   }
 
   let uploaded = 0;
