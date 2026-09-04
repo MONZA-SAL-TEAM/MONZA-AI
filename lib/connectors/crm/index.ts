@@ -13,6 +13,7 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Connector, ExecutionContext, ToolResult } from "@/lib/connectors/types";
+import { crmAnonKey, crmUrl } from "@/lib/env";
 import {
   demoSearchCustomers,
   demoCustomerSummary,
@@ -22,8 +23,8 @@ import {
 /* ── Shared helpers (imported by the other four connectors) ─────────────── */
 
 export function crmEnv(): { url: string; anon: string } | null {
-  const url = process.env.NEXT_PUBLIC_CRM_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_CRM_SUPABASE_ANON_KEY;
+  const url = crmUrl();
+  const anon = crmAnonKey();
   if (!url || !anon) return null;
   return { url, anon };
 }

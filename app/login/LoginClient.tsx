@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  CRM_ANON_KEY as CRM_ANON_PUBLIC,
+  CRM_URL as CRM_URL_PUBLIC,
+} from "@/lib/env-public";
+
 /**
  * Sign-in against the Monza CRM project. Accounts are the CRM's own staff
  * accounts — nothing is created here. On success the access token is stored
@@ -14,8 +19,10 @@ import { createClient } from "@supabase/supabase-js";
 
 const COOKIE_NAME = "monza-ai-token";
 
-const CRM_URL = process.env.NEXT_PUBLIC_CRM_SUPABASE_URL ?? "";
-const CRM_ANON = process.env.NEXT_PUBLIC_CRM_SUPABASE_ANON_KEY ?? "";
+// From lib/env-public: literal reads (so Next inlines them into this client
+// bundle) with empty dashboard rows treated as absent.
+const CRM_URL = CRM_URL_PUBLIC ?? "";
+const CRM_ANON = CRM_ANON_PUBLIC ?? "";
 const CONFIGURED = Boolean(CRM_URL && CRM_ANON);
 
 function storeToken(token: string, expiresIn: number | undefined) {

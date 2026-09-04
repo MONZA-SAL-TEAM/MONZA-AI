@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import type { Connector } from "@/lib/connectors/types";
+import { requireStaff, isDemoIdentity } from "@/lib/auth";
+import { aiDbConfigured, brainConfigured, crmConfigured } from "@/lib/env";
 
 /**
  * GET /api/connections — the connector map, server-side.
@@ -10,6 +12,12 @@ import type { Connector } from "@/lib/connectors/types";
  * honest lower bound: no CRM credentials means nothing CRM-flavoured can be
  * reachable. Secrets never leave the server — this route returns booleans
  * and plain sentences only.
+ *
+ * AUTHORIZATION: the connector map is an inventory of Monza's internal systems
+ * and of what the assistant can be asked, so it is not public. On a deployment
+ * with staff sign-in configured a valid token is required. In demo mode there
+ * is no sign-in to require and the map describes an invented deployment, so it
+ * is served as part of the demo — the same rule every other board route uses.
  */
 
 export const dynamic = "force-dynamic";
@@ -82,20 +90,6 @@ const COMING_LATER = [
   "Shipping & customs",
 ];
 
-function crmConfigured(): boolean {
-  return Boolean(
-    process.env.NEXT_PUBLIC_CRM_SUPABASE_URL &&
-      process.env.NEXT_PUBLIC_CRM_SUPABASE_ANON_KEY
-  );
-}
-
-function aiDbConfigured(): boolean {
-  return Boolean(
-    process.env.NEXT_PUBLIC_AI_SUPABASE_URL &&
-      process.env.AI_SUPABASE_SERVICE_ROLE_KEY
-  );
-}
-
 function looksLikeConnector(v: unknown): v is Connector {
   if (!v || typeof v !== "object") return false;
   const c = v as Partial<Connector>;
@@ -148,9 +142,14 @@ async function statusWithTimeout(
   ]);
 }
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: Request): Promise<NextResponse> {
+  const user = await requireStaff(request);
+  if (!user) {
+    return NextResponse.json({ error: "Please sign in." }, { status: 401 });
+  }
+
   const crm = crmConfigured();
-  const demo = !crm && !aiDbConfigured() && !process.env.ANTHROPIC_API_KEY;
+  const demo = isDemoIdentity(user) && !aiDbConfigured() && !brainConfigured();
 
   const connectors = await Promise.all(
     CONNECTORS.map(async (meta) => {

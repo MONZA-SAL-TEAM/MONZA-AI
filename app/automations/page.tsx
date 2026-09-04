@@ -1,73 +1,85 @@
 import type { Metadata } from "next";
+import { requireStaffForPage } from "@/lib/auth-server";
+import { getSource, isDemoSource, readContext } from "@/lib/domain";
+import { DEMO_TODAY } from "@/lib/domain/demo-source";
+import { DEFAULT_AUTOMATIONS } from "@/lib/automations/catalog";
+import { collectEvents } from "@/lib/automations/events";
+import { evaluate } from "@/lib/automations/engine";
+import { renderTemplate, templateIds } from "@/lib/automations/templates";
+import AutomationsClient, { type AutomationView } from "./AutomationsClient";
 
 export const metadata: Metadata = {
   title: "Automations — Monza AI",
 };
 
 /**
- * /automations — an honest placeholder. Nothing here runs yet, and the page
- * says so plainly rather than pretending. It exists so the destination is
- * visible: scheduled questions, delivered like any other answer.
+ * /automations — what would happen, computed with the real engine.
+ *
+ * This page does NOT describe automations in prose and hope they behave that
+ * way. It runs lib/automations/engine over today's actual events and shows the
+ * result, so what is on screen is what the system would do. The engine is pure,
+ * so running it to render a page is exactly as safe as reading a list.
+ *
+ * Every automation ships switched OFF. The preview below therefore evaluates a
+ * copy with each one turned on — "here is what this would do if you enabled it"
+ * — while the real catalog stays off. Nothing is sent from this page, and until
+ * an outbound channel is connected nothing can be.
  */
+export const dynamic = "force-dynamic";
 
-const PLANNED = [
-  {
-    title: "Morning overdue summary",
-    example:
-      "“Every morning at 8:00 — who is overdue on installments, and by how much?” delivered to the owner.",
-  },
-  {
-    title: "Weekly garage wrap-up",
-    example:
-      "“Every Friday afternoon — job cards finished this week, and anything still waiting on parts.”",
-  },
-  {
-    title: "Stock watch",
-    example:
-      "“Tell me when any fast-moving part drops below five on the shelf.”",
-  },
-];
+export default async function AutomationsPage() {
+  const user = await requireStaffForPage("/automations");
+  const source = getSource();
+  const ctx = readContext(user);
 
-export default function AutomationsPage() {
+  const [installments, vehicles, customers] = await Promise.all([
+    source.listInstallments(ctx),
+    source.listVehicles(ctx),
+    source.listCustomers(ctx),
+  ]);
+
+  const nameById = new Map(customers.map((c) => [c.id, c.name]));
+  const events = collectEvents({ installments, vehicles }, DEMO_TODAY);
+  const known = templateIds();
+
+  const views: AutomationView[] = DEFAULT_AUTOMATIONS.map((automation) => {
+    // Evaluate this one automation as if it were on, against today's events.
+    const asIfOn = { ...automation, enabled: true };
+    const { planned } = evaluate(events, [asIfOn], { knownTemplates: known });
+
+    return {
+      id: automation.id,
+      name: automation.name,
+      description: automation.description,
+      enabled: automation.enabled,
+      triggerKind: automation.trigger.kind,
+      actionKinds: automation.actions.map((a) => a.kind),
+      wouldActNow: planned.length,
+      examples: planned.slice(0, 3).map((p) => {
+        const customerName = nameById.get(p.customerId) ?? "A customer";
+        const text =
+          p.action.kind === "send_message" && p.action.templateId
+            ? renderTemplate(p.action.templateId, {
+                customerName,
+                event: p.event,
+              })
+            : (p.action.note ?? null);
+        return {
+          customerName,
+          actionKind: p.action.kind,
+          text: text ?? "",
+        };
+      }),
+    };
+  });
+
   return (
-    <main style={{ maxWidth: 860, margin: "0 auto", padding: "36px 24px 64px" }}>
-      <div className="stack-lg">
-        <header className="stack" style={{ gap: 6 }}>
-          <div className="row" style={{ gap: 10 }}>
-            <div className="eyebrow">Automations</div>
-            <span className="tag">Not built yet</span>
-          </div>
-          <h1 className="h1">Questions that ask themselves</h1>
-          <p className="lede">
-            The plan: schedule a question once, and the assistant asks it for
-            you right on time — same permissions, same record-keeping as
-            asking by hand. None of this exists yet, and this page won&apos;t
-            pretend otherwise.
-          </p>
-        </header>
-
-        <div className="aurora" aria-hidden="true" style={{ marginTop: -6 }} />
-
-        <div className="stack" style={{ gap: 14 }}>
-          {PLANNED.map((p) => (
-            <div key={p.title} className="card pad-lg">
-              <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                <span style={{ fontWeight: 600 }}>{p.title}</span>
-                <span className="tag">Planned</span>
-              </div>
-              <p className="cap" style={{ margin: "8px 0 0" }}>
-                {p.example}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        <div className="note">
-          When this ships, a scheduled question will run with the access of
-          the person who scheduled it — never more — and every run will show
-          up on the dashboard like any other question. No surprises.
-        </div>
-      </div>
-    </main>
+    <AutomationsClient
+      demo={isDemoSource(source)}
+      sourceLabel={source.label}
+      today={DEMO_TODAY}
+      eventCount={events.length}
+      automations={views}
+    />
   );
 }

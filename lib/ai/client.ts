@@ -12,6 +12,8 @@
  * end in an honest sentence to the staff member, not a stack trace.
  */
 
+import { anthropicApiKey } from "@/lib/env";
+
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
 
@@ -87,7 +89,7 @@ export type ClaudeResponse =
     };
 
 export async function callClaude(args: CallClaudeArgs): Promise<ClaudeResponse> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = anthropicApiKey();
   if (!apiKey) {
     return { ok: false, status: 0, error: "missing_api_key" };
   }

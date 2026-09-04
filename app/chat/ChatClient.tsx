@@ -23,7 +23,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AnswerTable, ChatTurnResponse, RecommendedChat } from "@/lib/chat/contract";
 import { RECOMMENDED_CHATS } from "@/lib/chat/demo-answers";
-import { DEPARTMENTS } from "@/lib/chat/departments";
+import { destinationFor } from "@/lib/chat/destinations";
 import ToolTrace from "@/components/ToolTrace";
 import DataTable from "@/components/DataTable";
 import FollowupChips from "@/components/FollowupChips";
@@ -308,12 +308,10 @@ function asMessages(data: unknown): ChatMessage[] {
 
 /* ---------------------------------------------------------------- the ui --- */
 
-/** Where a welcome card's header links to. Every key in RECOMMENDED_CHATS has
- *  a department (DEPARTMENTS is built from it), so the fallback never fires. */
-function departmentHref(key: RecommendedChat["key"]): string {
-  const d = DEPARTMENTS.find((dep) => dep.key === key);
-  return d ? `/departments/${d.slug}` : "/chat";
-}
+/* Where a welcome card's header links to now lives in lib/chat/destinations.
+   Not every card HAS a screen — finance is answered by the assistant and has
+   no page of its own — so a card without a destination renders as plain text
+   rather than a link to nowhere. */
 
 /* The welcome-card header is now a link to its department page. The rules for
    this file forbid raw <style> children (hydration), so the one hover rule it
@@ -324,7 +322,7 @@ const headLinkCss =
   ".reco-head-link{margin:-6px;padding:6px;border-radius:10px;transition:background .12s ease;}" +
   ".reco-head-link:hover{background:var(--sunk);}";
 
-export default function ChatClient() {
+export default function ChatClient({ demoMode }: { demoMode: boolean }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -334,7 +332,6 @@ export default function ChatClient() {
   /** A question that arrived via /chat?ask= — kept so a stale session's 401
    *  can send the visitor through sign-in and back WITH the question. */
   const pendingAsk = useRef<string | null>(null);
-  const [demoMode, setDemoMode] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -364,27 +361,12 @@ export default function ChatClient() {
     }
   }, [guard]);
 
+  // demoMode arrives as a prop from the server component — no status endpoint
+  // is consulted, so nothing about this deployment's configuration is readable
+  // over the network. A 401 from the conversations list is what tells us the
+  // session has expired; refreshConversations already routes that to guard().
   useEffect(() => {
     refreshConversations();
-    (async () => {
-      try {
-        const res = await fetch("/api/status");
-        if (res.status === 401) {
-          setNeedsLogin(true);
-          return;
-        }
-        if (!res.ok) return;
-        const d: unknown = await res.json();
-        if (d && typeof d === "object") {
-          const o = d as Record<string, unknown>;
-          const configured =
-            o.crmConfigured ?? o.crm_configured ?? (o.demo != null ? !o.demo : undefined);
-          if (configured === false) setDemoMode(true);
-        }
-      } catch {
-        /* no status → no banner; the chat still renders */
-      }
-    })();
   }, [refreshConversations]);
 
   const openConversation = useCallback(
@@ -586,18 +568,29 @@ export default function ChatClient() {
               </p>
               <div className="aurora" aria-hidden="true" />
               <div className="welcome-grid">
-                {RECOMMENDED_CHATS.map((rc) => (
+                {RECOMMENDED_CHATS.map((rc) => {
+                  const destination = destinationFor(rc.key);
+                  return (
                   <section key={rc.key} className="reco-card" aria-label={rc.label}>
-                    <Link
-                      className="reco-head reco-head-link"
-                      href={departmentHref(rc.key)}
-                      aria-label={`Open the ${rc.label} page`}
-                    >
-                      <span className="reco-icon">
-                        <ConnectorIcon k={rc.key} />
-                      </span>
-                      <span className="reco-label">{rc.label}</span>
-                    </Link>
+                    {destination.href ? (
+                      <Link
+                        className="reco-head reco-head-link"
+                        href={destination.href}
+                        aria-label={`Open ${destination.label}`}
+                      >
+                        <span className="reco-icon">
+                          <ConnectorIcon k={rc.key} />
+                        </span>
+                        <span className="reco-label">{rc.label}</span>
+                      </Link>
+                    ) : (
+                      <div className="reco-head">
+                        <span className="reco-icon">
+                          <ConnectorIcon k={rc.key} />
+                        </span>
+                        <span className="reco-label">{rc.label}</span>
+                      </div>
+                    )}
                     <p className="reco-blurb">{rc.blurb}</p>
                     <div className="reco-qs">
                       {rc.questions.map((q) => (
@@ -614,7 +607,8 @@ export default function ChatClient() {
                       ))}
                     </div>
                   </section>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ) : (

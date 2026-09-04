@@ -1,128 +1,148 @@
-# MONZA AI — Architecture Contract
+# MONZA AI — architecture
 
-The staff-facing conversational layer above the Monza systems. A staff member
-asks in plain language; the assistant answers by calling **connector tools**.
-This page is the contract every future connector must honour.
+## What this is
 
-```
-staff member ──► MONZA AI ──► connector ──► the system, AS THE SIGNED-IN USER
-```
+A **unified communication, follow-up and automation layer** above Monza's
+existing business systems.
 
-## The Connector interface
-
-Everything the model can reach is a `Connector` (`lib/connectors/types.ts`):
-
-```ts
-interface Connector {
-  key: string;          // stable: "crm", "installments", "garage", ...
-  label: string;        // staff words: "Customers & Sales"
-  description: string;  // one sentence for the connections screen
-  status(): Promise<{ connected: boolean; detail: string }>;
-  tools: ToolDefinition[];
-}
-
-interface ToolDefinition {
-  name: string;                          // "overdue_installments"
-  description: string;                   // written FOR the model
-  inputSchema: Record<string, unknown>;  // JSON Schema, enforced by tool-use
-  execute(input, ctx: ExecutionContext): Promise<ToolResult>;
-}
-```
-
-The registry is **closed** (`buildRegistry`): the model may only call tools
-that exist in it. A hallucinated tool name (`qualifiedName` is
-`connectorKey__toolName`) returns an error result — it never executes
-anything.
-
-## Identity pass-through (the rule that is never bent)
-
-Every CRM-family query runs with the **signed-in user's own access token**:
-
-```ts
-createClient(crmUrl, crmAnonKey, {
-  global: { headers: { Authorization: `Bearer ${ctx.user.crmAccessToken}` } },
-});
-```
-
-Never a service key against the CRM. The CRM's row-level security therefore
-applies to every AI answer automatically. The AI's **own** database
-(conversations, audit log, permissions) is the only place its service key is
-used — and that database is a separate Supabase project by design.
-
-## Two permission layers, deny wins
+It is not an ERP, not an accounting system, not a garage system and not a CRM.
+Every one of those exists already, is authoritative, and stays that way.
 
 ```
-user ──► LAYER 1: Monza AI tool permission ──► LAYER 2: the system's own RLS
-         (may this person use this tool          (under the person's OWN token)
-          through the AI at all?)
+SOURCE SYSTEMS  (CRM · garage · accounting · Supabase)     <- authoritative
+        |
+        |  read-only, through one adapter, at question time
+        v
+MONZA AI        conversations · messages · assignment · templates ·
+                automations · execution history · media library · audit
+        |
+        v
+WhatsApp · Instagram · Facebook
 ```
 
-- **Layer 1** (`lib/permissions/kernel.ts`, `decideToolAccess`) runs before
-  every tool call: owners get everything; everyone else needs a matching CRM
-  capability or an explicit grant in `tool_permissions`; an explicit **deny
-  beats everything**, and an unknown connector is denied. A denial is a
-  *normal outcome*: `deniedResult()` goes back to the model as a tool result,
-  and is audited exactly like a success.
-- **Layer 2** lives in the connected system and applies because of identity
-  pass-through. Neither layer trusts the other.
+## The data boundary
 
-**The Marketing-employee example.** A Marketing employee asks "who is overdue
-on installments?" Layer 1 stops them: the `installments` connector maps to
-capabilities they don't hold, so the model receives a polite denial to relay.
-Even if Layer 1 were misconfigured wide open, Layer 2 would return only the
-rows the CRM lets *them* see — which for Marketing is none.
+This is the load-bearing rule. Everything else follows from it.
 
-**Auditing.** Every tool call — allowed or denied — writes one `audit_logs`
-row: who, which tool, what input, how many rows, how long, and why it was
-denied if it was.
+| MONZA AI **owns** | MONZA AI **reads** |
+|---|---|
+| conversations, messages | customer records |
+| channel identities, message status | vehicles and their status |
+| assignment, conversation state | installments and their status |
+| message templates | payments and receipts |
+| automations and their run history | sales/catalogue data |
+| notification history, media library | |
+| AI interactions and the audit trail | |
 
-## Read-only v1
+Consequences, stated plainly so they are hard to erode:
 
-No tool mutates a connected system. No INSERT/UPDATE/DELETE, no RPC that
-writes. `ToolDefinition` deliberately has no mutation channel; write-capable
-actions will be a later, separately-permissioned surface, not a flag on this
-one. The AI's own `conversations`/`messages` tables are the only writes in the
-product.
+- **Nothing on the right-hand column is copied here.** There is no customers
+  table, no balance, no work order. Communication records store an *opaque
+  reference* to the source system's id and nothing else.
+- **MONZA AI never decides a business fact.** "Overdue" is the source system's
+  word. The screens count rows they were given; they do not recompute them.
+  (The installment screen this replaced computed plan coverage from cumulative
+  dollars — careful arithmetic that should not have existed here at all.)
+- **Reads run as the asking staff member.** The adapter carries their own
+  source-system token, so the source system's own row-level security decides
+  what comes back. The AI physically cannot read what the user cannot.
 
-Two more standing rules: the model id comes from `ai_settings`
-(`monza_ai.model`) or the environment, never a literal in application code;
-and the staff UI speaks plain words — no connector keys, model ids, or
-database vocabulary on screen.
+### The adapter
 
-## Adding a connector in 5 steps
+`lib/domain/` is the only way business data enters.
 
-1. **Create** `lib/connectors/<key>/index.ts` exporting a `Connector` with a
-   stable `key`, a staff-worded `label`/`description`, and an honest
-   `status()` (reachability with current configuration — no secrets in the
-   detail string).
-2. **Write tools** as `ToolDefinition`s: model-facing descriptions, strict
-   JSON Schemas, and an `execute` that routes **every** query through
-   `ctx.user.crmAccessToken` (or the equivalent per-system user credential).
-   Read-only. Summarise in SQL, return compact rows.
-3. **Map permissions**: add the connector key to `CONNECTOR_CAPABILITY` in
-   `lib/permissions/kernel.ts` so Layer 1 knows which capability unlocks it
-   (unknown keys are denied — fail closed).
-4. **Register** it in the app's registry (`buildRegistry([...])`) so the chat
-   route and `/api/connections` see it. The registry stays closed; nothing
-   outside it is callable.
-5. **Prove the properties**: demo mode works with no env vars (invented,
-   clearly-labelled data — never real customer PII); a denied call returns
-   `deniedResult()` and still writes an `audit_logs` row; `tsc --noEmit` is
-   clean.
+- `types.ts` — the vocabulary: Customer, Vehicle, Installment, Payment,
+  SalesItem, and the channel types.
+- `source.ts` — the `SourceSystem` interface. **It has no mutation method.**
+  Read-only is enforced by the shape of the interface, not by discipline.
+- `demo-source.ts` — the demo implementation, *derived* from the reconciled demo
+  canon in `lib/customers/directory-data.ts` rather than hand-written, so the
+  chat answers, the boards and the inbox cannot drift apart.
+- `index.ts` — `getSource()`. One implementation today, by design: real business
+  data is not connected. When the Supabase source lands it goes here and no
+  screen changes.
 
-## External systems roadmap
+## Security
 
-Shown to staff as a quiet "coming later" row on /connections:
+Four layers, none of which trusts another.
 
-- **WhatsApp (One Thread)** — the customer-messaging layer becomes a
-  connector: "what did we last tell this customer?" answered from thread
-  history, read-only, same two layers.
-- **Accounting** — invoices and ledgers, once the accounting system exposes a
-  per-user credential to pass through.
-- **Google Workspace** — calendar and mail lookups with each person's own
-  Google identity (OAuth pass-through, same rule, different token).
-- **Shipping & customs** — arrival tracking for vehicles and parts.
+1. **The sign-in gate** (`lib/gate.ts`, applied by `middleware.ts`). Checks that
+   a cookie *exists*. Deliberately shallow — verifying on every navigation means
+   a round-trip to the CRM each time. Its protected list is *derived from
+   `lib/nav.ts`*, so a screen cannot be added to the product and left off the
+   gate.
+2. **Route authentication** (`lib/auth.ts`). Every API route verifies the token
+   against the CRM. `requireStaff` returns the fixed demo identity when no CRM is
+   configured, so a credential-free reviewer can walk the whole product.
+3. **Page authentication** (`lib/auth-server.ts`). Server components that render
+   real data verify too. They did not, once, and a junk cookie was enough to read
+   the audit log.
+4. **`requireRealStaff`** — for anything touching real shared infrastructure
+   (production storage today, outbound messages tomorrow). It refuses the demo
+   identity outright, because in demo mode *anonymous* and *demo staff* are the
+   same caller. That confusion is what made the media bucket world-writable.
 
-Each arrives the same way: a `Connector`, a capability mapping, the closed
-registry — and not one of them ever holds a credential broader than the
-person asking.
+Plus, for the assistant specifically:
+
+- **Layer 1** (`lib/permissions/kernel.ts`) — may this user use this tool at
+  all? Deny beats owner; an unknown connector is denied.
+- **Layer 2** — the source system's own RLS, which applies because connectors
+  query with the user's token.
+
+**Disclosure rule:** public endpoints answer liveness only. Configuration state
+goes to verified staff; secret *values*, lengths, prefixes and raw upstream
+errors go to nobody. Diagnostics belong in the server log.
+
+## Automations
+
+`lib/automations/` — the engine is **pure**: no clock, no randomness, no I/O.
+The same events and automations always produce the same plan, which is why the
+Automations screen can show what *would* happen by running the real engine.
+
+- `types.ts` — an automation is **data**: a trigger and actions, both from closed
+  sets. There is no scripting surface, and a `send_message` action may only name
+  a **template**. No model output reaches a customer through this path.
+- `events.ts` — the only place business facts become triggers, and the only place
+  event ids are minted. **Every id is derived from stable facts** (which
+  installment, which job, which reminder window) and never from the time it was
+  noticed.
+- `engine.ts` — planning, idempotency keys, execution history, retry policy.
+- `templates.ts`, `catalog.ts` — the messages, and the automations, as data.
+
+Four properties the tests pin down:
+
+- **Nobody is messaged twice.** Re-processing an event produces the same
+  idempotency key, which is recognised as already done. Only a *successful* send
+  counts as done, so failures stay retryable.
+- **A late payment is chased once**, not every morning: the overdue event id
+  carries no day count.
+- **No retro-spam.** Payment confirmations only fire for payments received
+  within a recency window — otherwise switching the automation on would thank
+  every customer for a payment they made months ago.
+- **Everything ends with a person.** After the extended-overdue threshold the
+  customer is not messaged again; the team is told.
+
+Every automation ships **switched off**.
+
+## Testing
+
+`npm test` — Node's built-in runner, zero dependencies. Node 24 strips
+TypeScript types natively; `tests/_alias.mjs` supplies the one thing it does not
+know, the `@/` path alias.
+
+Type stripping does not understand JSX, so `.tsx` cannot be imported by a test.
+That is a feature: it keeps business logic in `lib/` where it can be tested,
+instead of stranded inside a component.
+
+## Deliberately not built
+
+- **Customer-facing AI.** Out of scope. The architecture is ready for it — a
+  closed template set and a permission kernel are exactly what it would need —
+  but nothing autonomous talks to customers.
+- **A live Supabase source.** The adapter exists so this can be dropped in
+  later; connecting it was explicitly not part of this work.
+- **A Money & Reports screen.** Money questions are answered by the assistant,
+  which reads the finance connector under the asker's own permissions. A second
+  set of books is exactly what this layer must not become.
+- **Outbound sending.** No channel is connected, so nothing sends. Screens offer
+  a prefilled WhatsApp link a person taps instead — and say so.

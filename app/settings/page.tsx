@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
-import { createClient } from "@supabase/supabase-js";
 import SettingsClient, { type SettingsView } from "./SettingsClient";
-import { FALLBACK_MODEL } from "@/lib/db";
+import { FALLBACK_MODEL, aiDb } from "@/lib/db";
+import { environmentPresence } from "@/lib/env";
+import { requireStaffForPage } from "@/lib/auth-server";
 
 export const metadata: Metadata = {
   title: "Settings — Monza AI",
@@ -62,13 +63,9 @@ ANTHROPIC_API_KEY=
 `;
 
 async function readAiSettings(): Promise<Record<string, string> | null> {
-  const url = process.env.NEXT_PUBLIC_AI_SUPABASE_URL;
-  const serviceKey = process.env.AI_SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) return null;
+  const supabase = aiDb();
+  if (!supabase) return null;
   try {
-    const supabase = createClient(url, serviceKey, {
-      auth: { persistSession: false },
-    });
     const { data, error } = await supabase
       .from("ai_settings")
       .select("key,value");
@@ -83,10 +80,16 @@ async function readAiSettings(): Promise<Record<string, string> | null> {
   }
 }
 
+/** This page lists WHICH secrets are configured. Presence is still
+ *  information, so it is shown only to a verified staff member — middleware's
+ *  cookie-presence check was never enough on its own. */
 export default async function SettingsPage() {
+  await requireStaffForPage("/settings");
+
   const settings = await readAiSettings();
   const demo = settings === null;
 
+  const presence = new Map(environmentPresence().map((e) => [e.name, e.set]));
   const modelId = settings?.["monza_ai.model"] ?? FALLBACK_MODEL;
   const maxToolCalls = settings?.["monza_ai.max_tool_calls_per_turn"] ?? "8";
   const enabled = (settings?.["monza_ai.enabled"] ?? "true") === "true";
@@ -96,10 +99,12 @@ export default async function SettingsPage() {
     modelLabel: MODEL_LABELS[modelId] ?? "Set by your administrator",
     maxToolCalls,
     assistantOn: enabled,
+    // Presence comes from lib/env, which trims — a dashboard row saved empty
+    // reads as NOT set, which is the truth the administrator needs.
     env: ENV_CHECKLIST.map((e) => ({
       name: e.name,
       purpose: e.purpose,
-      set: Boolean(process.env[e.name]),
+      set: presence.get(e.name) ?? false,
     })),
     envTemplate: ENV_TEMPLATE,
   };

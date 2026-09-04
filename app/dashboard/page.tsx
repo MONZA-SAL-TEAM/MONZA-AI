@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { createClient } from "@supabase/supabase-js";
+import { aiDb } from "@/lib/db";
+import { requireStaffForPage } from "@/lib/auth-server";
 
 export const metadata: Metadata = {
   title: "Dashboard — Monza AI",
@@ -40,14 +41,12 @@ interface DayStats {
 }
 
 async function readTodayStats(): Promise<DayStats | null> {
-  const url = process.env.NEXT_PUBLIC_AI_SUPABASE_URL;
-  const serviceKey = process.env.AI_SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) return null;
+  // One definition of "can we reach the AI database" (lib/db), instead of a
+  // second hand-rolled env check that drifted from it.
+  const supabase = aiDb();
+  if (!supabase) return null;
 
   try {
-    const supabase = createClient(url, serviceKey, {
-      auth: { persistSession: false },
-    });
     const now = new Date();
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
@@ -106,7 +105,10 @@ function StatCard({ label, value, hint }: { label: string; value: number; hint: 
   );
 }
 
+/** Real activity data — never rendered for an unverified visitor. Middleware
+ *  only checks that a sign-in cookie EXISTS; this verifies it. */
 export default async function DashboardPage() {
+  await requireStaffForPage("/dashboard");
   const stats = await readTodayStats();
 
   return (

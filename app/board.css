@@ -1,0 +1,143 @@
+/* Shared layout for the follow-up boards (Installments, Vehicle updates,
+   Customers, Automations). One set of rules so the four screens read as one
+   product rather than four boards that grew separately. Tokens only. */
+
+.board {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 32px clamp(16px, 4vw, 32px) 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.board-head { display: flex; flex-direction: column; gap: 6px; }
+
+.board-note {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: var(--t-sm);
+}
+
+.board-warn {
+  background: var(--urgent-bg);
+  color: var(--urgent);
+}
+
+/* ── KPI tiles ──────────────────────────────────────────────────────────── */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.tile {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.tile-label { margin: 0 0 6px; font-size: var(--t-xs); color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; }
+.tile-value { margin: 0; font-family: var(--font-display), system-ui, sans-serif; font-size: var(--t-xl); font-weight: 700; letter-spacing: -.02em; }
+.tile-value.urgent { color: var(--urgent); }
+.tile-foot  { margin: 4px 0 0; font-size: var(--t-xs); color: var(--ink-3); }
+
+/* ── Toolbar ────────────────────────────────────────────────────────────── */
+
+.board-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.board-search {
+  flex: 1;
+  min-width: 220px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-sm);
+}
+
+.board-search:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.chip {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+
+.chip:hover { background: var(--sunk); color: var(--ink); }
+.chip[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+/* ── Rows ───────────────────────────────────────────────────────────────── */
+
+.rows { display: flex; flex-direction: column; gap: 10px; list-style: none; margin: 0; padding: 0; }
+
+.rowcard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.rowcard.urgent { border-left: 3px solid var(--urgent); }
+.rowcard.ready  { border-left: 3px solid var(--live); }
+
+.rowcard-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.rowcard-name { margin: 0; font-size: var(--t-md); font-weight: 600; }
+.rowcard-sub  { margin: 2px 0 0; font-size: var(--t-sm); color: var(--ink-2); }
+.rowcard-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.rowcard-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+
+/* A message preview a person is about to send by hand. */
+.preview {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--sunk);
+  color: var(--ink-2);
+  font-size: var(--t-sm);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.board-empty {
+  padding: 40px 20px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+  text-align: center;
+}
+
+.section-head { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }

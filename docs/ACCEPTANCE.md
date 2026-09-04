@@ -1,8 +1,61 @@
 # Acceptance gate — before Monza AI touches real data
 
-The architecture is frozen. What remains is proving it with real users.
 Nothing below is optional; each item has a pass condition an outsider could
 verify. Run them in order the day the configuration lands.
+
+Gates 0a–0c cover the communication layer and the security fixes; gates 1–6
+cover the assistant and were written when it was the whole product. Both still
+apply.
+
+## Gate 0a — Nothing anonymous can change real infrastructure
+
+With the deployment in its CURRENT state (no CRM configured), from any machine:
+
+```
+curl -X POST https://monza-ai.vercel.app/api/wasales-media   -H "content-type: application/json"   -d '{"action":"sign-upload","path":"x/brochure/y.pdf","contentType":"application/pdf"}'
+```
+
+**Pass:** `403 {"error":"demoMode"}`. **Fail:** anything containing a `token`.
+Repeat for `"action":"delete"` and `"action":"sweep-brochure"`.
+
+This is a regression test for a confirmed vulnerability: the route used to
+authenticate with `requireStaff`, which hands the demo identity to any caller
+when no CRM is configured, so an anonymous request could mint upload tokens and
+delete files from the shared bucket.
+
+## Gate 0b — Public endpoints disclose nothing
+
+```
+curl https://monza-ai.vercel.app/api/status
+```
+
+**Pass:** exactly `{"status":"ok"}`. **Fail:** any field naming a system, a key,
+a key length, or a configuration state. Signed in as staff, the same URL must
+return the full diagnostic — including `aiPublicClientSource`, which says
+whether the AI project's public client pair came from the environment or from
+the repository's committed default.
+
+## Gate 0c — Configuration detection tells the truth
+
+Signed in as staff, open `/settings`. **Pass:** each environment variable's
+"set" state matches reality, treating a dashboard row saved with an empty value
+as NOT set. A row created empty used to read as configured, which is how
+production spent two days believing its own database was missing.
+
+Then `/api/status` as staff: `aiDbConfigured` must be `true` whenever the
+service-role key is present, regardless of whether a URL row was ever filled in.
+
+## Gate 0d — Before any channel is connected
+
+Until an outbound channel exists, every automation stays switched off and no
+screen may offer a Send button that does nothing. **Pass:** `/automations` says
+every automation is off; the inbox composer explains that replying needs a
+connected channel; the follow-up screens offer a prefilled WhatsApp link and say
+plainly that a person taps send.
+
+When a channel IS connected, add a gate here first: send to one internal number,
+confirm the run is recorded in `automation_runs`, then re-run the same job and
+confirm NOTHING is sent the second time.
 
 ## Configuration required first
 

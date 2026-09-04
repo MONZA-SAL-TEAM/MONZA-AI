@@ -59,7 +59,7 @@ export const RECOMMENDED_CHATS: RecommendedChat[] = [
   },
   {
     // Garage & Service and Vehicles & Parts merged into ONE card: jobs, cars
-    // and parts live together on /departments/garage-vehicles. All six
+    // and parts live together on the Vehicle updates screen. All six
     // original questions stay verbatim so every matcher still fires.
     key: "garage",
     label: "Garage & Vehicles",

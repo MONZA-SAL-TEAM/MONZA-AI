@@ -16,6 +16,7 @@
 import { NextResponse } from "next/server";
 import { requireStaff, isDemoIdentity } from "@/lib/auth";
 import { aiDb, loadSettings, loadUserRules } from "@/lib/db";
+import { brainConfigured } from "@/lib/env";
 import { buildMonzaRegistry } from "@/lib/tools/registry";
 import { runAssistantTurn } from "@/lib/ai/loop";
 import { demoAnswer } from "@/lib/chat/demo-answers";
@@ -174,7 +175,7 @@ export async function POST(request: Request) {
 
   // No brain connected: say so honestly. Never fake model output for a real
   // identity.
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!brainConfigured()) {
     const text =
       "The assistant's brain is not connected yet — no Anthropic API key is set on the server. " +
       "Once an administrator adds it, I can answer questions like this by consulting the connected Monza systems.";

@@ -16,8 +16,8 @@
  *     (website, 30 Jul). Instagram 2 / walk-in 1 / referral 1 / website 1.
  *   - 4 of the 5 arrived in August, so "New this month" is 4 (Nour is
  *     recent but July, exactly as the chat says).
- *   - names, phones, VINs and plan numbers reuse lib/tracker/demo-month.ts;
- *     job numbers and statuses reuse lib/garage/board-data.ts. Rami's plate
+ *   - names, phones, VINs, plan numbers, job numbers and statuses are the
+ *     canon the rest of the demo derives from. Rami's plate
  *     "B 123456" and George's "G 778899" are the very plates the chat's
  *     tables already show. Every other plate is invented and unique.
  */
@@ -39,9 +39,10 @@ export const CUSTOMER_SOURCES: CustomerSource[] = [
   "Longtime customer",
 ];
 
-/** Snapshot of the customer's payment plan — mirrors lib/tracker/demo-month.ts
- *  exactly. paidUsd is only present when it differs from paidCount × monthly
- *  (Karim's banked half-payment). */
+/** Snapshot of the customer's payment plan. lib/domain/demo-source.ts expands
+ *  this into individual installments, so this is the single source for them.
+ *  paidUsd is only present when it differs from paidCount × monthly (Karim's
+ *  banked half-payment). */
 export interface PlanSnapshot {
   paidCount: number;
   totalCount: number;
@@ -54,7 +55,8 @@ export interface PlanSnapshot {
 }
 
 /** Snapshot of the customer's open garage job — mirrors
- *  lib/garage/board-data.ts exactly, in plain words. */
+ *  the garage's own words. lib/domain/demo-source.ts maps these to the
+ *  communication-relevant vehicle statuses. */
 export interface GarageSnapshot {
   jobNumber: string;
   /** Plain words: "Waiting for parts", "In progress", "Waiting to start". */

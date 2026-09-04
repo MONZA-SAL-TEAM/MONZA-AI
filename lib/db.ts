@@ -8,6 +8,9 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { ToolRule } from "@/lib/permissions/kernel";
+import { aiDbConfigured, aiServiceRoleKey, aiUrl, modelOverride } from "@/lib/env";
+
+export { aiDbConfigured };
 
 export interface AiSettings {
   /** From ai_settings or MONZA_AI_MODEL — resolved by loadSettings(). */
@@ -30,19 +33,13 @@ const DEFAULT_SETTINGS: AiSettings = {
   enabled: true,
 };
 
-export function aiDbConfigured(): boolean {
-  return Boolean(
-    process.env.NEXT_PUBLIC_AI_SUPABASE_URL &&
-      process.env.AI_SUPABASE_SERVICE_ROLE_KEY
-  );
-}
-
-/** Service client for the AI's own project, or null when unconfigured. */
+/** Service client for the AI's own project, or null when unconfigured.
+ *  Every value comes from lib/env, so an empty dashboard row reads as absent
+ *  instead of producing a client that cannot authenticate. */
 export function aiDb(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_AI_SUPABASE_URL;
-  const key = process.env.AI_SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, {
+  const key = aiServiceRoleKey();
+  if (!key) return null;
+  return createClient(aiUrl(), key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
@@ -52,10 +49,9 @@ export function aiDb(): SupabaseClient | null {
  * environment (MONZA_AI_MODEL); the database value wins when present.
  */
 export async function loadSettings(): Promise<AiSettings> {
-  const envModel = process.env.MONZA_AI_MODEL;
   const base: AiSettings = {
     ...DEFAULT_SETTINGS,
-    model: envModel || DEFAULT_SETTINGS.model,
+    model: modelOverride() ?? DEFAULT_SETTINGS.model,
   };
 
   const db = aiDb();

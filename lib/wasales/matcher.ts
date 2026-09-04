@@ -3,7 +3,7 @@
  *
  * Pure, deterministic functions only: no Date, no random, no fetch, no DOM.
  * The exact same input always produces the exact same decision, so the
- * simulator on /whatsapp-sales IS the production logic — when the WhatsApp
+ * simulator on /sales IS the production logic — when the WhatsApp
  * Business number is connected, the webhook handler will call decide() with
  * real messages and act on the same answers previewed on screen.
  *
@@ -27,6 +27,10 @@
 
 /* ---------------------------------------------------------------- types --- */
 
+import type { WaColour } from "@/lib/wasales/colours";
+
+export type { WaColour };
+
 export type WaSource = "facebook" | "instagram" | "website" | "direct";
 
 export interface WaAsset {
@@ -45,7 +49,15 @@ export interface WaCar {
    */
   aliases: string[];
   videos: WaAsset[];
-  /** null = no brochure uploaded yet — the car can never auto-send. */
+  /**
+   * The colours this model actually has material for. DISCOVERED from the
+   * imported sales folder, never invented — an empty list means nothing has
+   * been imported yet, and the flow holds rather than offering a colour it
+   * cannot show.
+   */
+  colours: WaColour[];
+  /** One brochure per car, sent whatever colour the customer picks — the
+   *  brochure is not colour-specific. null = nothing uploaded yet. */
   brochure: WaAsset | null;
   oneLiner: string;
 }
@@ -195,7 +207,7 @@ function sameSpan(a: number[], b: number[]): boolean {
  * says "typo-tolerant" in the fuzzy case so the salesperson knows the system
  * corrected a spelling.
  */
-export function matchModel(text: string, catalog: WaCar[]): ModelMatch {
+export function matchModel(text: string, catalog: readonly WaCar[]): ModelMatch {
   const tokens = normalize(text).split(" ").filter((t) => t !== "");
   if (tokens.length === 0) {
     return { decision: "hold", reason: HOLD_NO_CAR };
@@ -345,7 +357,7 @@ function hold(reason: string): Decision {
  * the caller lists its videos + brochure as what WOULD go out. This module
  * never sends anything; it only ever answers the question.
  */
-export function decide(input: IncomingInput, catalog: WaCar[]): Decision {
+export function decide(input: IncomingInput, catalog: readonly WaCar[]): Decision {
   // (1) master switch
   if (!input.autoSendEnabled) {
     return hold(

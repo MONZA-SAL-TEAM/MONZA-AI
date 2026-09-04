@@ -35,6 +35,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { AI_ANON_KEY, AI_URL } from "@/lib/env-public";
+import {
+  MEDIA_BUCKET,
+  STORAGE_MAX_BYTES,
+  VIDEO_EXTENSIONS as STORAGE_VIDEO_EXTENSIONS,
+  buildMediaPath,
+  contentTypeFor,
+  displayNameOf,
+  extensionOf,
+  isValidCarId,
+} from "@/lib/wasales/media-paths";
 
 /* ---------------------------------------------------------------- types --- */
 
@@ -80,12 +91,8 @@ export type AddFileResult =
 // on the media bucket). Env vars win when set; the committed defaults keep
 // shared mode on without any dashboard configuration. The SERVICE key is the
 // secret — it lives only in the server environment, never here.
-const STORAGE_URL =
-  (process.env.NEXT_PUBLIC_AI_SUPABASE_URL ?? "").trim() ||
-  "https://fpsgsgldepgcowyivoow.supabase.co";
-const STORAGE_ANON =
-  (process.env.NEXT_PUBLIC_AI_SUPABASE_ANON_KEY ?? "").trim() ||
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZwc2dzZ2xkZXBnY293eWl2b293Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNDA1MjYsImV4cCI6MjEwMzkxNjUyNn0.dg3OftDJZMdi4mQdSdeqY76kV-_mTULr10iUPSqtfEA";
+const STORAGE_URL = AI_URL;
+const STORAGE_ANON = AI_ANON_KEY;
 
 /** True when the shared Supabase media library is configured. Build-time
  *  constant — safe to call during render. */
@@ -93,12 +100,53 @@ export function storageMode(): boolean {
   return STORAGE_URL !== "" && STORAGE_ANON !== "";
 }
 
-const BUCKET = "wasales-media";
+const BUCKET = MEDIA_BUCKET;
 const API_ROUTE = "/api/wasales-media";
 
 /** The exact honest sentence for the not-yet-configured server key. */
 const KEY_MISSING_MSG =
   "Shared uploads are almost ready — one server key is still missing.";
+
+/**
+ * Turn a refused API response into one plain sentence for the person at the
+ * screen. The server sends a stable machine code plus a message; we key on the
+ * code (never on status alone — a proxy or mid-deploy 503 must not masquerade
+ * as a configuration message) and fall back to a generic line.
+ *
+ * Every one of these is a state a person can act on: sign in, ask an admin, or
+ * try again. None of them exposes anything about the server's configuration
+ * beyond "this isn't available to you right now".
+ */
+async function apiErrorMessage(
+  res: Response,
+  what: "upload" | "delete"
+): Promise<string> {
+  let code = "";
+  try {
+    const body: unknown = await res.clone().json();
+    if (body && typeof body === "object") {
+      const e = (body as { error?: unknown }).error;
+      if (typeof e === "string") code = e;
+    }
+  } catch {
+    /* not JSON — fall through to the generic sentence */
+  }
+
+  switch (code) {
+    case "keyMissing":
+      return KEY_MISSING_MSG;
+    case "signInRequired":
+      return "Please sign in to Monza AI first, then try again.";
+    case "demoMode":
+      return "This is the demo — the shared media library can only be changed once staff sign-in is connected.";
+    case "forbidden":
+      return "Your account doesn't include managing sales material — ask an owner to grant it.";
+    default:
+      return what === "upload"
+        ? "The server couldn't prepare the upload — please try again."
+        : "Couldn't remove that file — please try again.";
+  }
+}
 
 let sbClient: SupabaseClient | null = null;
 
@@ -115,27 +163,11 @@ function getStorageClient(): SupabaseClient {
 /* ---------------------------------------------------------------- limits --- */
 
 const LOCAL_MAX_BYTES = 300 * 1024 * 1024; // 300 MB (this browser only)
-const STORAGE_MAX_BYTES = 50 * 1024 * 1024; // 50 MB (the bucket's cap)
 
 const LOCAL_VIDEO_EXTENSIONS = [
   "mp4", "mov", "m4v", "webm", "mkv", "avi", "3gp", "mpg", "mpeg", "ogv",
 ];
 
-/** The shared bucket's allowlist: these extensions, these MIME types. */
-const STORAGE_VIDEO_EXTENSIONS = ["mp4", "mov", "webm", "mkv"];
-
-const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
-  mp4: "video/mp4",
-  mov: "video/quicktime",
-  webm: "video/webm",
-  mkv: "video/x-matroska",
-  pdf: "application/pdf",
-};
-
-function extensionOf(name: string): string {
-  const dot = name.lastIndexOf(".");
-  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
-}
 
 /** video/* by MIME, or a known video extension when the OS reported none. */
 function looksLikeVideo(file: File): boolean {
@@ -169,27 +201,6 @@ function makeId(name: string, size: number): string {
   return `f-${idSeq++}-${size}-${safeName}`;
 }
 
-/** Keep the original name recognizable while fitting the object-name rules
- *  ([A-Za-z0-9_.-] only). "__" is collapsed so the display split at the FIRST
- *  "__" in the path stays unambiguous. */
-function safeObjectName(original: string): string {
-  const ext = extensionOf(original);
-  const dot = original.lastIndexOf(".");
-  const base = dot > 0 ? original.slice(0, dot) : original;
-  let safeBase = base
-    .replace(/[^A-Za-z0-9_.-]+/g, "-")
-    .replace(/_{2,}/g, "_")
-    .replace(/^[-.]+|[-.]+$/g, "")
-    .slice(0, 100);
-  if (safeBase === "") safeBase = "file";
-  return ext ? `${safeBase}.${ext}` : safeBase;
-}
-
-/** The display name of a stored object: the part after the first "__". */
-function displayNameOf(objectName: string): string {
-  const sep = objectName.indexOf("__");
-  return sep >= 0 ? objectName.slice(sep + 2) : objectName;
-}
 
 /* ------------------------------------------------------- the local db --- */
 
@@ -360,8 +371,11 @@ async function addFileStorage(
   file: File
 ): Promise<AddFileResult> {
   // Session-added cars reset on refresh, so their files would sit orphaned
-  // in the shared library forever. Honest refusal instead.
-  if (!/^[a-z0-9-]+$/.test(carId)) {
+  // in the shared library forever. Honest refusal instead. The id shape itself
+  // comes from lib/wasales/media-paths so the browser and the server agree on
+  // exactly one definition (the old local copy was stricter than the server's
+  // and would have rejected real source-system ids).
+  if (!isValidCarId(carId)) {
     return {
       ok: false,
       error:
@@ -389,7 +403,7 @@ async function addFileStorage(
       error: "The brochure must be a PDF file (ending in .pdf).",
     };
   }
-  const contentType = CONTENT_TYPE_BY_EXTENSION[ext];
+  const contentType = contentTypeFor(file.name);
   if (!contentType) {
     return {
       ok: false,
@@ -397,7 +411,7 @@ async function addFileStorage(
     };
   }
 
-  const path = `${carId}/${kind}/${makeId(file.name, file.size)}__${safeObjectName(file.name)}`;
+  const path = buildMediaPath(carId, kind, makeId(file.name, file.size), file.name);
 
   const res = await postApi({ action: "sign-upload", path, contentType });
   if (!res) {
@@ -406,28 +420,8 @@ async function addFileStorage(
       error: "Couldn't reach the server — please check the connection and try again.",
     };
   }
-  if (res.status === 503) {
-    // Only the route's own signal means the key is missing — a proxy or
-    // deploy 503 must not masquerade as a configuration message.
-    let keyMissing = false;
-    try {
-      const b: unknown = await res.clone().json();
-      keyMissing =
-        typeof b === "object" && b !== null &&
-        (b as { error?: string }).error === "keyMissing";
-    } catch { /* not JSON — treat as an ordinary outage */ }
-    return {
-      ok: false,
-      error: keyMissing
-        ? KEY_MISSING_MSG
-        : "The upload service didn't answer — please try again in a moment.",
-    };
-  }
   if (!res.ok) {
-    return {
-      ok: false,
-      error: "The server couldn't prepare the upload — please try again.",
-    };
+    return { ok: false, error: await apiErrorMessage(res, "upload") };
   }
   let token = "";
   try {
@@ -485,7 +479,9 @@ async function addFileStorage(
   };
 }
 
-/** After a brochure upload lands, retire the car's previous brochure. */
+/** After a brochure upload lands, retire the car's previous brochure.
+ *  A failure here leaves an extra old file — never a missing new one — so it
+ *  is reported to the caller rather than thrown. */
 async function sweepOldBrochure(keepPath: string): Promise<void> {
   await postApi({ action: "sweep-brochure", keepPath });
 }
@@ -497,11 +493,14 @@ async function deleteFileStorage(path: string): Promise<{ ok: boolean; error?: s
     notifyChanged();
     return { ok: true };
   }
-  return {
-    ok: false,
-    error:
-      "Couldn't remove that file — please check the connection and try again.",
-  };
+  if (!res) {
+    return {
+      ok: false,
+      error:
+        "Couldn't remove that file — please check the connection and try again.",
+    };
+  }
+  return { ok: false, error: await apiErrorMessage(res, "delete") };
 }
 
 /* --------------------------------------------------- local-mode operations --- */
