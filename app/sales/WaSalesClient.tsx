@@ -46,10 +46,20 @@ import {
 import { SAMPLE_MESSAGES } from "@/lib/wasales/catalog-data";
 import type { MediaKind } from "@/lib/wasales/media-store";
 import {
+  deleteColour,
   listAllFiles,
+  listColourIds,
   storageMode,
   subscribeMediaChanges,
-  useCarMedia, deleteFile } from "@/lib/wasales/media-store";
+  useCarMedia,
+  deleteFile,
+} from "@/lib/wasales/media-store";
+import { colourIdFrom, colourNameFrom } from "@/lib/wasales/media-paths";
+import {
+  checkColourFit,
+  type ColourWarning,
+  type ExistingFile,
+} from "@/lib/wasales/colour-check";
 
 /* ------------------------------------------------------------- constants --- */
 
@@ -255,9 +265,13 @@ function formatSize(bytes: number): string {
  */
 function CarMediaDialog({
   car,
+  catalog,
   onClose,
 }: {
   car: WaCar | null;
+  /** Every car, so a file name can be tested against the OTHER models — the
+   *  check that caught a Passion L video sitting in the Voyah Passion folder. */
+  catalog: readonly WaCar[];
   onClose: () => void;
 }) {
   const dlgRef = useRef<HTMLDialogElement | null>(null);
@@ -272,6 +286,19 @@ function CarMediaDialog({
    * the button so it is impossible to upload without having seen it.
    */
   const [uploadColour, setUploadColour] = useState<string>("");
+
+  /** Colour ids discovered in the LIBRARY, which may include ones a person
+   *  added here and the imported catalogue has never heard of. */
+  const [libraryColours, setLibraryColours] = useState<string[]>([]);
+  /** The "add a colour" field, as typed. */
+  const [newColour, setNewColour] = useState("");
+  /** Warnings about the files just picked. Never blocking — a person decides. */
+  const [fitWarnings, setFitWarnings] = useState<ColourWarning[]>([]);
+  /** The colour a delete is being confirmed for, or null. */
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  /** Every file in the library, so "this exact file is already filed under X"
+   *  can be spotted across cars, not just within this one. */
+  const [existingEverywhere, setExistingEverywhere] = useState<ExistingFile[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
@@ -304,9 +331,58 @@ function CarMediaDialog({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  // A fresh car gets a fresh error slate and its own first colour.
+  /**
+   * Every colour this car has: the catalogue's, plus any found in the library.
+   *
+   * The two can legitimately differ. The catalogue is a snapshot of the sales
+   * folder at import time; the library is what exists NOW. A colour added on
+   * this screen lives only in the library until somebody re-imports, and it
+   * must still be usable — otherwise adding one would appear to do nothing.
+   */
+  const allColours: WaColour[] = useMemo(() => {
+    if (!car) return [];
+    const byId = new Map(car.colours.map((c) => [c.id, c]));
+    for (const id of libraryColours) {
+      if (byId.has(id)) continue;
+      // Only the id is recorded in storage, so the name is derived from it.
+      byId.set(id, { id, name: colourNameFrom(id), aliases: [id] });
+    }
+    return [...byId.values()];
+  }, [car, libraryColours]);
+
+  const refreshColours = useCallback(async () => {
+    if (!car) return;
+    setLibraryColours(await listColourIds(car.id));
+  }, [car]);
+
+  const refreshEverything = useCallback(async () => {
+    const all = await listAllFiles();
+    setExistingEverywhere(
+      all.map((f) => ({
+        carId: f.carId,
+        colourId: f.colourId ?? null,
+        name: f.name,
+        size: f.size,
+      }))
+    );
+  }, []);
+
+  // Discover the library's colours whenever the car changes or files move.
+  useEffect(() => {
+    void refreshColours();
+    void refreshEverything();
+    return subscribeMediaChanges(() => {
+      void refreshColours();
+      void refreshEverything();
+    });
+  }, [refreshColours, refreshEverything]);
+
+  // A fresh car gets a fresh slate and its own first colour.
   useEffect(() => {
     setUploadError(null);
+    setFitWarnings([]);
+    setNewColour("");
+    setConfirmingDelete(null);
     setUploadColour(car?.colours[0]?.id ?? "");
   }, [car?.id, car?.colours]);
 
@@ -316,14 +392,72 @@ function CarMediaDialog({
       setUploadError(null);
       setBusy(true);
       const errors: string[] = [];
+      const warnings: ColourWarning[] = [];
+
       for (const f of files) {
+        // Look at the name BEFORE uploading, so the warning is attached to the
+        // file that caused it. It never blocks: file names are frequently
+        // meaningless, and a check that refuses those teaches people to
+        // ignore it.
+        if (kind === "video" && car) {
+          warnings.push(
+            ...checkColourFit({
+              car: { ...car, colours: allColours },
+              colourId: uploadColour,
+              fileName: f.name,
+              size: f.size,
+              existing: existingEverywhere,
+              catalog,
+            })
+          );
+        }
         const result = await add(kind, kind === "video" ? uploadColour : null, f);
         if (!result.ok) errors.push(`${f.name}: ${result.error}`);
       }
+
       setBusy(false);
+      setFitWarnings(warnings);
       if (errors.length > 0) setUploadError(errors.join(" "));
     },
-    [add, uploadColour]
+    [add, uploadColour, car, allColours, existingEverywhere, catalog]
+  );
+
+  /** Add a colour: it becomes real as soon as a video is filed under it, so
+   *  this only selects it — nothing is written until an upload. */
+  const addColour = useCallback(() => {
+    const id = colourIdFrom(newColour);
+    if (id === "") {
+      setUploadError("Give the colour a name — letters or numbers.");
+      return;
+    }
+    if (allColours.some((c) => c.id === id)) {
+      setUploadColour(id);
+      setNewColour("");
+      return;
+    }
+    setLibraryColours((prev) => [...prev, id]);
+    setUploadColour(id);
+    setNewColour("");
+    setUploadError(null);
+  }, [newColour, allColours]);
+
+  const removeColour = useCallback(
+    async (colourId: string) => {
+      setConfirmingDelete(null);
+      setBusy(true);
+      const result = await deleteColour(car?.id ?? "", colourId);
+      setBusy(false);
+      if (!result.ok) {
+        setUploadError(result.error ?? "Couldn't remove that colour.");
+        return;
+      }
+      // A colour that was only ever selected here has no files behind it, so
+      // drop it from the local list too or it lingers looking real.
+      setLibraryColours((prev) => prev.filter((id) => id !== colourId));
+      if (uploadColour === colourId) setUploadColour(car?.colours[0]?.id ?? "");
+      await refreshColours();
+    },
+    [car, uploadColour, refreshColours]
   );
 
   const onVideoPick = useCallback(
@@ -378,13 +512,13 @@ function CarMediaDialog({
                 <select
                   value={uploadColour}
                   onChange={(e) => setUploadColour(e.target.value)}
-                  disabled={busy || car.colours.length === 0}
+                  disabled={busy || allColours.length === 0}
                   aria-label={`Which colour the next ${car.name} video shows`}
                 >
-                  {car.colours.length === 0 ? (
+                  {allColours.length === 0 ? (
                     <option value="">No colours yet</option>
                   ) : (
-                    car.colours.map((c) => (
+                    allColours.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
                       </option>
@@ -416,6 +550,128 @@ function CarMediaDialog({
                 aria-label={`Upload video files for ${car.name}`}
               />
             </div>
+
+            {/* THE COLOURS THIS CAR HAS.
+                A colour exists because it has videos — so removing one means
+                removing its videos, and the confirmation says exactly how
+                many rather than "some". */}
+            <div className="ws-colour-manager">
+              <ul className="ws-colour-list">
+                {allColours.map((c) => {
+                  const count = videos.filter((v) => v.colourId === c.id).length;
+                  const confirming = confirmingDelete === c.id;
+                  return (
+                    <li
+                      key={c.id}
+                      className="ws-colour-row"
+                      data-selected={uploadColour === c.id}
+                    >
+                      <button
+                        type="button"
+                        className="ws-colour-pick"
+                        onClick={() => setUploadColour(c.id)}
+                        aria-pressed={uploadColour === c.id}
+                      >
+                        {c.name}
+                        <span className="ws-colour-count">
+                          {count === 0
+                            ? "no video yet"
+                            : `${count} video${count === 1 ? "" : "s"}`}
+                        </span>
+                      </button>
+
+                      {confirming ? (
+                        <span className="ws-colour-confirm">
+                          <span className="cap">
+                            {count === 0
+                              ? "Remove it?"
+                              : `Delete ${count} video${count === 1 ? "" : "s"}?`}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn danger"
+                            disabled={busy}
+                            onClick={() => void removeColour(c.id)}
+                          >
+                            Delete
+                          </button>
+                          <button
+                            type="button"
+                            className="btn quiet"
+                            onClick={() => setConfirmingDelete(null)}
+                          >
+                            Keep
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn quiet ws-colour-remove"
+                          disabled={busy}
+                          aria-label={`Remove the colour ${c.name} from the ${car.name}`}
+                          onClick={() => setConfirmingDelete(c.id)}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+
+              <div className="ws-colour-add">
+                <input
+                  type="text"
+                  value={newColour}
+                  placeholder="Add a colour, e.g. Midnight Blue"
+                  aria-label={`Add a colour to the ${car.name}`}
+                  disabled={busy}
+                  onChange={(e) => setNewColour(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addColour();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy || newColour.trim() === ""}
+                  onClick={addColour}
+                >
+                  Add colour
+                </button>
+              </div>
+              <p className="cap ws-media-hint">
+                A colour becomes real once it has a video. Add one, then upload
+                its video with the colour selected.
+              </p>
+            </div>
+
+            {fitWarnings.length > 0 && (
+              <div className="ws-fit-warnings" role="status">
+                <p className="cap ws-fit-title">Worth a second look</p>
+                <ul>
+                  {fitWarnings.map((w, i) => (
+                    <li key={`${w.kind}-${i}`} data-kind={w.kind}>
+                      {w.message}
+                    </li>
+                  ))}
+                </ul>
+                <p className="cap ws-fit-foot">
+                  These come from the file name, not the footage — nothing here
+                  can see what the video shows.
+                </p>
+                <button
+                  type="button"
+                  className="btn quiet"
+                  onClick={() => setFitWarnings([])}
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
 
             {!loaded ? (
               <p className="cap ws-media-hint">{MEDIA_CHECKING}</p>
@@ -1559,7 +1815,7 @@ export default function WaSalesClient() {
         </p>
 
         {/* Car media dialog — the car's real uploads, nothing else. */}
-        <CarMediaDialog car={mediaCar} onClose={closeMedia} />
+        <CarMediaDialog car={mediaCar} catalog={cars} onClose={closeMedia} />
 
         {/* Add / edit dialog — native <dialog> for focus trap + Esc. */}
         <dialog

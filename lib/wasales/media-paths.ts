@@ -107,6 +107,38 @@ export function isValidColourId(colourId: string): boolean {
 }
 
 /**
+ * Turn what a person typed into a colour id: "Midnight Blue" -> "midnight-blue".
+ *
+ * Returns "" when nothing usable survives, which the caller must treat as a
+ * refusal — an empty segment would silently collapse the path.
+ */
+export function colourIdFrom(typed: string): string {
+  return typed
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64)
+    .replace(/-+$/, "");
+}
+
+/**
+ * The name to show for a colour id: "midnight-blue" -> "Midnight Blue".
+ *
+ * The id is the only record a bucket-created colour has — there is no table of
+ * display names — so this has to be reversible enough to look deliberate. It
+ * is applied ONLY to colours discovered in storage; a colour that came from the
+ * sales folder keeps the folder's own capitalisation.
+ */
+export function colourNameFrom(colourId: string): string {
+  return colourId
+    .split("-")
+    .filter((w) => w !== "")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+/**
  * Parse and validate a full object path.
  *
  * Returns null for anything that is not an exactly-shaped path — four

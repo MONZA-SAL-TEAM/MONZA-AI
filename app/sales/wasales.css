@@ -833,3 +833,123 @@
 
 /* Tap a colour to answer, exactly as a customer would type it. */
 .ws-colour-answers { margin-top: 10px; }
+
+/* ── Colour management, inside the car media dialog ───────────────────────
+   A colour exists because it has videos, so the list is both the picker and
+   the manager: choosing where the next upload goes and removing one are the
+   same set of rows. */
+
+.ws-colour-manager {
+  margin: 12px 0 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-2);
+}
+
+.ws-colour-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.ws-colour-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+  border-radius: 10px;
+}
+
+.ws-colour-row[data-selected="true"] {
+  background: var(--accent-bg);
+}
+
+.ws-colour-pick {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ws-colour-row[data-selected="true"] .ws-colour-pick {
+  font-weight: 600;
+}
+
+.ws-colour-count {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.ws-colour-remove,
+.ws-colour-confirm .btn {
+  min-height: 44px;
+}
+
+.ws-colour-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ws-colour-add {
+  display: flex;
+  gap: 8px;
+}
+
+.ws-colour-add input {
+  flex: 1;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+}
+
+/* ── The name-based fit warnings ──────────────────────────────────────────
+   Deliberately NOT styled as an error: nothing failed, and the upload has
+   already happened. This is "look at this", not "you broke something". */
+
+.ws-fit-warnings {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--warn-line, var(--line));
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  background: var(--bg-2);
+}
+
+.ws-fit-title {
+  margin: 0 0 6px;
+  color: var(--ink-2);
+}
+
+.ws-fit-warnings ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.ws-fit-warnings li[data-kind="no-evidence"] {
+  color: var(--ink-3);
+}
+
+.ws-fit-foot {
+  margin: 0 0 8px;
+  color: var(--ink-3);
+}

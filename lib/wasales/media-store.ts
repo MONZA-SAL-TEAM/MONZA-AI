@@ -717,6 +717,71 @@ export async function deleteFile(
   return { ok: true };
 }
 
+/**
+ * The colour ids that exist for a car IN THE LIBRARY.
+ *
+ * A colour exists because it has a folder with videos in it — there is no
+ * separate list of colours to fall out of step with the files. This is how a
+ * colour somebody added here shows up without the catalogue being rebuilt.
+ */
+export async function listColourIds(carId: string): Promise<string[]> {
+  if (!storageMode()) {
+    const files = await listFilesLocal(carId);
+    return [
+      ...new Set(
+        files
+          .filter((f) => f.kind === "video" && f.colourId)
+          .map((f) => f.colourId as string)
+      ),
+    ].sort();
+  }
+  return (await listFolderNames(`${carId}/video`)).sort();
+}
+
+/**
+ * Delete a colour, and with it every video filed under it.
+ *
+ * Deleting a colour and deleting its videos are the SAME operation, because
+ * the videos are what make the colour exist. Callers must confirm with a
+ * person first — this cannot be undone, and it returns how many files went so
+ * the confirmation can say a number rather than "some".
+ */
+export async function deleteColour(
+  carId: string,
+  colourId: string
+): Promise<{ ok: boolean; removed: number; error?: string }> {
+  if (!storageMode()) {
+    const files = await listFilesLocal(carId);
+    const mine = files.filter(
+      (f) => f.kind === "video" && f.colourId === colourId
+    );
+    for (const f of mine) await deleteFileLocal(f.id);
+    notifyChanged();
+    return { ok: true, removed: mine.length };
+  }
+
+  const res = await postApi({ action: "delete-colour", carId, colourId });
+  if (!res) {
+    return {
+      ok: false,
+      removed: 0,
+      error: "Couldn't reach the server — please check the connection and try again.",
+    };
+  }
+  if (!res.ok) {
+    return { ok: false, removed: 0, error: await apiErrorMessage(res, "delete") };
+  }
+  let removed = 0;
+  try {
+    const body = (await res.json()) as { removed?: unknown };
+    if (typeof body.removed === "number") removed = body.removed;
+  } catch {
+    /* the count is a nicety; the deletion already happened */
+  }
+  notifyChanged();
+  return { ok: true, removed };
+}
+
 /* ------------------------------------------------------------- the hook --- */
 
 export interface CarMediaState {

@@ -31,6 +31,7 @@
  *       Retires every OTHER brochure for that car. Called only AFTER the new
  *       upload lands, so a failed upload can never leave a car with none.
  *   { action: "delete",         path }              -> { ok: true }
+ *   { action: "delete-colour",  carId, colourId }   -> { ok: true, removed }
  *
  * Path rules live in lib/wasales/media-paths.ts — one definition, shared with
  * the browser store, directly tested.
@@ -48,6 +49,8 @@ import { aiServiceRoleKey, aiUrl } from "@/lib/env";
 import {
   MEDIA_BUCKET,
   checkUpload,
+  isValidCarId,
+  isValidColourId,
   mediaPrefix,
   parseMediaPath,
 } from "@/lib/wasales/media-paths";
@@ -86,12 +89,15 @@ export async function POST(request: Request): Promise<NextResponse> {
     path?: unknown;
     contentType?: unknown;
     keepPath?: unknown;
+    carId?: unknown;
+    colourId?: unknown;
   };
 
   const action = body.action;
   if (
     action !== "sign-upload" &&
     action !== "delete" &&
+    action !== "delete-colour" &&
     action !== "sweep-brochure"
   ) {
     return fail("badRequest", "Unknown action.", 400);
@@ -171,6 +177,55 @@ export async function POST(request: Request): Promise<NextResponse> {
       );
     }
     return NextResponse.json({ ok: true });
+  }
+
+  /* ── delete-colour ──────────────────────────────────────────────────────
+   *
+   * Removes a colour by removing everything filed under it. There is no
+   * colour record to delete separately: a colour EXISTS because it has a
+   * folder with videos in it, so emptying the folder is what deleting means.
+   *
+   * This is the most destructive thing the route does — several files at once,
+   * with no undo — so it lists first and reports exactly how many it removed,
+   * and the caller is expected to have confirmed with a person naming the
+   * colour and the count. */
+  if (action === "delete-colour") {
+    const carId = typeof body.carId === "string" ? body.carId : "";
+    const colourId = typeof body.colourId === "string" ? body.colourId : "";
+    if (!isValidCarId(carId) || !isValidColourId(colourId)) {
+      return fail("badRequest", "Invalid car or colour.", 400);
+    }
+
+    const prefix = mediaPrefix(carId, "video", colourId);
+    try {
+      const { data: found, error } = await svc.storage
+        .from(MEDIA_BUCKET)
+        .list(prefix, { limit: 1000 });
+      if (error) throw error;
+
+      const paths = (found ?? [])
+        .map((e) => (typeof e.name === "string" ? e.name : ""))
+        .filter((n) => n !== "" && !n.startsWith("."))
+        .map((n) => `${prefix}/${n}`);
+
+      // An already-empty colour is a success, not an error: the caller asked
+      // for it to be gone, and it is gone.
+      if (paths.length === 0) return NextResponse.json({ ok: true, removed: 0 });
+
+      const { error: rmError } = await svc.storage
+        .from(MEDIA_BUCKET)
+        .remove(paths);
+      if (rmError) throw rmError;
+
+      return NextResponse.json({ ok: true, removed: paths.length });
+    } catch (e) {
+      console.error("[wasales-media] delete-colour failed:", e);
+      return fail(
+        "storageFailed",
+        "Couldn't remove that colour's videos — please try again.",
+        500
+      );
+    }
   }
 
   /* ── sign-upload ───────────────────────────────────────────────────────── */
