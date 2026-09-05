@@ -72,6 +72,33 @@ export function aiDbConfigured(): boolean {
 
 /* ── The brain ──────────────────────────────────────────────────────────── */
 
+/* ── Meta channels (Instagram, Messenger, WhatsApp) ─────────────────────── */
+
+/**
+ * The app secret Meta signs every webhook delivery with.
+ *
+ * Absent means the webhook REFUSES everything — see lib/channels/meta-signature
+ * for why that is the only safe default. Unconfigured must not mean unguarded.
+ */
+export function metaAppSecret(): string | null {
+  return read("META_APP_SECRET");
+}
+
+/** The token echoed back during Meta's one-time subscription handshake. Ours
+ *  to choose; it just has to match what is typed into the Meta dashboard. */
+export function metaVerifyToken(): string | null {
+  return read("META_VERIFY_TOKEN");
+}
+
+/** Read one connected account's access token by the env NAME its
+ *  ChannelAccount records. Tokens are never held in code. */
+export function channelToken(envName: string): string | null {
+  // Guarded: the name comes from committed configuration, but reading an
+  // arbitrary env var by request would be an oracle for every other secret.
+  if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(envName)) return null;
+  return read(envName);
+}
+
 export function anthropicApiKey(): string | null {
   return read("ANTHROPIC_API_KEY");
 }
