@@ -31,7 +31,6 @@
  */
 
 import type { ChannelKey } from "@/lib/domain/types";
-import type { InboxMessage } from "@/lib/inbox/types";
 
 /* ── Accounts ────────────────────────────────────────────────────────────── */
 
@@ -197,19 +196,16 @@ export function windowExplanation(w: ReplyWindow, channel: ChannelKey): string {
 }
 
 /**
- * The connected accounts. EMPTY until somebody connects one.
+ * WHERE THE CONNECTED ACCOUNTS LIVE: the `channel_accounts` table, read through
+ * lib/channels/store.ts — NOT a constant here.
  *
- * Deliberately a committed constant rather than a table: which accounts exist
- * is a deployment fact, it is reviewed like code, and an empty list makes the
- * screen say "nothing connected" instead of inventing a channel. Tokens live in
- * the environment; only their NAMES appear here.
+ * There was a committed list here at first, on the reasoning that applies to
+ * the sales catalogue: deployment facts belong in code where they are reviewed.
+ * It is the wrong call for this one. Connecting an account is an operations
+ * step done in the Meta dashboard by somebody holding a phone for 2FA, and
+ * making it also require a deploy would mean the two halves can disagree — with
+ * the failure mode being a customer's message filed under the wrong brand.
+ *
+ * One source of truth, in the place the operator can change: the database. The
+ * token is still never stored, only the NAME of the variable holding it.
  */
-export const CHANNEL_ACCOUNTS: readonly ChannelAccount[] = [];
-
-export function accountById(id: string): ChannelAccount | null {
-  return CHANNEL_ACCOUNTS.find((a) => a.id === id) ?? null;
-}
-
-export function accountByExternalId(externalId: string): ChannelAccount | null {
-  return CHANNEL_ACCOUNTS.find((a) => a.externalId === externalId) ?? null;
-}

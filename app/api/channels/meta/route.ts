@@ -25,7 +25,8 @@
 
 import { NextResponse } from "next/server";
 import { instagramAdapter } from "@/lib/channels/instagram";
-import { CHANNEL_ACCOUNTS, type InboundEvent } from "@/lib/channels/types";
+import type { ChannelAccount, InboundEvent } from "@/lib/channels/types";
+import { listAccounts, recordDelivery, storeInbound } from "@/lib/channels/store";
 import {
   verifyMetaSignature,
   verifySubscription,
@@ -79,10 +80,27 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ ok: true });
   }
 
+  // The connected accounts come from the DATABASE, not from code, so
+  // connecting one is a row rather than a deploy. An empty list is the honest
+  // state today and makes every event "unmatched" rather than mis-filed.
+  let accounts: ChannelAccount[] = [];
+  try {
+    accounts = (await listAccounts()).map((a) => ({
+      id: a.id,
+      channel: a.channel as ChannelAccount["channel"],
+      displayName: a.displayName,
+      externalId: a.externalId,
+      portfolio: a.portfolio,
+      tokenEnv: a.tokenEnv,
+    }));
+  } catch (e) {
+    console.error("[channels/meta] could not read accounts:", e);
+  }
+
   let events: InboundEvent[] = [];
   try {
     for (const adapter of ADAPTERS) {
-      events = events.concat(adapter.parse(body, CHANNEL_ACCOUNTS));
+      events = events.concat(adapter.parse(body, accounts));
     }
   } catch (e) {
     // A shape we did not anticipate. Log it and accept the delivery: retrying
@@ -91,23 +109,36 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ ok: true });
   }
 
-  if (events.length === 0) return NextResponse.json({ ok: true, stored: 0 });
+  if (events.length === 0) {
+    await recordDelivery(null, body, 0, 0);
+    return NextResponse.json({ ok: true, received: 0, stored: 0 });
+  }
 
-  /*
-   * STORAGE IS NOT WIRED YET, and this says so rather than pretending.
-   *
-   * No account is connected (CHANNEL_ACCOUNTS is empty) and no conversation
-   * table exists, so there is nothing to write to and nowhere for these to go.
-   * Logging the COUNT and the accounts — never the message text, which is
-   * customer content and does not belong in a server log — makes the endpoint
-   * verifiable end to end the moment a channel is connected: point Meta at it,
-   * send yourself a DM, and the log says whether it arrived and whether it
-   * matched a known account.
-   */
-  const unmatched = events.filter((e) => e.accountId === null).length;
+  const result = await storeInbound(events);
+
+  if (!result.ok) {
+    // The delivery was genuine and we could not keep it. Say so loudly in the
+    // log — but still answer 200: Meta will redeliver, and the write is
+    // idempotent, so a retry is the recovery rather than a duplicate.
+    console.error(`[channels/meta] store failed: ${result.error}`);
+    await recordDelivery(null, body, events.length, 0);
+    return NextResponse.json({ ok: true, received: events.length, stored: 0 });
+  }
+
+  // Counts only. The message TEXT is customer content and does not belong in a
+  // server log, where it would outlive the conversation and be readable by
+  // anyone with log access.
   console.info(
-    `[channels/meta] ${events.length} event(s), ${unmatched} for no connected account`
+    `[channels/meta] received ${events.length}, stored ${result.stored}, ` +
+      `duplicate ${result.duplicates}, unmatched ${result.unmatched}`
   );
+  await recordDelivery(null, body, events.length, result.stored);
 
-  return NextResponse.json({ ok: true, stored: 0, received: events.length });
+  return NextResponse.json({
+    ok: true,
+    received: events.length,
+    stored: result.stored,
+    duplicates: result.duplicates,
+    unmatched: result.unmatched,
+  });
 }
