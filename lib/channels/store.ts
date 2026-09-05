@@ -350,3 +350,107 @@ export async function listMessages(
 export async function anyAccountConnected(): Promise<boolean> {
   return (await listAccounts()).length > 0;
 }
+
+/* ── Outbound ────────────────────────────────────────────────────────────── */
+
+export interface OutboundRecord {
+  conversationId: string;
+  text: string;
+  staffId: string | null;
+  staffName: string | null;
+  /** Set once the platform accepted it. Null in log-only mode, and null for a
+   *  send that failed — both are messages that exist for staff but not for the
+   *  customer, and the status column is what tells them apart. */
+  externalMessageId: string | null;
+  status: "queued" | "sent" | "failed";
+  error: string | null;
+  at: string;
+}
+
+/**
+ * The thread a reply is going to, with everything needed to decide whether it
+ * may be sent. Reading this — rather than trusting the caller — is what stops
+ * a request naming one conversation and a different account.
+ */
+export interface ConversationTarget {
+  id: string;
+  brand: string;
+  accountId: string;
+  channel: string;
+  peerExternalId: string;
+  tokenEnv: string;
+  lastInboundAt: string | null;
+}
+
+export async function findConversation(
+  conversationId: string
+): Promise<ConversationTarget | null> {
+  const sb = client();
+  if (!sb) return null;
+
+  const { data, error } = await sb
+    .from("channel_conversations")
+    .select("id, brand, account_id, peer_external_id, last_inbound_at")
+    .eq("id", conversationId)
+    .maybeSingle();
+  if (error || !data) return null;
+
+  const account = (await listAccounts()).find(
+    (a) => a.id === (data.account_id as string)
+  );
+  if (!account) return null;
+
+  return {
+    id: data.id as string,
+    brand: data.brand as string,
+    accountId: account.id,
+    channel: account.channel,
+    peerExternalId: data.peer_external_id as string,
+    tokenEnv: account.tokenEnv,
+    lastInboundAt: (data.last_inbound_at as string | null) ?? null,
+  };
+}
+
+/**
+ * Record a staff reply on the thread.
+ *
+ * The brand and account are taken from the CONVERSATION, never from the
+ * request — the same rule as inbound, for the same reason.
+ */
+export async function storeOutbound(
+  target: ConversationTarget,
+  record: OutboundRecord
+): Promise<{ ok: boolean; error?: string }> {
+  const sb = client();
+  if (!sb) return { ok: false, error: "The database is not configured." };
+
+  const { error } = await sb.from("channel_messages").insert({
+    conversation_id: target.id,
+    brand: target.brand,
+    account_id: target.accountId,
+    direction: "out",
+    author: "staff",
+    body: record.text,
+    external_message_id: record.externalMessageId,
+    status: record.status,
+    error: record.error,
+    staff_id: record.staffId,
+    staff_name: record.staffName,
+    sent_at: record.at,
+  });
+  if (error) return { ok: false, error: "Could not save the reply." };
+
+  // A reply means the thread is now waiting on the customer, and the unread
+  // badge is cleared — staff have plainly read it.
+  await sb
+    .from("channel_conversations")
+    .update({
+      status: "waiting_reply",
+      unread_count: 0,
+      last_message_at: record.at,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", target.id);
+
+  return { ok: true };
+}

@@ -165,25 +165,59 @@ message to the wrong brand.
 
 ## What the code enforces today, and what it does not
 
-**Enforced and tested** (`tests/channels.test.ts`, 396 tests total): raw-body
-timing-safe signature check before parsing; missing secret refuses; 403 only for
-bad signatures; routing by account id; username never trusted (it is not even in
-the payload); payload timestamps; echoes/receipts/reactions dropped; customer
-text carried verbatim; the 24-hour window; tokens held by env NAME only.
+**Enforced and tested** (396 tests): raw-body timing-safe signature check before
+parsing; missing secret refuses; 403 only for bad signatures; routing by account
+id; username never trusted (Instagram does not even send it); payload
+timestamps; echoes/receipts/reactions dropped; customer text carried verbatim;
+the 24-hour window, both shown and enforced server-side; tokens held by env NAME
+only.
 
-**Not yet built — do not assume these hold:**
+**Enforced by the database** (`003_channels.sql`, proven against the live
+project):
 
-- **Idempotency (rule 17).** `externalMessageId` is captured as the key, but
-  there is no storage yet, so nothing dedupes. This must land *with* storage, not
-  after it.
-- **Brand isolation (rule 4).** `ChannelAccount.portfolio` is recorded but
-  nothing structurally prevents a cross-brand resolution. Make it impossible, not
-  merely unlikely.
-- **The full production loop (rule 20).** The production endpoint is reachable
-  and refuses correctly; no real DM has been through it.
-- **Sending.** No send path is wired at all.
+- **Brand isolation is a constraint.** `channel_accounts` has `unique (id,
+  brand)`; conversations and messages carry `brand` and point composite foreign
+  keys at it. A VOYAH conversation against an MHERO account is a foreign-key
+  violation. Both cross-brand inserts were attempted and refused.
+- **Idempotency** is `unique (account_id, external_message_id)`, per account
+  because ids are only unique within a platform. Three deliveries of one message
+  produced one row and one unread.
+- **Out-of-order redelivery cannot rewind the reply window.**
+  `channel_note_inbound()` uses `greatest()`, so a message timestamped earlier
+  adds a row without moving `last_inbound_at`. It runs in SQL because
+  read-modify-write of `unread_count` would race between concurrent deliveries.
+- Counters advance **only when the insert actually inserted**, or Meta's retries
+  would inflate the unread badge.
+- An event for an unconnected account is counted and **dropped**, never stored:
+  there is no brand to file it under, and guessing is the mistake the schema
+  exists to prevent.
+- RLS on, no policies, service role only.
 
----
+**Sending is log-only.** `CHANNELS_SEND_MODE` must equal `"live"` for anything to
+leave the building; unset, misspelt or empty all mean log-only. There is no path
+from an inbound message to an outbound one — the model drafts, a person sends,
+and the route requires a real staff identity, so no auto-reply loop can exist.
+The request names a **conversation**, never a recipient, so a caller cannot
+address a stranger or send one brand's reply from another's account.
+
+**Not yet done — do not assume these hold:**
+
+- **No real DM has been through production.** The endpoint is reachable and
+  refuses correctly; that is not the same thing. See the definition of done
+  below.
+- **No account is connected.** `channel_accounts` is empty, so the inbox shows
+  the demo dataset — real or demo, never both.
+- **Messenger and WhatsApp have no adapter.** Instagram only.
+- **`assignedToName` is not resolved**, and a thread's `customerId` is empty
+  until somebody links it to the CRM.
+
+### Definition of done for a connected channel
+
+A channel is **not** connected because the handshake succeeded. It is connected
+when a real message from the intended account has: traversed **production**, been
+signature-authenticated, deduplicated, stored, routed to the **correct brand**,
+and displayed in the Inbox. Anything short of that is "configured", not
+"working".
 
 ## General
 

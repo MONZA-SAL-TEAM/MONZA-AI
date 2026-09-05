@@ -84,6 +84,22 @@ export function metaAppSecret(): string | null {
   return read("META_APP_SECRET");
 }
 
+/**
+ * Whether a staff reply actually leaves the building.
+ *
+ *   "log_only"  (default) the reply is stored and shown in the thread, and
+ *               NOTHING is sent. The customer never sees it.
+ *   "live"      the reply goes to Meta.
+ *
+ * DEFAULTS TO log_only, and an unrecognised value also means log_only. Going
+ * live is a deliberate act by somebody who typed the word, after the receive
+ * path has been proven end to end — not something a deployment falls into by
+ * having a variable unset, misspelt, or created empty in a dashboard.
+ */
+export function channelsSendLive(): boolean {
+  return read("CHANNELS_SEND_MODE") === "live";
+}
+
 /** The token echoed back during Meta's one-time subscription handshake. Ours
  *  to choose; it just has to match what is typed into the Meta dashboard. */
 export function metaVerifyToken(): string | null {
