@@ -52,6 +52,18 @@ import "./inbox.css";
 interface Props {
   today: string;
   demo: boolean;
+  /**
+   * Whether any channel account is connected — a DIFFERENT fact from `demo`,
+   * which is about the source system.
+   *
+   * They were one flag, and the banner said "no channel is connected yet"
+   * whenever the CRM was the demo one. That is fine today and wrong the moment
+   * a channel is connected while the CRM still is not — the likely next state —
+   * because it would label REAL customer conversations as examples. Staff
+   * treating a real person as a test is the worst mistake this screen can
+   * invite, so the two facts are now separate.
+   */
+  channelsConnected: boolean;
   sourceLabel: string;
   viewer: Viewer;
   staff: { id: string; name: string }[];
@@ -72,6 +84,7 @@ function ChannelChip({ channel }: { channel: Conversation["channel"] }) {
 export default function InboxClient({
   today,
   demo,
+  channelsConnected,
   sourceLabel,
   viewer,
   staff,
@@ -188,12 +201,17 @@ export default function InboxClient({
           </nav>
         </div>
 
-        {demo && (
+        {!channelsConnected ? (
           <p className="inbox-note">
             Example conversations — no channel is connected yet. Customer
             details come from {sourceLabel.toLowerCase()}.
           </p>
-        )}
+        ) : demo ? (
+          <p className="inbox-note">
+            These conversations are real. The customer details beside them come
+            from {sourceLabel.toLowerCase()}.
+          </p>
+        ) : null}
 
         <ul className="inbox-threads">
           {visible.map((c) => (

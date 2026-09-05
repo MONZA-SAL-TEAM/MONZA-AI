@@ -39,6 +39,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { aiServiceRoleKey, aiUrl } from "@/lib/env";
 import type { InboundEvent } from "@/lib/channels/types";
+import type { Conversation, InboxMessage } from "@/lib/inbox/types";
 
 export interface StoredAccount {
   id: string;
@@ -223,4 +224,129 @@ export async function recordDelivery(
   } catch {
     /* diagnostics are not worth failing a delivery over */
   }
+}
+
+/* ── Reading, for the inbox ──────────────────────────────────────────────── */
+
+/**
+ * The real conversations, in the shape the inbox already renders.
+ *
+ * Mapped onto lib/inbox/types rather than exposing the table's own shape, so
+ * the screen keeps working the same whether a thread came from here or from
+ * the demo dataset — and so a schema change does not reach the UI.
+ */
+export async function listConversations(): Promise<Conversation[]> {
+  const sb = client();
+  if (!sb) return [];
+
+  // Accounts are fetched separately rather than joined. A PostgREST embedded
+  // select needs generated database types to infer, and this project has none;
+  // the account list is tiny and already needed elsewhere, so a second query
+  // costs nothing and keeps the types honest.
+  const accounts = await listAccounts();
+  const channelOf = new Map(accounts.map((a) => [a.id, a.channel]));
+
+  const { data, error } = await sb
+    .from("channel_conversations")
+    // ONE string literal, not a concatenation: PostgREST infers the row type
+    // from the literal, and a `+` turns every column into an error type.
+    .select("id, account_id, brand, peer_external_id, peer_display, customer_id, status, assigned_to, unread_count, last_message_at")
+    .order("last_message_at", { ascending: false, nullsFirst: false })
+    .limit(200);
+  if (error || !data) return [];
+
+  // One query for every thread's latest message, rather than one per thread.
+  const lastByThread = await lastMessageOf(
+    sb,
+    data.map((r) => r.id as string)
+  );
+
+  return data.map((r): Conversation => {
+    const peer = (r.peer_display as string | null) ?? (r.peer_external_id as string);
+    const last = lastByThread.get(r.id as string);
+    return {
+      id: r.id as string,
+      // Empty until somebody links the thread to the CRM. Instagram gives no
+      // phone number, so most threads start unidentified — and the inbox must
+      // still show them rather than hiding a customer it cannot name.
+      customerId: (r.customer_id as string | null) ?? "",
+      customerName: peer,
+      channel: (channelOf.get(r.account_id as string) ??
+        "instagram") as Conversation["channel"],
+      channelAddress: peer,
+      assignedTo: (r.assigned_to as string | null) ?? null,
+      assignedToName: null,
+      status: r.status as Conversation["status"],
+      unreadCount: (r.unread_count as number) ?? 0,
+      lastMessage: last ?? {
+        text: "",
+        at: (r.last_message_at as string | null) ?? new Date(0).toISOString(),
+        direction: "in",
+        author: "customer",
+      },
+      hasAutomatedMessage: false,
+    };
+  });
+}
+
+async function lastMessageOf(
+  sb: SupabaseClient,
+  conversationIds: readonly string[]
+): Promise<Map<string, Conversation["lastMessage"]>> {
+  const out = new Map<string, Conversation["lastMessage"]>();
+  if (conversationIds.length === 0) return out;
+
+  const { data } = await sb
+    .from("channel_messages")
+    .select("conversation_id, body, sent_at, direction, author")
+    .in("conversation_id", conversationIds as string[])
+    .order("sent_at", { ascending: false });
+  if (!data) return out;
+
+  // Descending order, so the FIRST row seen for a thread is its latest.
+  for (const m of data) {
+    const id = m.conversation_id as string;
+    if (out.has(id)) continue;
+    out.set(id, {
+      text: m.body as string,
+      at: m.sent_at as string,
+      direction: m.direction as "in" | "out",
+      author: m.author as Conversation["lastMessage"]["author"],
+    });
+  }
+  return out;
+}
+
+/** Every message in the listed threads, oldest first. */
+export async function listMessages(
+  conversationIds: readonly string[]
+): Promise<InboxMessage[]> {
+  const sb = client();
+  if (!sb || conversationIds.length === 0) return [];
+
+  const { data, error } = await sb
+    .from("channel_messages")
+    .select("id, conversation_id, direction, author, body, sent_at, status, staff_name, automation_id")
+    .in("conversation_id", conversationIds as string[])
+    .order("sent_at", { ascending: true })
+    .limit(2000);
+  if (error || !data) return [];
+
+  return data.map((m): InboxMessage => ({
+    id: m.id as string,
+    conversationId: m.conversation_id as string,
+    direction: m.direction as "in" | "out",
+    author: m.author as InboxMessage["author"],
+    text: m.body as string,
+    at: m.sent_at as string,
+    status: m.status as InboxMessage["status"],
+    ...(m.automation_id ? { automationId: m.automation_id as string } : {}),
+    ...(m.staff_name ? { staffName: m.staff_name as string } : {}),
+  }));
+}
+
+/** True when at least one channel account is connected. Decides whether the
+ *  inbox shows real threads or the demo dataset — never both at once. */
+export async function anyAccountConnected(): Promise<boolean> {
+  return (await listAccounts()).length > 0;
 }
