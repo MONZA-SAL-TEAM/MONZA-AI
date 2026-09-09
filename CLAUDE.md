@@ -150,14 +150,37 @@ rule has a scar, the scar is named — a rule without its reason gets argued awa
 
 Keep this current. It is what stops the same Meta problem being rediscovered.
 
-| Brand | Portfolio | Page ID | Instagram ID | Followers | Token env | Webhook | Status |
+| Brand | Portfolio | Instagram | Facebook | IG followers | FB followers | Messaging | Status |
 |---|---|---|---|---|---|---|---|
-| VOYAH | VoyahLebanon `1235692167762623` | `408893845643871` | `17841457996874250` | 3,565 | *(to set)* | not subscribed | 🟡 token works, `instagram_manage_messages` granted — connect first |
-| MHERO | M Hero Lebanon `465327473223381` | `419538711242175` | known, **portfolio does not own it** | 3,175 | — | — | 🔴 fix ownership before anything else |
-| MONZA SAL | MONZA SAL | unidentified | unidentified | 1,364 | — | — | ⚪ no portfolio token; leave for later |
-| WhatsApp | VoyahLebanon (owns the WABAs) | WABA `1502691630809243` | phone id `984244264767607` | — | — | — | 🔴 Coexistence gate, see rules 27–30 |
+| VOYAH | VoyahLebanon `1235692167762623` | ✅ read daily | ✅ read daily | 3,582 | 703 | not subscribed | 🟡 reading proven; messaging untested |
+| MHERO | M Hero Lebanon `465327473223381` | ✅ read daily | ✅ read daily | 3,191 | 238 | not subscribed | 🟡 reading proven; messaging untested |
+| MONZA SAL | MONZA SAL | ✅ read daily | ✅ read daily | 1,369 | 32 | not subscribed | 🟡 reading proven; messaging untested |
+| WhatsApp | VoyahLebanon (owns the WABAs) | WABA `1502691630809243` | phone id `984244264767607` | — | — | — | 🔴 Coexistence gate, rules 27–30 |
 
-`CHANNEL_ACCOUNTS` in `lib/channels/types.ts` is **empty** and stays empty until a
+**Corrected 2026-09-09.** The previous version of this table said MHERO's
+portfolio did not own its Instagram account and that MONZA SAL had no portfolio
+token. Both are now contradicted by evidence: `social_snapshot_runs` in the CRM
+project (`okxpsvukzjjubinhamek`) shows a run at **2026-09-09 02:45 UTC** covering
+`['voyah','mhero','monza']` that captured 189 profile rows, 100 posts and 2,316
+audience rows, and `social_profile_daily` holds a row dated `2026-09-09` for all
+six profiles. Working tokens therefore exist for all three portfolios, on both
+networks.
+
+⚠ **THAT DOES NOT MEAN MESSAGING WORKS — rule 23.** Those tokens are proven for
+READING insights (`instagram_basic`, `read_insights`). Receiving DMs needs
+`instagram_manage_messages` / `pages_messaging`, a webhook subscription, and a
+real message through production. Reading, receiving and sending are three
+different permissions and three different failures. The follower counts above
+are the live figures from `social_profile_daily`, replacing the stale ones the
+old table carried.
+
+The snapshot job itself is **not in this repository and not checked out on this
+machine** — neither `MONZA-CRM` checkout named in the project memory still
+exists on the Desktop. Find it before assuming a token env name; it is the one
+place the working credentials are already wired.
+
+`channel_accounts` (the TABLE, in the AI project — `CHANNEL_ACCOUNTS` in
+`lib/channels/types.ts` no longer exists) is **empty** and stays empty until a
 row above is verified end to end. Failing closed beats attaching a customer's
 message to the wrong brand.
 
@@ -165,7 +188,7 @@ message to the wrong brand.
 
 ## What the code enforces today, and what it does not
 
-**Enforced and tested** (396 tests): raw-body timing-safe signature check before
+**Enforced and tested** (456 tests): raw-body timing-safe signature check before
 parsing; missing secret refuses; 403 only for bad signatures; routing by account
 id; username never trusted (Instagram does not even send it); payload
 timestamps; echoes/receipts/reactions dropped; customer text carried verbatim;
@@ -207,7 +230,10 @@ address a stranger or send one brand's reply from another's account.
   below.
 - **No account is connected.** `channel_accounts` is empty, so the inbox shows
   the demo dataset — real or demo, never both.
-- **Messenger and WhatsApp have no adapter.** Instagram only.
+- **WhatsApp has no adapter.** Instagram and Messenger both do (`lib/channels/
+  messenger.ts`, added 2026-09-09, envelope isolation tested both ways).
+- **No lead has ever been matched to a CRM customer**, because no conversation
+  has arrived. The matcher and its guards are tested; the path is not proven.
 - **`assignedToName` is not resolved**, and a thread's `customerId` is empty
   until somebody links it to the CRM.
 
@@ -218,6 +244,103 @@ when a real message from the intended account has: traversed **production**, bee
 signature-authenticated, deduplicated, stored, routed to the **correct brand**,
 and displayed in the Inbox. Anything short of that is "configured", not
 "working".
+
+## Leads, identity and attribution (`lib/leads/`)
+
+Added 2026-09-09. Answers "is this person already a customer, and how did they
+find us" WITHOUT asking them.
+
+**A match is a guess until a phone number or a person says otherwise.**
+
+- **Only a Lebanese MOBILE number auto-links.** It belongs to one human and
+  WhatsApp hands it over. A landline does not link: a household, an office, a
+  husband and wife share one, so it is evidence about a household and not about
+  a person.
+- **A name NEVER links.** Lebanon has a modest stock of surnames and a generous
+  stock of transliterations; Instagram display names are chosen freely and
+  changed freely. A name match becomes a row in `lead_match_suggestions` and
+  waits for a click. Enforced in THREE places, so an error in one is caught by
+  another: `decide()` cannot return a name-based link, a check constraint on
+  `leads.crm_link_method` refuses `name_similar`, and the same constraint sits
+  on `lead_conversations.method`.
+- **A rejected suggestion is never re-offered.** A queue that keeps proposing
+  what a person already refused is a queue that gets ignored.
+- **Instagram scopes a user id per Page.** The same human writing to
+  @voyahlebanon and to @mherolebanon arrives as two unrelated ids and no call
+  relates them. Nothing may assume one person is one id across channels.
+- **Never pass an Instagram or Messenger peer id as a phone number.** They are
+  not phone numbers however numeric they look, and doing so would auto-link
+  strangers. Only WhatsApp may supply one — see the `phone:` argument in
+  `storeInbound`.
+
+**Attribution is captured at the moment of arrival, or never.** Meta attaches a
+referral to the FIRST message of a thread and to no other, and no endpoint
+returns it afterwards. Read on all four shapes: `event.referral`,
+`message.referral`, `postback.referral` (Messenger's Get Started, which carries
+most paid Messenger traffic) and `message.reply_to.story`.
+
+**`direct` means WE DO NOT KNOW.** It is rendered "Not tracked" and must never
+be relabelled "organic" or "word of mouth", nor dropped from a chart so the
+remaining slices total 100%. Somebody spends money using that page.
+
+**A failed read is never rendered as an empty one.** `DashboardData.state` is
+`"ok" | "nothing_yet" | "unavailable"` and not a boolean, because the boolean
+version shipped and made a blind dashboard report a quiet month. A withheld
+figure is `null` and renders "—", never `0`.
+
+**RLS on these tables is ON with ZERO POLICIES — service role only.** It is the
+same model as 003, and it is NOT per-staff or per-brand row filtering:
+
+- There are no policies, so `anon` and `authenticated` read **nothing at all**
+  from `leads`, `lead_conversations`, `lead_touchpoints`, `lead_interests` and
+  `lead_match_suggestions`. Verified 2026-09-09 against the live project with a
+  real row present: anon SELECT returned `[]`, anon INSERT was refused
+  `42501`, anon DELETE removed nothing.
+- **`leads` has no `brand` column and cannot filter by brand.** A lead
+  deliberately spans brands — the same person asking about a Voyah and an MHERO
+  is the thing this table exists to notice. Brand lives on `lead_touchpoints`,
+  and per-CONVERSATION brand isolation is still enforced by 003's composite
+  foreign keys. Do not describe this schema as isolating brands from each other;
+  it does the opposite, on purpose, above the channel layer.
+- **Staff do not read these tables directly.** Every read goes through the
+  server, which is why per-staff RLS policies do not exist here. What limits
+  what a staff member SEES is the CRM side: candidate customers and customer
+  names are fetched with their own token in `resolve.ts` and `analytics.ts`.
+  A staff member who cannot see a customer in the CRM cannot get their name out
+  of this product either — but they can see that an unidentified person messaged.
+  If per-staff restriction on the lead rows themselves is ever wanted, it needs
+  policies that do not exist yet.
+
+**Identity resolution is SPLIT, deliberately.** A webhook has no signed-in user,
+and there is no service-role path into the CRM. So `lib/leads/store.ts` records
+the lead, the touchpoint and the car interest at webhook time (all MONZA AI's
+own data), and `lib/leads/resolve.ts` matches against the CRM only when a staff
+member looks, under THEIR token. A lead therefore stays unidentified until
+somebody with CRM access opens the screen. That is correct: the alternative is
+a background process holding a master key to the customer database.
+
+Two staff members can see different suggestions for the same lead. That is RLS
+working, not a bug — but it is why the candidate list is fetched per request and
+never cached.
+
+## The customer assistant (`/care`)
+
+The only public screen. Rules that keep it safe, all enforced in `lib/care/`
+and tested:
+
+- **A model never writes to a customer.** Every sentence lives in
+  `lib/care/knowledge.ts`; the engine and, when unsure, the model only CHOOSE
+  an entry id from that closed set. A pick outside the set becomes "unknown".
+- **Safety triage runs first and cannot be reordered.** A danger phrase forces
+  the stop-and-call answer whatever else the message says.
+- **Prices, own-account questions, diagnoses, exact figures and sales are
+  handed to a person** on the WhatsApp number in `lib/care/config.ts`.
+- **No copy contains a price, a currency or a spec figure** — a test scans it.
+- **Unreviewed translations are never served silently**: English plus a line
+  saying the Arabic or French is coming.
+- **It knows nothing about who is typing.** No CRM, no customer lookup.
+- Customer text is data: routed, stored as a quotation for `/car-care`, never
+  interpreted.
 
 ## General
 

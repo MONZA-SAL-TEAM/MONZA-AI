@@ -40,6 +40,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { aiServiceRoleKey, aiUrl } from "@/lib/env";
 import type { InboundEvent } from "@/lib/channels/types";
 import type { Conversation, InboxMessage } from "@/lib/inbox/types";
+import { noteInboundLead } from "@/lib/leads/store";
 
 export interface StoredAccount {
   id: string;
@@ -197,6 +198,29 @@ export async function storeInbound(events: readonly InboundEvent[]): Promise<Sto
     await sb.rpc("channel_note_inbound", {
       p_conversation: conversationId,
       p_at: event.at,
+    });
+
+    // And on the same condition, for the same reason: record who this is and
+    // what brought them. A redelivery must not add a second touchpoint, or the
+    // campaign Meta happened to retry most would look like the best campaign.
+    //
+    // Attribution is captured HERE, at the moment of arrival, because Meta
+    // attaches a referral to the first message of a thread and to no other and
+    // no endpoint returns it afterwards. Matching the person to a CRM customer
+    // is deliberately NOT done here — see the header of lib/leads/store.ts.
+    //
+    // Best-effort: a lead we fail to record is a loss, but failing the whole
+    // delivery would make Meta retry for seven days and then disable the
+    // endpoint for every brand.
+    await noteInboundLead(sb, {
+      conversationId,
+      brand: account.brand,
+      channel: account.channel,
+      event,
+      // Instagram and Messenger peer ids are NOT phone numbers, however
+      // numeric they look. Only a channel that genuinely carries one may pass
+      // it, and passing an IG id here would auto-link strangers to each other.
+      phone: account.channel === "whatsapp" ? event.fromExternalId : null,
     });
   }
 

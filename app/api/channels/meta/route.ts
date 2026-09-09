@@ -25,6 +25,7 @@
 
 import { NextResponse } from "next/server";
 import { instagramAdapter } from "@/lib/channels/instagram";
+import { messengerAdapter } from "@/lib/channels/messenger";
 import type { ChannelAccount, InboundEvent } from "@/lib/channels/types";
 import { listAccounts, recordDelivery, storeInbound } from "@/lib/channels/store";
 import {
@@ -37,7 +38,7 @@ export const dynamic = "force-dynamic";
 
 /** The adapters, in the order their payloads are tried. Each ignores an
  *  envelope that is not its own, so order is irrelevant to correctness. */
-const ADAPTERS = [instagramAdapter];
+const ADAPTERS = [instagramAdapter, messengerAdapter];
 
 export async function GET(request: Request): Promise<Response> {
   const params = new URL(request.url).searchParams;

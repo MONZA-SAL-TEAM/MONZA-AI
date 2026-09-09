@@ -73,6 +73,45 @@ export interface ChannelAccount {
 /* ── Inbound ─────────────────────────────────────────────────────────────── */
 
 /**
+ * WHAT BROUGHT THIS PERSON HERE, as the platform reported it.
+ *
+ * When somebody messages a business from an ad, a story or a website button,
+ * Meta attaches a referral to the FIRST message — and to that message only.
+ * Miss it and the answer to "where did this customer come from" is gone for
+ * good: there is no endpoint that returns it later and no way to ask the
+ * customer without admitting you were not paying attention.
+ *
+ * This is STRUCTURE, not meaning. The fields are whatever Meta sent, renamed
+ * and nothing more. Deciding that `source: "ADS"` means the lead came from a
+ * paid campaign is interpretation, and interpretation happens in lib/leads —
+ * adapters normalise and never interpret, which is the rule that lets one
+ * inbox serve three transports without three sets of business logic.
+ */
+export interface InboundReferral {
+  /** Meta's own word for where it came from: "ADS", "SHORTLINK", "post", "ad". */
+  source: string | null;
+  /** Meta's type qualifier, e.g. "OPEN_THREAD". */
+  type: string | null;
+  /** The ad id, post id or shortlink ref. The thing that identifies the spend. */
+  ref: string | null;
+  /** The ad's or post's title, when Meta included one. */
+  headline: string | null;
+  /** The page the person came from, when there was one. */
+  sourceUrl: string | null;
+  /**
+   * Click-to-WhatsApp click id. WhatsApp only, and the strongest attribution
+   * anywhere in this system: it ties a conversation to one ad click, as fact
+   * rather than as inference.
+   */
+  ctwaClid: string | null;
+  /** The story this message was a reply to, when it was one. */
+  storyId: string | null;
+  /** Everything Meta sent, kept whole — the parsed fields are an argument,
+   *  and this is the evidence when the argument is questioned. */
+  raw: Record<string, unknown>;
+}
+
+/**
  * One thing that happened on a channel, normalised.
  *
  * A webhook delivery can carry several of these, for several accounts, in one
@@ -94,6 +133,13 @@ export interface InboundEvent {
   at: string;
   /** Non-text parts, described rather than fetched. */
   attachments: InboundAttachment[];
+  /**
+   * What brought them, when the platform said. Null is the ordinary case —
+   * most messages carry no referral, and only the first one in a thread ever
+   * does. Optional in the type so an adapter that does not yet read referrals
+   * stays valid rather than silently reporting "no referral" as a fact.
+   */
+  referral?: InboundReferral | null;
 }
 
 export interface InboundAttachment {

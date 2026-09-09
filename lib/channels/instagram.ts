@@ -30,6 +30,7 @@ import type {
   ChannelAdapter,
   InboundAttachment,
   InboundEvent,
+  InboundReferral,
   OutboundMessage,
   SendResult,
 } from "@/lib/channels/types";
@@ -68,6 +69,65 @@ function attachmentsOf(message: Record<string, unknown>): InboundAttachment[] {
             : "unknown";
     return { kind, url };
   });
+}
+
+/**
+ * The referral, if this message carried one.
+ *
+ * Meta puts it in one of three places depending on how the person arrived, and
+ * all three must be read or the attribution is lost permanently:
+ *
+ *   event.referral          a NEW thread opened from an ad or an m.me link
+ *   event.message.referral  a referral on a thread that already existed
+ *   message.reply_to.story  a reply to one of our stories
+ *
+ * `ads_context_data` is where the ad's title lives when the source is ADS.
+ *
+ * Structure only — what it MEANS is lib/leads/attribution.ts's decision.
+ */
+function referralOf(
+  event: Record<string, unknown>,
+  message: Record<string, unknown>
+): InboundReferral | null {
+  const direct = obj(event.referral) ?? obj(message.referral);
+
+  if (direct) {
+    const ads = obj(direct.ads_context_data);
+    return {
+      source: str(direct.source),
+      type: str(direct.type),
+      // `ref` is the developer-defined payload on an m.me link; the ad's own
+      // id arrives as ad_id, and the post's as post_id. Whichever exists is
+      // the thing that identifies the spend.
+      ref: str(direct.ref) ?? str(direct.ad_id) ?? str(ads?.post_id),
+      headline: str(ads?.ad_title),
+      sourceUrl: str(direct.source_url),
+      ctwaClid: null, // WhatsApp only
+      storyId: null,
+      raw: direct,
+    };
+  }
+
+  // A story reply. Not a referral in Meta's vocabulary, but it answers the
+  // same question — this person is here because of something we posted — and
+  // losing that distinction would file every story reply as "came from
+  // nowhere", which is both false and the most common way Monza gets DMs.
+  const replyTo = obj(message.reply_to);
+  const story = obj(replyTo?.story);
+  if (story) {
+    return {
+      source: "story_reply",
+      type: null,
+      ref: str(story.id),
+      headline: null,
+      sourceUrl: str(story.url),
+      ctwaClid: null,
+      storyId: str(story.id),
+      raw: story,
+    };
+  }
+
+  return null;
 }
 
 /**
@@ -148,6 +208,7 @@ export function parseInstagram(
         text,
         at: isoFrom(event.timestamp, receivedAt),
         attachments,
+        referral: referralOf(event, message),
       });
     }
   }
