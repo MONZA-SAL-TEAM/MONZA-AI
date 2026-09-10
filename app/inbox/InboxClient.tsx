@@ -130,6 +130,10 @@ export default function InboxClient({
   // there is somewhere to edit it and fill in any [[slots]] before it goes.
   const [composerText, setComposerText] = useState("");
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  // The thread body scrolls. A thread opens at its newest message, once per
+  // opening — the 15-second refresh must not yank somebody reading older ones.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const scrolledFor = useRef<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
 
   const [liveThread, setLiveThread] = useState<LiveThread>(EMPTY_THREAD);
@@ -220,6 +224,21 @@ export default function InboxClient({
     return live ? liveThread.messages : messages.filter((m) => m.conversationId === open.id);
   }, [live, liveThread.messages, messages, open]);
 
+  useEffect(() => {
+    if (!openThreadId) {
+      scrolledFor.current = null; // reopening a thread starts at its newest again
+      return;
+    }
+    // Only once the messages on screen are THIS thread's: on a switch, the
+    // previous thread's messages are still rendered for a moment.
+    if (thread.length === 0 || thread[thread.length - 1].conversationId !== openThreadId) return;
+    if (scrolledFor.current === openThreadId) return;
+    const el = bodyRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    scrolledFor.current = openThreadId;
+  }, [openThreadId, thread]);
+
   /**
    * The message a draft would answer: the last one, if it came from the
    * customer. Null when we spoke last, which is a follow-up rather than a
@@ -273,6 +292,7 @@ export default function InboxClient({
       if (res.ok && json?.delivered) {
         setComposerText("");
         setSendNote("Sent.");
+        scrolledFor.current = null; // show the reply that just went out
         void loadThread(open.id);
       } else {
         // Not sent: the text stays in the box so nothing is lost.
@@ -435,7 +455,7 @@ export default function InboxClient({
               )}
             </header>
 
-            <div className="thread-body">
+            <div className="thread-body" ref={bodyRef}>
               <ol className="bubbles">
                 {live && liveThread.loading && thread.length === 0 && (
                   <li className="cap">Loading from Meta…</li>
