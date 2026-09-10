@@ -29,10 +29,12 @@ import { messengerAdapter } from "@/lib/channels/messenger";
 import type { ChannelAccount, InboundEvent } from "@/lib/channels/types";
 import { listAccounts, recordDelivery, storeInbound } from "@/lib/channels/store";
 import {
-  verifyMetaSignature,
+  accountsForApp,
+  parseMetaAppSecrets,
+  verifyMetaSignatureForApps,
   verifySubscription,
 } from "@/lib/channels/meta-signature";
-import { metaAppSecret, metaVerifyToken } from "@/lib/env";
+import { metaAppSecret, metaAppSecretsMap, metaVerifyToken } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
@@ -63,10 +65,12 @@ export async function POST(request: Request): Promise<Response> {
   // bytes from the ones Meta signed, and the check would never pass.
   const raw = await request.text();
 
-  const check = verifyMetaSignature(
+  // One secret per Meta app (lib/env.ts). The check also says WHICH app signed,
+  // and that decides below which accounts this delivery may speak for.
+  const check = verifyMetaSignatureForApps(
     raw,
     request.headers.get("x-hub-signature-256"),
-    metaAppSecret()
+    parseMetaAppSecrets(metaAppSecretsMap(), metaAppSecret())
   );
   if (!check.ok) {
     console.warn(`[channels/meta] signature refused: ${check.reason}`);
@@ -86,7 +90,9 @@ export async function POST(request: Request): Promise<Response> {
   // state today and makes every event "unmatched" rather than mis-filed.
   let accounts: ChannelAccount[] = [];
   try {
-    accounts = (await listAccounts()).map((a) => ({
+    // Only the accounts of the app that signed. A delivery signed by MHERO's
+    // app can never be filed under a VOYAH account, even if it names one.
+    accounts = accountsForApp(await listAccounts(), check.appId).map((a) => ({
       id: a.id,
       channel: a.channel as ChannelAccount["channel"],
       displayName: a.displayName,

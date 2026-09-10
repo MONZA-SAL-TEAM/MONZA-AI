@@ -51,6 +51,8 @@ export interface StoredAccount {
   portfolio: string;
   tokenEnv: string;
   connectedAt: string | null;
+  /** The Meta app this account belongs to (006). Null when not recorded. */
+  appId: string | null;
 }
 
 export type StoreResult =
@@ -67,13 +69,32 @@ function client(): SupabaseClient | null {
 
 /** The connected accounts, from the database rather than from code, so
  *  connecting one does not need a deploy. */
+const ACCOUNT_COLUMNS =
+  "id, brand, channel, display_name, external_id, portfolio, token_env, connected_at";
+
 export async function listAccounts(): Promise<StoredAccount[]> {
   const sb = client();
   if (!sb) return [];
-  const { data, error } = await sb
+
+  // app_id arrived in 006. Until that migration is applied the column does not
+  // exist, and asking for it would fail the whole read, which would make EVERY
+  // delivery unmatched. So fall back to the old columns and report no app. With
+  // no app binding configured, that is exactly the behaviour before 006.
+  // One loose shape both selects fit: the typed select strings otherwise
+  // produce two different row types and the fallback cannot be assigned.
+  type AccountRows = {
+    data: Record<string, unknown>[] | null;
+    error: { message: string } | null;
+  };
+  let res: AccountRows = await sb
     .from("channel_accounts")
-    .select("id, brand, channel, display_name, external_id, portfolio, token_env, connected_at")
+    .select(`${ACCOUNT_COLUMNS}, app_id`)
     .order("display_name");
+  if (res.error && /app_id/.test(res.error.message ?? "")) {
+    res = await sb.from("channel_accounts").select(ACCOUNT_COLUMNS).order("display_name");
+  }
+
+  const { data, error } = res;
   if (error || !data) return [];
   return data.map((r) => ({
     id: r.id as string,
@@ -84,6 +105,7 @@ export async function listAccounts(): Promise<StoredAccount[]> {
     portfolio: r.portfolio as string,
     tokenEnv: r.token_env as string,
     connectedAt: (r.connected_at as string | null) ?? null,
+    appId: (r.app_id as string | null | undefined) ?? null,
   }));
 }
 

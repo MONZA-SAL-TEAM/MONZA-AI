@@ -85,6 +85,19 @@ export function metaAppSecret(): string | null {
 }
 
 /**
+ * ONE SECRET PER META APP, as JSON mapping app id to secret:
+ *   {"912301501380919":"...","1793221688521200":"..."}
+ *
+ * Monza's three brands sit in three portfolios with three apps, each signing
+ * with its own secret. When set, this REPLACES META_APP_SECRET, and each secret
+ * speaks only for the accounts whose channel_accounts.app_id matches. Malformed
+ * JSON refuses every delivery. See lib/channels/meta-signature.ts.
+ */
+export function metaAppSecretsMap(): string | null {
+  return read("META_APP_SECRETS");
+}
+
+/**
  * Whether a staff reply actually leaves the building.
  *
  *   "log_only"  (default) the reply is stored and shown in the thread, and

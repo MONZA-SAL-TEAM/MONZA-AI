@@ -92,3 +92,114 @@ export function verifySubscription(
 
   return timingSafeEqual(a, b) ? challenge : null;
 }
+
+
+/* ── One secret per Meta app ─────────────────────────────────────────────── */
+
+/**
+ * WHY THIS EXISTS. Monza's three brands live in three Meta business portfolios,
+ * each with its own app, and every app signs deliveries with its OWN secret. A
+ * single configured secret therefore verifies exactly one brand's traffic and
+ * refuses the other two with a 403 that looks like an attack.
+ *
+ * WHY A MAP AND NOT A LIST. A flat list of secrets would work, and would mean
+ * anyone holding ANY brand's secret could forge messages for EVERY brand. So
+ * each secret is bound to its app id, and a delivery verified with app X's
+ * secret may only speak for accounts whose `channel_accounts.app_id` is X (see
+ * accountsForApp). Rule 4 — keep brands isolated — applied to signatures.
+ */
+export interface MetaAppSecret {
+  /** Meta's numeric app id. Null only for the legacy single secret, which is
+   *  unbound and keeps today's behaviour of speaking for every account. */
+  appId: string | null;
+  secret: string;
+}
+
+/**
+ * Read the configuration. PURE, so every shape is tested without an env.
+ *
+ *   mapRaw     META_APP_SECRETS  {"<app id>":"<secret>", ...}
+ *   singleRaw  META_APP_SECRET   the legacy single secret
+ *
+ * The map WINS when present. An unbound secret mixed in beside bound ones would
+ * quietly undo the binding, so the single secret is ignored then.
+ *
+ * FAILS CLOSED. A map that does not parse, or parses to nothing usable, yields
+ * no secrets, and no secrets refuses every delivery. It deliberately does NOT
+ * fall back to the single secret: a typo in the dashboard must never turn into
+ * "accept whatever the old setting accepts" without anybody noticing.
+ */
+export function parseMetaAppSecrets(
+  mapRaw: string | null,
+  singleRaw: string | null
+): MetaAppSecret[] {
+  if (mapRaw !== null && mapRaw.trim() !== "") {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(mapRaw);
+    } catch {
+      return [];
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+
+    const out: MetaAppSecret[] = [];
+    for (const [appId, secret] of Object.entries(parsed as Record<string, unknown>)) {
+      // App ids are numeric. Anything else is a paste error, not an app.
+      if (!/^\d+$/.test(appId)) continue;
+      if (typeof secret !== "string" || secret.trim() === "") continue;
+      out.push({ appId, secret: secret.trim() });
+    }
+    return out;
+  }
+
+  const single = singleRaw?.trim();
+  return single ? [{ appId: null, secret: single }] : [];
+}
+
+export type AppSignatureCheck =
+  | { ok: true; appId: string | null }
+  | { ok: false; reason: "no_secret" | "no_header" | "malformed" | "mismatch" };
+
+/**
+ * Verify against every configured app, and say WHICH one signed.
+ *
+ * Every secret is tried even after a match, so the time taken does not reveal
+ * which app a forged signature came closest to. Header problems return at once:
+ * they do not depend on any secret.
+ */
+export function verifyMetaSignatureForApps(
+  rawBody: string,
+  header: string | null,
+  secrets: readonly MetaAppSecret[]
+): AppSignatureCheck {
+  if (secrets.length === 0) return { ok: false, reason: "no_secret" };
+
+  let matched: { appId: string | null } | null = null;
+  for (const s of secrets) {
+    const r = verifyMetaSignature(rawBody, header, s.secret);
+    if (r.ok) {
+      if (matched === null) matched = { appId: s.appId };
+    } else if (r.reason === "no_header" || r.reason === "malformed") {
+      return r;
+    }
+  }
+  return matched ? { ok: true, appId: matched.appId } : { ok: false, reason: "mismatch" };
+}
+
+/**
+ * Which connected accounts a verified delivery may speak for.
+ *
+ * Bound (a map secret matched): only accounts of that same app. An account with
+ * no app_id recorded is EXCLUDED: unassigned is not the same as allowed, and
+ * guessing is the cross-brand mistake this exists to prevent. Its events arrive
+ * "unmatched" and are dropped, never mis-filed.
+ *
+ * Unbound (the legacy single secret): every account, exactly as before.
+ */
+export function accountsForApp<T extends { appId: string | null }>(
+  accounts: readonly T[],
+  appId: string | null
+): T[] {
+  if (appId === null) return [...accounts];
+  return accounts.filter((a) => a.appId === appId);
+}
