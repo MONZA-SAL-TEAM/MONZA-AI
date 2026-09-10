@@ -12,6 +12,7 @@
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { noStoreFetch } from "@/lib/supabase-fetch";
 import type { Connector, ExecutionContext, ToolResult } from "@/lib/connectors/types";
 import { crmAnonKey, crmUrl } from "@/lib/env";
 import {
@@ -44,7 +45,10 @@ export function makeUserClient(ctx: ExecutionContext): SupabaseClient {
   if (!env) throw new Error("CRM connection is not configured.");
   return createClient(env.url, env.anon, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${ctx.user.crmAccessToken}` } },
+    global: {
+      headers: { Authorization: `Bearer ${ctx.user.crmAccessToken}` },
+      fetch: noStoreFetch,
+    },
   });
 }
 
@@ -88,6 +92,7 @@ export async function anonStatusCheck(
   try {
     const anon = createClient(env.url, env.anon, {
       auth: { persistSession: false, autoRefreshToken: false },
+      global: { fetch: noStoreFetch },
     });
     const { error } = await anon.from(table).select("id", { count: "exact", head: true });
     if (error) {

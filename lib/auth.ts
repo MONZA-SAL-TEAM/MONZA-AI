@@ -12,6 +12,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { noStoreFetch } from "@/lib/supabase-fetch";
 import type { StaffIdentity } from "@/lib/connectors/types";
 import { crmAnonKey, crmConfigured, crmUrl } from "@/lib/env";
 
@@ -64,7 +65,7 @@ async function loadProfile(
 ): Promise<{ appRole: string | null; capabilities: string[] }> {
   const asUser = createClient(crmUrl, crmAnon, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${token}` } },
+    global: { headers: { Authorization: `Bearer ${token}` }, fetch: noStoreFetch },
   });
 
   // First attempt: both columns. If the column list is wrong the query errors
@@ -112,6 +113,7 @@ export async function requireStaff(
   try {
     const crm = createClient(url, anon, {
       auth: { persistSession: false, autoRefreshToken: false },
+      global: { fetch: noStoreFetch },
     });
     const { data, error } = await crm.auth.getUser(token);
     if (error || !data?.user) return null;

@@ -7,6 +7,7 @@
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { noStoreFetch } from "@/lib/supabase-fetch";
 import type { ToolRule } from "@/lib/permissions/kernel";
 import { aiDbConfigured, aiServiceRoleKey, aiUrl, modelOverride } from "@/lib/env";
 
@@ -41,6 +42,7 @@ export function aiDb(): SupabaseClient | null {
   if (!key) return null;
   return createClient(aiUrl(), key, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: noStoreFetch },
   });
 }
 

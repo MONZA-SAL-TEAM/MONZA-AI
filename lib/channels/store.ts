@@ -38,6 +38,7 @@
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { noStoreFetch } from "@/lib/supabase-fetch";
 import { aiServiceRoleKey, aiUrl } from "@/lib/env";
 import type { InboundEvent } from "@/lib/channels/types";
 import { inboundIndexRow, redactDelivery } from "@/lib/channels/live-map";
@@ -65,6 +66,7 @@ function client(): SupabaseClient | null {
   if (!key) return null;
   return createClient(aiUrl(), key, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: noStoreFetch },
   });
 }
 
