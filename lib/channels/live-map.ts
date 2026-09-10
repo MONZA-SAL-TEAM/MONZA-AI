@@ -288,6 +288,17 @@ export function graphProblem(payload: unknown, httpStatus: number): string {
     : `Meta answered with an error (HTTP ${httpStatus}).`;
 }
 
+/**
+ * Meta's "Please reduce the amount of data you're asking for, then retry your
+ * request". Not a refusal: the same question with fewer fields or fewer rows
+ * succeeds. Seen on @voyahlebanon's conversation listing (2026-09-10) when each
+ * row also carried its latest message.
+ */
+export function isTooMuchData(payload: unknown): boolean {
+  const message = str(obj(obj(payload)?.error)?.message);
+  return message !== null && /reduce the amount of data/i.test(message);
+}
+
 /* ── What the webhook keeps: the fact, never the words ──────────────────── */
 
 /**

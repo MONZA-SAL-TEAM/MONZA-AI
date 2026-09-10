@@ -156,12 +156,14 @@ export default function InboxClient({
   );
   const openThreadId = open?.id ?? null;
 
+  // Every account with something to say — including one that loaded but only
+  // partly (e.g. previews hidden because Meta sent a lighter list).
   const problems = useMemo(
-    () => accountStatuses.filter((s) => s.state !== "ok"),
+    () => accountStatuses.filter((s) => s.problem !== null),
     [accountStatuses]
   );
   const allFailed =
-    live && accountStatuses.length > 0 && problems.length === accountStatuses.length;
+    live && accountStatuses.length > 0 && accountStatuses.every((s) => s.state !== "ok");
 
   // The list is re-read from Meta by the server every minute.
   useEffect(() => {

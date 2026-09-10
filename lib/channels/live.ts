@@ -25,6 +25,7 @@ import {
   accountLabel,
   decodeThreadId,
   graphProblem,
+  isTooMuchData,
   lastCustomerAt,
   mapConversations,
   mapThread,
@@ -41,19 +42,35 @@ const GRAPH = "https://graph.facebook.com/v21.0";
 /**
  * How long one Graph call may take. Instagram's conversation listing is slow —
  * on 2026-09-10 VOYAH's Facebook list arrived well inside 8s while its
- * Instagram list did not — so the list gets longer than a single thread.
+ * Instagram list did not — so the first, fullest list request gets longer.
  */
 const TIMEOUT_MS = 12_000;
 const LIST_TIMEOUT_MS = 20_000;
-/** Conversations listed per account. */
-const LIST_LIMIT = 25;
-/** Messages shown per thread. Instagram only returns details for the latest 20. */
-const THREAD_LIMIT = 20;
 const MESSAGE_FIELDS = "id,created_time,from,message";
+
+/**
+ * How the conversation list is asked for, fullest first. When Meta is too
+ * slow, or answers "reduce the amount of data", the next, lighter question is
+ * tried: first without each conversation's latest message, then fewer rows.
+ * Facebook normally answers the first; Instagram may need the second.
+ */
+const LIST_ATTEMPTS = [
+  {
+    fields: `id,updated_time,participants,messages.limit(1){${MESSAGE_FIELDS}}`,
+    limit: 25,
+    previews: true,
+    timeoutMs: LIST_TIMEOUT_MS,
+  },
+  { fields: "id,updated_time,participants", limit: 25, previews: false, timeoutMs: TIMEOUT_MS },
+  { fields: "id,updated_time,participants", limit: 10, previews: false, timeoutMs: TIMEOUT_MS },
+] as const;
+
+/** Messages shown per thread, fullest first. Instagram only details the latest 20. */
+const THREAD_LIMITS = [20, 8] as const;
 
 type GraphResult =
   | { ok: true; json: unknown }
-  | { ok: false; problem: string; timedOut: boolean };
+  | { ok: false; problem: string; retryLighter: boolean };
 
 async function graphGet(
   path: string,
@@ -74,7 +91,7 @@ async function graphGet(
       !res.ok ||
       (json !== null && typeof json === "object" && "error" in (json as object));
     return errored
-      ? { ok: false, problem: graphProblem(json, res.status), timedOut: false }
+      ? { ok: false, problem: graphProblem(json, res.status), retryLighter: isTooMuchData(json) }
       : { ok: true, json };
   } catch (e) {
     // "Took too long" and "could not connect" need different fixes, so they
@@ -84,7 +101,7 @@ async function graphGet(
     return {
       ok: false,
       problem: timedOut ? "Meta took too long to answer." : "Could not reach Meta just now.",
-      timedOut,
+      retryLighter: timedOut,
     };
   }
 }
@@ -195,28 +212,18 @@ async function readAccount(
     const platform = account.channel === "instagram" ? "instagram" : "messenger";
     const path = `${ctx.pageId}/conversations`;
 
-    let r = await graphGet(
-      path,
-      {
-        platform,
-        fields: `id,updated_time,participants,messages.limit(1){${MESSAGE_FIELDS}}`,
-        limit: String(LIST_LIMIT),
-      },
-      ctx.token,
-      LIST_TIMEOUT_MS
-    );
-
-    // Too slow with a preview of each last message? Ask again without the
-    // previews: the people and times come back, and each thread still loads
-    // in full when opened. Showing who wrote beats showing nothing.
-    let previews = true;
-    if (!r.ok && r.timedOut) {
-      previews = false;
+    let r: GraphResult = { ok: false, problem: "Nothing was asked.", retryLighter: false };
+    let used: (typeof LIST_ATTEMPTS)[number] = LIST_ATTEMPTS[0];
+    for (const attempt of LIST_ATTEMPTS) {
+      used = attempt;
       r = await graphGet(
         path,
-        { platform, fields: "id,updated_time,participants", limit: String(LIST_LIMIT) },
-        ctx.token
+        { platform, fields: attempt.fields, limit: String(attempt.limit) },
+        ctx.token,
+        attempt.timeoutMs
       );
+      // Only a "too slow" or "too much" answer is worth asking again, lighter.
+      if (r.ok || !r.retryLighter) break;
     }
     if (!r.ok) return failed("error", r.problem);
 
@@ -226,7 +233,9 @@ async function readAccount(
         id: account.id,
         label,
         state: "ok",
-        problem: previews ? null : "Meta was slow, so message previews are hidden. Open a conversation to read it.",
+        problem: used.previews
+          ? null
+          : `Meta would only send a lighter list for this account, so message previews are hidden${used.limit < 25 ? " and only the latest " + used.limit + " conversations are shown" : ""}. Open a conversation to read it.`,
         conversations: conversations.length,
       },
       conversations,
@@ -277,11 +286,15 @@ async function openThread(threadId: unknown, now: Date): Promise<OpenThread> {
   const ctx = await accountContext(account, all);
   if (!ctx.ok) return { ok: false, status: 503, problem: ctx.problem };
 
-  const r = await graphGet(
-    ids.metaConversationId,
-    { fields: `participants,messages.limit(${THREAD_LIMIT}){${MESSAGE_FIELDS}}` },
-    ctx.token
-  );
+  let r: GraphResult = { ok: false, problem: "Nothing was asked.", retryLighter: false };
+  for (const limit of THREAD_LIMITS) {
+    r = await graphGet(
+      ids.metaConversationId,
+      { fields: `participants,messages.limit(${limit}){${MESSAGE_FIELDS}}` },
+      ctx.token
+    );
+    if (r.ok || !r.retryLighter) break;
+  }
   if (!r.ok) return { ok: false, status: 502, problem: r.problem };
 
   const threadId_ = `${ids.accountId}~${ids.metaConversationId}`;
