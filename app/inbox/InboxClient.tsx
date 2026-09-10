@@ -165,6 +165,10 @@ export default function InboxClient({
   const [loadingMore, setLoadingMore] = useState<"idle" | "one" | "all">("idle");
   const [moreNote, setMoreNote] = useState<string | null>(null);
   const stopAll = useRef(false);
+  // Load every conversation in the background (Samer, 2026-09-10: "make it
+  // so that all the chats show") — until Meta has no more, somebody presses
+  // Stop, or a page fails. Nothing is stored; each visit starts again.
+  const autoLoad = useRef(true);
 
   // Accounts the page could not wait for (Instagram is slow): the browser
   // fetches their first page itself, once per visit, so Facebook is never
@@ -420,6 +424,15 @@ export default function InboxClient({
     }
   }
 
+  // Keep going whenever there is more to load and nothing is loading: at
+  // start, and again when a slow account's first page arrives with a cursor.
+  useEffect(() => {
+    if (!live || !autoLoad.current || loadingMore !== "idle" || !canLoadMore) return;
+    const t = setTimeout(() => void loadMore(true), 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadMore reads the latest cursors itself
+  }, [live, canLoadMore, loadingMore, cursors]);
+
   /**
    * One page from every account that has more — or, for "Load all", page
    * after page until Meta has nothing left or Stop is pressed. A failure
@@ -461,8 +474,11 @@ export default function InboxClient({
         added += fresh.length;
         setExtra((prev) => [...prev, ...fresh]);
         setCursors(current);
+        if (failed) autoLoad.current = false; // no retry loop against a failing account
         if (failed || !all || stopAll.current) break;
-        setMoreNote(`Loaded ${added} more so far…`);
+        setMoreNote(`Loading older conversations — ${added} more so far…`);
+        // Gentle on Meta: one round of pages at a time, with a short pause.
+        await new Promise((r) => setTimeout(r, 250));
       }
       const remaining = Object.values(current).some((c) => c.next !== null);
       setMoreNote(
@@ -587,7 +603,9 @@ export default function InboxClient({
           {visible.length === 0 && (
             <li className="inbox-empty">
               {search
-                ? "Nothing matches that search."
+                ? canLoadMore
+                  ? "No match yet — still going through older conversations…"
+                  : "Nothing matches that search."
                 : allFailed
                   ? "Could not load conversations from Meta — see the note above."
                   : "Nothing in this filter right now."}
@@ -611,6 +629,7 @@ export default function InboxClient({
                       className="btn quiet"
                       onClick={() => {
                         stopAll.current = true;
+                        autoLoad.current = false;
                       }}
                     >
                       Stop
@@ -620,7 +639,10 @@ export default function InboxClient({
                       type="button"
                       className="btn quiet"
                       disabled={loadingMore !== "idle"}
-                      onClick={() => void loadMore(true)}
+                      onClick={() => {
+                        autoLoad.current = true;
+                        void loadMore(true);
+                      }}
                     >
                       Load all
                     </button>
