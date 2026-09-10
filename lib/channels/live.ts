@@ -441,6 +441,85 @@ export async function readThreadForStaff(threadId: unknown): Promise<ThreadView>
   };
 }
 
+/* ── Diagnosis ───────────────────────────────────────────────────────────── */
+
+export interface DiagnoseStep {
+  step: string;
+  ms: number;
+  ok: boolean;
+  /** What Meta answered, in brief: a row count, or its error. Never a key. */
+  detail: string;
+}
+
+export type Diagnosis =
+  | { ok: true; account: string; steps: DiagnoseStep[] }
+  | { ok: false; status: number; problem: string };
+
+function briefly(json: unknown): string {
+  const root = json && typeof json === "object" ? (json as Record<string, unknown>) : null;
+  if (root && Array.isArray(root.data)) {
+    const more = nextCursor(json) ? ", more available" : "";
+    return `${root.data.length} row(s)${more}`;
+  }
+  return root ? `fields: ${Object.keys(root).join(", ")}` : "empty answer";
+}
+
+/**
+ * Time the smallest possible questions for one account, one at a time, so a
+ * slow or refused Instagram listing can be told apart from a slow token, a
+ * slow Page, or an Instagram account Meta will not let us read at all
+ * (2026-09-10: every Instagram list shape timed out while Facebook took ~2 s).
+ */
+export async function diagnoseAccount(accountId: unknown): Promise<Diagnosis> {
+  if (typeof accountId !== "string") {
+    return { ok: false, status: 400, problem: "Say which account to check." };
+  }
+  const all = await listAccounts();
+  const account = all.find((a) => a.id === accountId);
+  if (!account || !isMetaChannel(account)) {
+    return { ok: false, status: 404, problem: "That account is not connected." };
+  }
+
+  const steps: DiagnoseStep[] = [];
+  const t0 = Date.now();
+  const ctx = await accountContext(account, all);
+  steps.push({
+    step: "Page key and linked Instagram account",
+    ms: Date.now() - t0,
+    ok: ctx.ok,
+    detail: ctx.ok ? "ok" : ctx.problem,
+  });
+  if (!ctx.ok) return { ok: true, account: account.id, steps };
+
+  const timed = async (
+    step: string,
+    path: string,
+    params: Record<string, string>,
+    timeoutMs: number
+  ) => {
+    const t = Date.now();
+    const r = await graphGet(path, params, ctx.token, timeoutMs);
+    steps.push({ step, ms: Date.now() - t, ok: r.ok, detail: r.ok ? briefly(r.json) : r.problem });
+  };
+
+  await timed(
+    "Facebook conversations: 1 row, id only",
+    `${ctx.pageId}/conversations`,
+    { platform: "messenger", fields: "id", limit: "1" },
+    10_000
+  );
+  if (account.channel === "instagram") {
+    await timed("Instagram profile basics", account.externalId, { fields: "username" }, 10_000);
+    await timed(
+      "Instagram conversations: 1 row, id only",
+      `${ctx.pageId}/conversations`,
+      { platform: "instagram", fields: "id", limit: "1" },
+      35_000
+    );
+  }
+  return { ok: true, account: account.id, steps };
+}
+
 /* ── Replying ────────────────────────────────────────────────────────────── */
 
 export type SendOutcome =
