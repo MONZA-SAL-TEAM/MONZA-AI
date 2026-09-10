@@ -35,7 +35,7 @@ export interface LiveAccount {
  * as the dashboard's: an account that could not be read must never look like
  * an account nobody wrote to.
  */
-export type AccountState = "ok" | "no_token" | "no_page" | "error";
+export type AccountState = "ok" | "no_token" | "no_page" | "error" | "deferred";
 
 export interface AccountStatus {
   id: string;

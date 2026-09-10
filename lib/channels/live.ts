@@ -12,6 +12,14 @@
  * read or answer another brand's conversation even if a crafted thread id
  * names one — Meta refuses. The other half is ours: the recipient of a reply
  * is read from the conversation on Meta, never taken from the browser.
+ *
+ * ── Instagram is slow, and must not hold Facebook up ────────────────────────
+ * On 2026-09-10 @voyahlebanon's conversation list answered "reduce the amount
+ * of data" with previews, then ran past 12 s without them, while the Voyah
+ * Page's list came back in about two seconds. So the page gives each account a
+ * short budget; an account that runs out is handed to the browser ("deferred"),
+ * which fetches its first page through /api/channels/more with a far longer
+ * budget — Facebook is on screen meanwhile.
  */
 
 import { channelToken } from "@/lib/env";
@@ -41,31 +49,36 @@ import {
 } from "@/lib/channels/live-map";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
-/**
- * How long one Graph call may take. Instagram's conversation listing is slow —
- * on 2026-09-10 VOYAH's Facebook list arrived well inside 8s while its
- * Instagram list did not — so the first, fullest list request gets longer.
- */
+/** A single small call: the Page's own token and linked Instagram account. */
 const TIMEOUT_MS = 12_000;
-const LIST_TIMEOUT_MS = 20_000;
+/** Opening one thread. Inside the thread route's 60 s. */
+const THREAD_TIMEOUT_MS = 20_000;
+/** How long the inbox page waits for one account before handing it to the browser. */
+const RENDER_BUDGET_MS = 10_000;
+/** How long "Load more" (or a handed-over first page) keeps trying, inside the route's 60 s. */
+const MORE_BUDGET_MS = 50_000;
 const MESSAGE_FIELDS = "id,created_time,from,message";
 
 /**
  * How the conversation list is asked for, fullest first. When Meta is too
  * slow, or answers "reduce the amount of data", the next, lighter question is
- * tried: first without each conversation's latest message, then fewer rows.
- * Facebook normally answers the first; Instagram may need the second.
+ * tried: without each conversation's latest message, then fewer rows, then a
+ * bare list without names (names then appear when a conversation is opened).
  */
 const LIST_ATTEMPTS = [
   {
     fields: `id,updated_time,participants,messages.limit(1){${MESSAGE_FIELDS}}`,
     limit: 25,
     previews: true,
-    timeoutMs: LIST_TIMEOUT_MS,
+    names: true,
+    timeoutMs: 20_000,
   },
-  { fields: "id,updated_time,participants", limit: 25, previews: false, timeoutMs: TIMEOUT_MS },
-  { fields: "id,updated_time,participants", limit: 10, previews: false, timeoutMs: TIMEOUT_MS },
+  { fields: "id,updated_time,participants", limit: 25, previews: false, names: true, timeoutMs: 20_000 },
+  { fields: "id,updated_time,participants", limit: 10, previews: false, names: true, timeoutMs: 20_000 },
+  { fields: "id,updated_time", limit: 25, previews: false, names: false, timeoutMs: 20_000 },
 ] as const;
+
+type ListAttempt = (typeof LIST_ATTEMPTS)[number];
 
 /** Messages shown per thread, fullest first. Instagram only details the latest 20. */
 const THREAD_LIMITS = [20, 8] as const;
@@ -97,12 +110,14 @@ async function graphGet(
       : { ok: true, json };
   } catch (e) {
     // "Took too long" and "could not connect" need different fixes, so they
-    // must not read the same on screen.
+    // must not read the same on screen — and how long it waited is the clue.
     const timedOut =
       e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
     return {
       ok: false,
-      problem: timedOut ? "Meta took too long to answer." : "Could not reach Meta just now.",
+      problem: timedOut
+        ? `Meta took too long to answer (over ${Math.round(timeoutMs / 1000)} s).`
+        : "Could not reach Meta just now.",
       retryLighter: timedOut,
     };
   }
@@ -150,7 +165,7 @@ async function pageInfo(pageId: string, envToken: string): Promise<PageInfo> {
 
 type AccountContext =
   | { ok: true; pageId: string; token: string; selfIds: string[] }
-  | { ok: false; state: Exclude<AccountState, "ok">; problem: string };
+  | { ok: false; state: "no_token" | "no_page" | "error"; problem: string };
 
 async function accountContext(
   account: StoredAccount,
@@ -197,34 +212,57 @@ async function accountContext(
 
 /* ── The inbox list ──────────────────────────────────────────────────────── */
 
+function partialNote(used: ListAttempt): string | null {
+  if (used.previews) return null;
+  if (!used.names) {
+    return "Meta sends this account only a bare list, so names and previews appear when you open a conversation.";
+  }
+  return `Meta sends this account a lighter list, so message previews are hidden${
+    used.limit < 25 ? ` and pages are ${used.limit} conversations long` : ""
+  }. Open a conversation to read it.`;
+}
+
 /**
- * One page of one account's conversations. `after` is Meta's cursor for a
- * later page ("Load more"); `startAt` skips list attempts already known to
- * be too heavy for this account, so Instagram is not refused on every page.
+ * One page of one account's conversations.
+ *
+ *   after    Meta's cursor for a later page ("Load more"), or null for page one
+ *   startAt  skip list shapes already known to be too heavy for this account
+ *   budgetMs how long to keep trying; on the page itself this is short, and an
+ *            account that runs out is returned as "deferred" for the browser
  */
 async function readAccount(
   account: StoredAccount,
   all: readonly StoredAccount[],
-  after: string | null = null,
-  startAt = 0
+  opts: { after?: string | null; startAt?: number; budgetMs: number; deferIfSlow: boolean }
 ): Promise<{ status: AccountStatus; conversations: Conversation[] }> {
   const label = accountLabel(account);
-  const failed = (state: Exclude<AccountState, "ok">, problem: string) => ({
-    status: { id: account.id, label, state, problem, conversations: 0, next: null, lite: false },
-    conversations: [],
+  const result = (
+    state: AccountState,
+    problem: string | null,
+    extra: Partial<AccountStatus> = {}
+  ) => ({
+    status: { id: account.id, label, state, problem, conversations: 0, next: null, lite: false, ...extra },
+    conversations: [] as Conversation[],
   });
 
   try {
     const ctx = await accountContext(account, all);
-    if (!ctx.ok) return failed(ctx.state, ctx.problem);
+    if (!ctx.ok) return result(ctx.state, ctx.problem);
 
     const platform = account.channel === "instagram" ? "instagram" : "messenger";
     const path = `${ctx.pageId}/conversations`;
+    const attempts = LIST_ATTEMPTS.slice(Math.min(opts.startAt ?? 0, LIST_ATTEMPTS.length - 1));
 
+    const started = Date.now();
     let r: GraphResult = { ok: false, problem: "Nothing was asked.", retryLighter: false };
-    const attempts = LIST_ATTEMPTS.slice(Math.min(startAt, LIST_ATTEMPTS.length - 1));
-    let used: (typeof LIST_ATTEMPTS)[number] = attempts[0];
+    let used: ListAttempt = attempts[0];
+    let outOfTime = false;
     for (const attempt of attempts) {
+      const remaining = opts.budgetMs - (Date.now() - started);
+      if (remaining < 1_500) {
+        outOfTime = true;
+        break;
+      }
       used = attempt;
       r = await graphGet(
         path,
@@ -232,15 +270,23 @@ async function readAccount(
           platform,
           fields: attempt.fields,
           limit: String(attempt.limit),
-          ...(after ? { after } : {}),
+          ...(opts.after ? { after: opts.after } : {}),
         },
         ctx.token,
-        attempt.timeoutMs
+        Math.min(attempt.timeoutMs, remaining)
       );
       // Only a "too slow" or "too much" answer is worth asking again, lighter.
       if (r.ok || !r.retryLighter) break;
     }
-    if (!r.ok) return failed("error", r.problem);
+
+    if (!r.ok) {
+      // Still being asked something lighter when the page ran out of patience:
+      // not broken, just slow — the browser takes it from here.
+      if (opts.deferIfSlow && (outOfTime || r.retryLighter)) {
+        return result("deferred", "Loading from Meta…", { lite: true });
+      }
+      return result("error", r.problem);
+    }
 
     const conversations = mapConversations(r.json, account, ctx.selfIds);
     return {
@@ -248,9 +294,7 @@ async function readAccount(
         id: account.id,
         label,
         state: "ok",
-        problem: used.previews
-          ? null
-          : `Meta would only send a lighter list for this account, so message previews are hidden${used.limit < 25 ? " and only the latest " + used.limit + " conversations are shown" : ""}. Open a conversation to read it.`,
+        problem: partialNote(used),
         conversations: conversations.length,
         next: nextCursor(r.json),
         lite: !used.previews,
@@ -258,7 +302,7 @@ async function readAccount(
       conversations,
     };
   } catch {
-    return failed("error", "Something went wrong reading this account.");
+    return result("error", "Something went wrong reading this account.");
   }
 }
 
@@ -269,7 +313,9 @@ export async function readInbox(): Promise<{
 }> {
   const all = await listAccounts();
   const results = await Promise.all(
-    all.filter(isMetaChannel).map((a) => readAccount(a, all))
+    all
+      .filter(isMetaChannel)
+      .map((a) => readAccount(a, all, { budgetMs: RENDER_BUDGET_MS, deferIfSlow: true }))
   );
   return {
     statuses: results.map((r) => r.status),
@@ -278,20 +324,30 @@ export async function readInbox(): Promise<{
 }
 
 export type MorePage =
-  | { ok: true; conversations: Conversation[]; next: string | null; lite: boolean }
+  | {
+      ok: true;
+      conversations: Conversation[];
+      next: string | null;
+      lite: boolean;
+      /** A partial-load note ("previews hidden"), or null. */
+      note: string | null;
+    }
   | { ok: false; status: number; problem: string };
 
 /**
- * The next page of one account's conversations, for "Load more" / "Load
- * all". The account comes from OUR registry and the cursor is checked, so the
- * browser cannot widen what is asked of Meta or borrow another brand's key.
+ * A page of one account's conversations for the browser: the next page for
+ * "Load more" / "Load all", or — with no cursor — the first page of an account
+ * the inbox page could not wait for. The account comes from OUR registry and
+ * the cursor is checked, so the browser cannot widen what is asked of Meta or
+ * borrow another brand's key.
  */
 export async function readMore(
   accountId: unknown,
   after: unknown,
   lite: boolean
 ): Promise<MorePage> {
-  if (typeof accountId !== "string" || !isSafeCursor(after)) {
+  const cursor = after === null || after === undefined || after === "" ? null : after;
+  if (typeof accountId !== "string" || (cursor !== null && !isSafeCursor(cursor))) {
     return { ok: false, status: 400, problem: "That request for more conversations is not valid." };
   }
   const all = await listAccounts();
@@ -299,7 +355,12 @@ export async function readMore(
   if (!account || !isMetaChannel(account)) {
     return { ok: false, status: 404, problem: "That account is not connected." };
   }
-  const page = await readAccount(account, all, after, lite ? 1 : 0);
+  const page = await readAccount(account, all, {
+    after: cursor as string | null,
+    startAt: lite ? 1 : 0,
+    budgetMs: MORE_BUDGET_MS,
+    deferIfSlow: false,
+  });
   if (page.status.state !== "ok") {
     return { ok: false, status: 502, problem: page.status.problem ?? "Could not load more from Meta." };
   }
@@ -308,6 +369,7 @@ export async function readMore(
     conversations: page.conversations,
     next: page.status.next,
     lite: page.status.lite,
+    note: page.status.problem,
   };
 }
 
@@ -342,7 +404,8 @@ async function openThread(threadId: unknown, now: Date): Promise<OpenThread> {
     r = await graphGet(
       ids.metaConversationId,
       { fields: `participants,messages.limit(${limit}){${MESSAGE_FIELDS}}` },
-      ctx.token
+      ctx.token,
+      THREAD_TIMEOUT_MS
     );
     if (r.ok || !r.retryLighter) break;
   }

@@ -79,7 +79,13 @@ interface Props {
 }
 
 type MoreResponse =
-  | { ok: true; conversations: Conversation[]; next: string | null; lite: boolean }
+  | {
+      ok: true;
+      conversations: Conversation[];
+      next: string | null;
+      lite: boolean;
+      note?: string | null;
+    }
   | { ok: false; message?: string };
 
 /** Where each account's list stands: Meta's cursor for its next page. */
@@ -160,6 +166,50 @@ export default function InboxClient({
   const [moreNote, setMoreNote] = useState<string | null>(null);
   const stopAll = useRef(false);
 
+  // Accounts the page could not wait for (Instagram is slow): the browser
+  // fetches their first page itself, once per visit, so Facebook is never
+  // held up. Their note on screen then comes from here, not from the page.
+  const [firstLoads, setFirstLoads] = useState<
+    Record<string, { state: "loading" | "done" | "failed"; note: string | null }>
+  >({});
+  useEffect(() => {
+    const waiting = accountStatuses.filter(
+      (s) => s.state === "deferred" && !(s.id in firstLoads)
+    );
+    if (waiting.length === 0) return;
+    setFirstLoads((prev) => {
+      const next = { ...prev };
+      for (const s of waiting) next[s.id] = { state: "loading", note: null };
+      return next;
+    });
+    for (const s of waiting) {
+      const qs = new URLSearchParams({ account: s.id, after: "", lite: "1" });
+      void fetch(`/api/channels/more?${qs.toString()}`, { cache: "no-store" })
+        .then(async (res) => ({
+          ok: res.ok,
+          json: (await res.json().catch(() => null)) as MoreResponse | null,
+        }))
+        .then(({ ok, json }) => {
+          if (ok && json && json.ok) {
+            setExtra((prev) => [...prev, ...json.conversations]);
+            setCursors((prev) => ({ ...prev, [s.id]: { next: json.next, lite: json.lite } }));
+            setFirstLoads((prev) => ({ ...prev, [s.id]: { state: "done", note: json.note ?? null } }));
+          } else {
+            const note =
+              (json && !json.ok && json.message) ||
+              "Meta did not send this account's conversations.";
+            setFirstLoads((prev) => ({ ...prev, [s.id]: { state: "failed", note } }));
+          }
+        })
+        .catch(() => {
+          setFirstLoads((prev) => ({
+            ...prev,
+            [s.id]: { state: "failed", note: "Could not reach Monza AI." },
+          }));
+        });
+    }
+  }, [accountStatuses, firstLoads]);
+
   // The minute-by-minute refresh re-reads page one. Keep the cursors of
   // accounts already paged; take cursors only for accounts new to the screen.
   useEffect(() => {
@@ -205,11 +255,28 @@ export default function InboxClient({
   // Every account with something to say — including one that loaded but only
   // partly (e.g. previews hidden because Meta sent a lighter list).
   const problems = useMemo(
-    () => accountStatuses.filter((s) => s.problem !== null),
-    [accountStatuses]
+    () =>
+      accountStatuses
+        .map((s) => {
+          if (s.state !== "deferred") return s;
+          const f = firstLoads[s.id];
+          const problem =
+            !f || f.state === "loading"
+              ? "Loading from Meta — Instagram is slow, this can take up to a minute."
+              : f.note;
+          return { ...s, problem };
+        })
+        .filter((s) => s.problem !== null),
+    [accountStatuses, firstLoads]
   );
   const allFailed =
-    live && accountStatuses.length > 0 && accountStatuses.every((s) => s.state !== "ok");
+    live &&
+    accountStatuses.length > 0 &&
+    accountStatuses.every(
+      (s) =>
+        s.state !== "ok" &&
+        (s.state !== "deferred" || firstLoads[s.id]?.state === "failed")
+    );
 
   // The list is re-read from Meta by the server every minute.
   useEffect(() => {
