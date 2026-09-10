@@ -51,7 +51,7 @@ import {
   type Installment,
   type Vehicle,
 } from "@/lib/domain/types";
-import type { AccountStatus } from "@/lib/channels/live-map";
+import { sortNewestFirst, type AccountStatus } from "@/lib/channels/live-map";
 import { firstName, longDate, messageTime, usd, waLink } from "@/lib/format";
 import "./inbox.css";
 
@@ -77,6 +77,16 @@ interface Props {
   openInstallments: Installment[];
   vehicles: Vehicle[];
 }
+
+type MoreResponse =
+  | { ok: true; conversations: Conversation[]; next: string | null; lite: boolean }
+  | { ok: false; message?: string };
+
+/** Where each account's list stands: Meta's cursor for its next page. */
+type Cursor = { next: string | null; lite: boolean };
+
+/** A ceiling on "Load all", so a cursor that never ends cannot loop forever. */
+const MAX_PAGES = 200;
 
 type ThreadResponse =
   | { ok: true; messages: InboxMessage[]; window: { open: boolean; text: string } }
@@ -140,15 +150,51 @@ export default function InboxClient({
   const [sending, setSending] = useState(false);
   const [sendNote, setSendNote] = useState<string | null>(null);
 
+  // "Load more" / "Load all": pages beyond the first, per account. Held on
+  // this screen only — nothing is stored, and the next visit starts fresh.
+  const [extra, setExtra] = useState<Conversation[]>([]);
+  const [cursors, setCursors] = useState<Record<string, Cursor>>(() =>
+    Object.fromEntries(accountStatuses.map((s) => [s.id, { next: s.next, lite: s.lite }]))
+  );
+  const [loadingMore, setLoadingMore] = useState<"idle" | "one" | "all">("idle");
+  const [moreNote, setMoreNote] = useState<string | null>(null);
+  const stopAll = useRef(false);
+
+  // The minute-by-minute refresh re-reads page one. Keep the cursors of
+  // accounts already paged; take cursors only for accounts new to the screen.
+  useEffect(() => {
+    setCursors((prev) => {
+      const missing = accountStatuses.filter((s) => !(s.id in prev));
+      if (missing.length === 0) return prev;
+      const next = { ...prev };
+      for (const s of missing) next[s.id] = { next: s.next, lite: s.lite };
+      return next;
+    });
+  }, [accountStatuses]);
+
+  const allConversations = useMemo(() => {
+    if (extra.length === 0) return conversations;
+    const seen = new Set<string>();
+    const merged: Conversation[] = [];
+    for (const c of [...conversations, ...extra]) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      merged.push(c);
+    }
+    return sortNewestFirst(merged);
+  }, [conversations, extra]);
+
+  const canLoadMore = live && Object.values(cursors).some((c) => c.next !== null);
+
   const counts = useMemo(
-    () => countsByFilter(conversations, viewer),
-    [conversations, viewer]
+    () => countsByFilter(allConversations, viewer),
+    [allConversations, viewer]
   );
 
   const visible = useMemo(() => {
-    const filtered = applyFilter(conversations, filter, viewer);
+    const filtered = applyFilter(allConversations, filter, viewer);
     return searchConversations(filtered, search);
-  }, [conversations, filter, viewer, search]);
+  }, [allConversations, filter, viewer, search]);
 
   const open = useMemo(
     () => visible.find((c) => c.id === openId) ?? null,
@@ -307,6 +353,65 @@ export default function InboxClient({
     }
   }
 
+  /**
+   * One page from every account that has more — or, for "Load all", page
+   * after page until Meta has nothing left or Stop is pressed. A failure
+   * stops the run and keeps the cursor, so pressing again retries.
+   */
+  async function loadMore(all: boolean) {
+    if (loadingMore !== "idle") return;
+    setLoadingMore(all ? "all" : "one");
+    setMoreNote(null);
+    stopAll.current = false;
+    let current: Record<string, Cursor> = { ...cursors };
+    let added = 0;
+    let failed: string | null = null;
+    try {
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const pending = Object.entries(current).filter(([, c]) => c.next !== null);
+        if (pending.length === 0) break;
+        const results = await Promise.all(
+          pending.map(async ([id, c]) => {
+            const qs = new URLSearchParams({
+              account: id,
+              after: c.next ?? "",
+              lite: c.lite ? "1" : "0",
+            });
+            const res = await fetch(`/api/channels/more?${qs.toString()}`, { cache: "no-store" });
+            const json = (await res.json().catch(() => null)) as MoreResponse | null;
+            return { id, ok: res.ok && !!json && json.ok, json };
+          })
+        );
+        const fresh: Conversation[] = [];
+        for (const { id, ok, json } of results) {
+          if (ok && json && json.ok) {
+            fresh.push(...json.conversations);
+            current = { ...current, [id]: { next: json.next, lite: json.lite } };
+          } else {
+            failed = (json && !json.ok && json.message) || "Meta did not send the next page.";
+          }
+        }
+        added += fresh.length;
+        setExtra((prev) => [...prev, ...fresh]);
+        setCursors(current);
+        if (failed || !all || stopAll.current) break;
+        setMoreNote(`Loaded ${added} more so far…`);
+      }
+      const remaining = Object.values(current).some((c) => c.next !== null);
+      setMoreNote(
+        failed
+          ? `Loaded ${added} more, then stopped: ${failed}`
+          : !remaining
+            ? `Loaded ${added} more. That is every conversation Meta has.`
+            : `Loaded ${added} more.`
+      );
+    } catch {
+      setMoreNote("Could not reach Monza AI — press again to retry.");
+    } finally {
+      setLoadingMore("idle");
+    }
+  }
+
   return (
     <main className="inbox" data-thread-open={open !== null}>
       {/* ── Conversation list, with its filters above it ──────────────── */}
@@ -315,7 +420,8 @@ export default function InboxClient({
           <div className="row-between">
             <h1 className="h2">Inbox</h1>
             <span className="cap">
-              {visible.length} of {conversations.length}
+              {visible.length} of {allConversations.length}
+              {canLoadMore ? "+" : ""}
             </span>
           </div>
           <input
@@ -418,6 +524,47 @@ export default function InboxClient({
                 : allFailed
                   ? "Could not load conversations from Meta — see the note above."
                   : "Nothing in this filter right now."}
+            </li>
+          )}
+          {(canLoadMore || moreNote) && (
+            <li style={{ padding: "10px 6px" }}>
+              {canLoadMore && (
+                <div className="row">
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={loadingMore !== "idle"}
+                    onClick={() => void loadMore(false)}
+                  >
+                    {loadingMore === "one" ? "Loading…" : "Load more"}
+                  </button>
+                  {loadingMore === "all" ? (
+                    <button
+                      type="button"
+                      className="btn quiet"
+                      onClick={() => {
+                        stopAll.current = true;
+                      }}
+                    >
+                      Stop
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn quiet"
+                      disabled={loadingMore !== "idle"}
+                      onClick={() => void loadMore(true)}
+                    >
+                      Load all
+                    </button>
+                  )}
+                </div>
+              )}
+              {moreNote && (
+                <p className="cap" role="status">
+                  {moreNote}
+                </p>
+              )}
             </li>
           )}
         </ul>

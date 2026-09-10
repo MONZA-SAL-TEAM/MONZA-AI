@@ -44,6 +44,10 @@ export interface AccountStatus {
   /** Plain words for staff when state is not "ok". Never a token or secret. */
   problem: string | null;
   conversations: number;
+  /** Meta's cursor for this account's next page; null when there is no more. */
+  next: string | null;
+  /** True when Meta only answered the lighter list (no message previews). */
+  lite: boolean;
 }
 
 export function accountLabel(account: LiveAccount): string {
@@ -297,6 +301,25 @@ export function graphProblem(payload: unknown, httpStatus: number): string {
 export function isTooMuchData(payload: unknown): boolean {
   const message = str(obj(obj(payload)?.error)?.message);
   return message !== null && /reduce the amount of data/i.test(message);
+}
+
+/* ── Paging ("Load more") ────────────────────────────────────────────────── */
+
+/**
+ * Meta's paging cursors are opaque base64-style strings. One comes back from
+ * the browser for "Load more", so anything else is refused before it is put
+ * into a Graph request. (It travels as a query value, never in the path.)
+ */
+export function isSafeCursor(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9_=+/.-]{1,1024}$/.test(value);
+}
+
+/** The cursor for the next page of a Graph list, or null on the last page. */
+export function nextCursor(json: unknown): string | null {
+  const paging = obj(obj(json)?.paging);
+  if (!str(paging?.next)) return null;
+  const after = str(obj(paging?.cursors)?.after);
+  return after && isSafeCursor(after) ? after : null;
 }
 
 /* ── What the webhook keeps: the fact, never the words ──────────────────── */

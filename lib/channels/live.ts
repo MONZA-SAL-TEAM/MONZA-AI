@@ -25,10 +25,12 @@ import {
   accountLabel,
   decodeThreadId,
   graphProblem,
+  isSafeCursor,
   isTooMuchData,
   lastCustomerAt,
   mapConversations,
   mapThread,
+  nextCursor,
   pageIdFor,
   peerOf,
   readPageInfo,
@@ -195,13 +197,20 @@ async function accountContext(
 
 /* ── The inbox list ──────────────────────────────────────────────────────── */
 
+/**
+ * One page of one account's conversations. `after` is Meta's cursor for a
+ * later page ("Load more"); `startAt` skips list attempts already known to
+ * be too heavy for this account, so Instagram is not refused on every page.
+ */
 async function readAccount(
   account: StoredAccount,
-  all: readonly StoredAccount[]
+  all: readonly StoredAccount[],
+  after: string | null = null,
+  startAt = 0
 ): Promise<{ status: AccountStatus; conversations: Conversation[] }> {
   const label = accountLabel(account);
   const failed = (state: Exclude<AccountState, "ok">, problem: string) => ({
-    status: { id: account.id, label, state, problem, conversations: 0 },
+    status: { id: account.id, label, state, problem, conversations: 0, next: null, lite: false },
     conversations: [],
   });
 
@@ -213,12 +222,18 @@ async function readAccount(
     const path = `${ctx.pageId}/conversations`;
 
     let r: GraphResult = { ok: false, problem: "Nothing was asked.", retryLighter: false };
-    let used: (typeof LIST_ATTEMPTS)[number] = LIST_ATTEMPTS[0];
-    for (const attempt of LIST_ATTEMPTS) {
+    const attempts = LIST_ATTEMPTS.slice(Math.min(startAt, LIST_ATTEMPTS.length - 1));
+    let used: (typeof LIST_ATTEMPTS)[number] = attempts[0];
+    for (const attempt of attempts) {
       used = attempt;
       r = await graphGet(
         path,
-        { platform, fields: attempt.fields, limit: String(attempt.limit) },
+        {
+          platform,
+          fields: attempt.fields,
+          limit: String(attempt.limit),
+          ...(after ? { after } : {}),
+        },
         ctx.token,
         attempt.timeoutMs
       );
@@ -237,6 +252,8 @@ async function readAccount(
           ? null
           : `Meta would only send a lighter list for this account, so message previews are hidden${used.limit < 25 ? " and only the latest " + used.limit + " conversations are shown" : ""}. Open a conversation to read it.`,
         conversations: conversations.length,
+        next: nextCursor(r.json),
+        lite: !used.previews,
       },
       conversations,
     };
@@ -257,6 +274,40 @@ export async function readInbox(): Promise<{
   return {
     statuses: results.map((r) => r.status),
     conversations: sortNewestFirst(results.flatMap((r) => r.conversations)),
+  };
+}
+
+export type MorePage =
+  | { ok: true; conversations: Conversation[]; next: string | null; lite: boolean }
+  | { ok: false; status: number; problem: string };
+
+/**
+ * The next page of one account's conversations, for "Load more" / "Load
+ * all". The account comes from OUR registry and the cursor is checked, so the
+ * browser cannot widen what is asked of Meta or borrow another brand's key.
+ */
+export async function readMore(
+  accountId: unknown,
+  after: unknown,
+  lite: boolean
+): Promise<MorePage> {
+  if (typeof accountId !== "string" || !isSafeCursor(after)) {
+    return { ok: false, status: 400, problem: "That request for more conversations is not valid." };
+  }
+  const all = await listAccounts();
+  const account = all.find((a) => a.id === accountId);
+  if (!account || !isMetaChannel(account)) {
+    return { ok: false, status: 404, problem: "That account is not connected." };
+  }
+  const page = await readAccount(account, all, after, lite ? 1 : 0);
+  if (page.status.state !== "ok") {
+    return { ok: false, status: 502, problem: page.status.problem ?? "Could not load more from Meta." };
+  }
+  return {
+    ok: true,
+    conversations: page.conversations,
+    next: page.status.next,
+    lite: page.status.lite,
   };
 }
 
