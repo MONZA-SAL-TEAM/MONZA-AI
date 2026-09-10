@@ -133,7 +133,9 @@ export async function noteInboundLead(
         await sb.rpc("lead_note_interest", {
           p_lead: leadId,
           p_car_key: interest.carKey,
-          p_raw: interest.rawMention,
+          // Which car, never the customer's own words: MONZA AI keeps no text
+          // anybody wrote (Samer, 2026-09-10 — see lib/channels/live-map.ts).
+          p_raw: null,
           p_at: event.at,
         });
       }

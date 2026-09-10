@@ -8,22 +8,27 @@
  * thread takes over the screen and a back button returns to the list.
  *
  * WhatsApp, Instagram and Facebook are rendered by the SAME components. The
- * channel is a chip on a row, not a different code path — which is the whole
- * point of the unified model and the thing that stops three channels becoming
- * three products.
+ * channel is a chip on a row, not a different code path.
  *
- * NOTHING IS SENT FROM HERE YET. The composer is deliberately inert until an
- * outbound channel is actually connected: it explains that, and offers the one
- * honest alternative — a prefilled WhatsApp link a person taps themselves.
- * Showing a Send button that silently does nothing would be worse than showing
- * no Send button.
+ * ── LIVE ────────────────────────────────────────────────────────────────────
+ * With accounts connected, the list is read from Meta by the server and
+ * refreshed every minute, and an open thread is fetched from Meta and
+ * refreshed every 15 seconds. Nothing is kept: the only copy of a conversation
+ * is on Instagram and Facebook, where it always was (Samer, 2026-09-10).
+ * Replies go out through Meta. While sending is switched off, pressing Send
+ * says so rather than showing a tick the customer never earned.
+ *
+ * ── DEMO ────────────────────────────────────────────────────────────────────
+ * Example threads, and nothing sends: the composer offers only a prefilled
+ * WhatsApp link a person taps themselves.
  *
  * All filtering, sorting, counting and searching comes from lib/inbox/filters,
  * so the badge on a filter and the list it opens can never disagree.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import DraftDock from "./DraftDock";
 import {
   applyFilter,
@@ -46,6 +51,7 @@ import {
   type Installment,
   type Vehicle,
 } from "@/lib/domain/types";
+import type { AccountStatus } from "@/lib/channels/live-map";
 import { firstName, longDate, messageTime, usd, waLink } from "@/lib/format";
 import "./inbox.css";
 
@@ -54,16 +60,14 @@ interface Props {
   demo: boolean;
   /**
    * Whether any channel account is connected — a DIFFERENT fact from `demo`,
-   * which is about the source system.
-   *
-   * They were one flag, and the banner said "no channel is connected yet"
-   * whenever the CRM was the demo one. That is fine today and wrong the moment
-   * a channel is connected while the CRM still is not — the likely next state —
-   * because it would label REAL customer conversations as examples. Staff
-   * treating a real person as a test is the worst mistake this screen can
-   * invite, so the two facts are now separate.
+   * which is about the source system. Real conversations must never be
+   * labelled as examples just because the CRM is still the demo one.
    */
   channelsConnected: boolean;
+  /** Conversations come live from Meta (and threads are fetched on open). */
+  live: boolean;
+  /** How each connected account's read went, so a failure is never shown as silence. */
+  accountStatuses: AccountStatus[];
   sourceLabel: string;
   viewer: Viewer;
   staff: { id: string; name: string }[];
@@ -73,6 +77,29 @@ interface Props {
   openInstallments: Installment[];
   vehicles: Vehicle[];
 }
+
+type ThreadResponse =
+  | { ok: true; messages: InboxMessage[]; window: { open: boolean; text: string } }
+  | { ok: false; message?: string };
+
+interface LiveThread {
+  messages: InboxMessage[];
+  windowOpen: boolean;
+  windowText: string;
+  problem: string | null;
+  loading: boolean;
+}
+
+const EMPTY_THREAD: LiveThread = {
+  messages: [],
+  windowOpen: false,
+  windowText: "",
+  problem: null,
+  loading: true,
+};
+
+const THREAD_REFRESH_MS = 15_000;
+const LIST_REFRESH_MS = 60_000;
 
 /** A small channel chip. One component, three channels — by design. */
 function ChannelChip({ channel }: { channel: Conversation["channel"] }) {
@@ -85,6 +112,8 @@ export default function InboxClient({
   today,
   demo,
   channelsConnected,
+  live,
+  accountStatuses,
   sourceLabel,
   viewer,
   staff,
@@ -94,15 +123,18 @@ export default function InboxClient({
   openInstallments,
   vehicles,
 }: Props) {
+  const router = useRouter();
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [search, setSearch] = useState("");
   // What the salesperson is about to send. A draft they accept lands here, so
   // there is somewhere to edit it and fill in any [[slots]] before it goes.
   const [composerText, setComposerText] = useState("");
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const [openId, setOpenId] = useState<string | null>(
-    conversations.length > 0 ? null : null
-  );
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  const [liveThread, setLiveThread] = useState<LiveThread>(EMPTY_THREAD);
+  const [sending, setSending] = useState(false);
+  const [sendNote, setSendNote] = useState<string | null>(null);
 
   const counts = useMemo(
     () => countsByFilter(conversations, viewer),
@@ -118,18 +150,80 @@ export default function InboxClient({
     () => visible.find((c) => c.id === openId) ?? null,
     [visible, openId]
   );
+  const openThreadId = open?.id ?? null;
 
-  const thread = useMemo(
-    () => (open ? messages.filter((m) => m.conversationId === open.id) : []),
-    [messages, open]
+  const problems = useMemo(
+    () => accountStatuses.filter((s) => s.state !== "ok"),
+    [accountStatuses]
   );
+  const allFailed =
+    live && accountStatuses.length > 0 && problems.length === accountStatuses.length;
+
+  // The list is re-read from Meta by the server every minute.
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => router.refresh(), LIST_REFRESH_MS);
+    return () => clearInterval(t);
+  }, [live, router]);
+
+  const loadThread = useCallback(async (id: string, signal?: AbortSignal) => {
+    try {
+      const res = await fetch(`/api/channels/thread?id=${encodeURIComponent(id)}`, {
+        cache: "no-store",
+        signal,
+      });
+      const json = (await res.json().catch(() => null)) as ThreadResponse | null;
+      if (res.ok && json && json.ok) {
+        setLiveThread({
+          messages: json.messages,
+          windowOpen: json.window.open,
+          windowText: json.window.text,
+          problem: null,
+          loading: false,
+        });
+      } else {
+        // Keep what was already on screen; say what went wrong.
+        setLiveThread((prev) => ({
+          ...prev,
+          loading: false,
+          problem:
+            (json && !json.ok && json.message) ||
+            "Could not load this conversation from Meta.",
+        }));
+      }
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      setLiveThread((prev) => ({
+        ...prev,
+        loading: false,
+        problem: "Could not reach Monza AI. Check the connection.",
+      }));
+    }
+  }, []);
+
+  // An open live thread is fetched from Meta, then refreshed while it stays open.
+  useEffect(() => {
+    if (!live || !openThreadId) return;
+    setLiveThread(EMPTY_THREAD);
+    setSendNote(null);
+    const ctrl = new AbortController();
+    void loadThread(openThreadId, ctrl.signal);
+    const t = setInterval(() => void loadThread(openThreadId, ctrl.signal), THREAD_REFRESH_MS);
+    return () => {
+      ctrl.abort();
+      clearInterval(t);
+    };
+  }, [live, openThreadId, loadThread]);
+
+  const thread = useMemo(() => {
+    if (!open) return [];
+    return live ? liveThread.messages : messages.filter((m) => m.conversationId === open.id);
+  }, [live, liveThread.messages, messages, open]);
 
   /**
    * The message a draft would answer: the last one, if it came from the
    * customer. Null when we spoke last, which is a follow-up rather than a
-   * reply. The dock compares this to the draft's own anchor to notice that a
-   * newer message has arrived and the draft has gone stale — an id, because a
-   * count is unchanged by a delete plus an insert.
+   * reply.
    */
   const anchorMessageId = useMemo(() => {
     const last = thread[thread.length - 1];
@@ -160,12 +254,40 @@ export default function InboxClient({
     [vehicles, open]
   );
 
+  async function sendReply() {
+    if (!open || sending) return;
+    const text = composerText.trim();
+    if (text === "") return;
+    setSending(true);
+    setSendNote(null);
+    try {
+      const res = await fetch("/api/channels/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId: open.id, text }),
+      });
+      const json = (await res.json().catch(() => null)) as {
+        delivered?: boolean;
+        message?: string;
+      } | null;
+      if (res.ok && json?.delivered) {
+        setComposerText("");
+        setSendNote("Sent.");
+        void loadThread(open.id);
+      } else {
+        // Not sent: the text stays in the box so nothing is lost.
+        setSendNote(json?.message ?? "It was not sent.");
+      }
+    } catch {
+      setSendNote("Could not reach Monza AI — nothing was sent.");
+    } finally {
+      setSending(false);
+    }
+  }
+
   return (
     <main className="inbox" data-thread-open={open !== null}>
-      {/* ── Conversation list, with its filters above it ────────────────
-       * The filters are a horizontal strip rather than a third vertical rail:
-       * the app shell already contributes one, and a rail inside a rail inside
-       * a rail left the messages themselves about 120px wide. */}
+      {/* ── Conversation list, with its filters above it ──────────────── */}
       <section className="inbox-list" aria-label="Conversations">
         <div className="inbox-list-head">
           <div className="row-between">
@@ -177,7 +299,7 @@ export default function InboxClient({
           <input
             className="inbox-search"
             type="search"
-            placeholder="Search name, number or message"
+            placeholder="Search name, brand or message"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             aria-label="Search conversations"
@@ -206,12 +328,24 @@ export default function InboxClient({
             Example conversations — no channel is connected yet. Customer
             details come from {sourceLabel.toLowerCase()}.
           </p>
-        ) : demo ? (
-          <p className="inbox-note">
-            These conversations are real. The customer details beside them come
-            from {sourceLabel.toLowerCase()}.
-          </p>
-        ) : null}
+        ) : (
+          <div className="inbox-note">
+            <p>
+              Live from Instagram and Facebook. Monza AI shows these
+              conversations and keeps no copy of them.
+              {demo && ` Customer details beside them come from ${sourceLabel.toLowerCase()}.`}
+            </p>
+            {problems.length > 0 && (
+              <ul style={{ margin: "0.4rem 0 0 1rem" }}>
+                {problems.map((s) => (
+                  <li key={s.id}>
+                    <strong>{s.label}:</strong> {s.problem}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         <ul className="inbox-threads">
           {visible.map((c) => (
@@ -236,14 +370,20 @@ export default function InboxClient({
                 </div>
                 <div className="row thread-meta">
                   <ChannelChip channel={c.channel} />
+                  {live && (
+                    <span className="tag truncate">
+                      {c.channelAddress.split(" → ")[1] ?? ""}
+                    </span>
+                  )}
                   {c.unreadCount > 0 && (
                     <span className="tag urgent">{c.unreadCount} unread</span>
                   )}
-                  {c.assignedToName ? (
-                    <span className="tag mine">{c.assignedToName}</span>
-                  ) : (
-                    <span className="tag">Unassigned</span>
-                  )}
+                  {!live &&
+                    (c.assignedToName ? (
+                      <span className="tag mine">{c.assignedToName}</span>
+                    ) : (
+                      <span className="tag">Unassigned</span>
+                    ))}
                   {c.hasAutomatedMessage && <span className="tag">Automated</span>}
                 </div>
               </button>
@@ -253,7 +393,9 @@ export default function InboxClient({
             <li className="inbox-empty">
               {search
                 ? "Nothing matches that search."
-                : "Nothing in this filter right now."}
+                : allFailed
+                  ? "Could not load conversations from Meta — see the note above."
+                  : "Nothing in this filter right now."}
             </li>
           )}
         </ul>
@@ -282,16 +424,25 @@ export default function InboxClient({
                 </div>
                 <p className="cap truncate">
                   {open.channelAddress} · {STATUS_LABEL[open.status]}
-                  {open.assignedToName ? ` · ${open.assignedToName}` : " · Unassigned"}
+                  {!live &&
+                    (open.assignedToName ? ` · ${open.assignedToName}` : " · Unassigned")}
                 </p>
               </div>
-              <Link className="btn" href={`/customers?open=${open.customerId}`}>
-                Customer
-              </Link>
+              {open.customerId && (
+                <Link className="btn" href={`/customers?open=${open.customerId}`}>
+                  Customer
+                </Link>
+              )}
             </header>
 
             <div className="thread-body">
               <ol className="bubbles">
+                {live && liveThread.loading && thread.length === 0 && (
+                  <li className="cap">Loading from Meta…</li>
+                )}
+                {live && liveThread.problem && (
+                  <li className="cap is-urgent">{liveThread.problem}</li>
+                )}
                 {thread.map((m) => (
                   <li
                     key={m.id}
@@ -316,6 +467,16 @@ export default function InboxClient({
               {/* Context from the SOURCE systems, never owned here. */}
               <aside className="thread-context" aria-label="Customer context">
                 <h3 className="eyebrow">Context</h3>
+
+                {!customer && live && (
+                  <div className="ctx-card">
+                    <p className="cap">
+                      Not linked to a Monza customer yet. Instagram and Facebook
+                      do not share phone numbers, so this person is matched once
+                      they give one.
+                    </p>
+                  </div>
+                )}
 
                 {customer && (
                   <div className="ctx-card">
@@ -375,27 +536,27 @@ export default function InboxClient({
             </div>
 
             {/* The dock and the composer are ONE footer. On a phone that footer
-                is sticky, so a draft is always within thumb reach — and the
-                page cannot scroll it away. */}
+                is sticky, so a draft is always within thumb reach. */}
             <div className="thread-foot">
-              <DraftDock
-                conversationId={open.id}
-                anchorMessageId={anchorMessageId}
-                onUse={(text) => {
-                  setComposerText(text);
-                  composerRef.current?.focus();
-                }}
-              />
+              {/* Suggested drafts read the example threads only; on a live
+                  thread they would draft from the wrong conversation. */}
+              {!live && (
+                <DraftDock
+                  conversationId={open.id}
+                  anchorMessageId={anchorMessageId}
+                  onUse={(text) => {
+                    setComposerText(text);
+                    composerRef.current?.focus();
+                  }}
+                />
+              )}
 
-              {/* Honest composer: nothing sends until a channel is connected.
-                  It exists so an accepted draft has somewhere to LAND and be
-                  edited — the slots in it have to be filled in by a person. */}
               <footer className="thread-compose">
                 <textarea
                   ref={composerRef}
                   className="composer"
                   rows={2}
-                  placeholder="Write a reply, or use a suggested draft…"
+                  placeholder={live ? "Write a reply…" : "Write a reply, or use a suggested draft…"}
                   value={composerText}
                   onChange={(e) => setComposerText(e.target.value)}
                   aria-label="Your reply"
@@ -410,6 +571,17 @@ export default function InboxClient({
                     >
                       Open in WhatsApp
                     </a>
+                  ) : live ? (
+                    <button
+                      type="button"
+                      className="btn primary"
+                      disabled={
+                        sending || composerText.trim() === "" || !liveThread.windowOpen
+                      }
+                      onClick={() => void sendReply()}
+                    >
+                      {sending ? "Sending…" : "Send"}
+                    </button>
                   ) : (
                     <span className="btn" aria-disabled="true">
                       {CHANNEL_LABEL[open.channel]} replies are not connected yet
@@ -425,13 +597,17 @@ export default function InboxClient({
                   >
                     Copy
                   </button>
-                  <Link className="btn quiet" href="/integrations">
-                    Connect a channel
-                  </Link>
+                  {!live && (
+                    <Link className="btn quiet" href="/integrations">
+                      Connect a channel
+                    </Link>
+                  )}
                 </div>
-                <p className="cap">
-                  Nothing is sent from Monza AI — opening WhatsApp fills this in
-                  and you tap send.
+                <p className="cap" role="status">
+                  {live && open.channel !== "whatsapp"
+                    ? (sendNote ??
+                      (liveThread.loading ? "Checking the conversation…" : liveThread.windowText))
+                    : "Nothing is sent from Monza AI — opening WhatsApp fills this in and you tap send."}
                 </p>
               </footer>
             </div>
