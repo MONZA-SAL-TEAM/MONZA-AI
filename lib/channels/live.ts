@@ -38,19 +38,28 @@ import {
 } from "@/lib/channels/live-map";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
-const TIMEOUT_MS = 8_000;
+/**
+ * How long one Graph call may take. Instagram's conversation listing is slow —
+ * on 2026-09-10 VOYAH's Facebook list arrived well inside 8s while its
+ * Instagram list did not — so the list gets longer than a single thread.
+ */
+const TIMEOUT_MS = 12_000;
+const LIST_TIMEOUT_MS = 20_000;
 /** Conversations listed per account. */
 const LIST_LIMIT = 25;
 /** Messages shown per thread. Instagram only returns details for the latest 20. */
 const THREAD_LIMIT = 20;
 const MESSAGE_FIELDS = "id,created_time,from,message";
 
-type GraphResult = { ok: true; json: unknown } | { ok: false; problem: string };
+type GraphResult =
+  | { ok: true; json: unknown }
+  | { ok: false; problem: string; timedOut: boolean };
 
 async function graphGet(
   path: string,
   params: Record<string, string>,
-  token: string
+  token: string,
+  timeoutMs: number = TIMEOUT_MS
 ): Promise<GraphResult> {
   const url = new URL(`${GRAPH}/${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
@@ -58,15 +67,25 @@ async function graphGet(
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const json: unknown = await res.json().catch(() => null);
     const errored =
       !res.ok ||
       (json !== null && typeof json === "object" && "error" in (json as object));
-    return errored ? { ok: false, problem: graphProblem(json, res.status) } : { ok: true, json };
-  } catch {
-    return { ok: false, problem: "Could not reach Meta just now." };
+    return errored
+      ? { ok: false, problem: graphProblem(json, res.status), timedOut: false }
+      : { ok: true, json };
+  } catch (e) {
+    // "Took too long" and "could not connect" need different fixes, so they
+    // must not read the same on screen.
+    const timedOut =
+      e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
+    return {
+      ok: false,
+      problem: timedOut ? "Meta took too long to answer." : "Could not reach Meta just now.",
+      timedOut,
+    };
   }
 }
 
@@ -173,20 +192,43 @@ async function readAccount(
     const ctx = await accountContext(account, all);
     if (!ctx.ok) return failed(ctx.state, ctx.problem);
 
-    const r = await graphGet(
-      `${ctx.pageId}/conversations`,
+    const platform = account.channel === "instagram" ? "instagram" : "messenger";
+    const path = `${ctx.pageId}/conversations`;
+
+    let r = await graphGet(
+      path,
       {
-        platform: account.channel === "instagram" ? "instagram" : "messenger",
+        platform,
         fields: `id,updated_time,participants,messages.limit(1){${MESSAGE_FIELDS}}`,
         limit: String(LIST_LIMIT),
       },
-      ctx.token
+      ctx.token,
+      LIST_TIMEOUT_MS
     );
+
+    // Too slow with a preview of each last message? Ask again without the
+    // previews: the people and times come back, and each thread still loads
+    // in full when opened. Showing who wrote beats showing nothing.
+    let previews = true;
+    if (!r.ok && r.timedOut) {
+      previews = false;
+      r = await graphGet(
+        path,
+        { platform, fields: "id,updated_time,participants", limit: String(LIST_LIMIT) },
+        ctx.token
+      );
+    }
     if (!r.ok) return failed("error", r.problem);
 
     const conversations = mapConversations(r.json, account, ctx.selfIds);
     return {
-      status: { id: account.id, label, state: "ok", problem: null, conversations: conversations.length },
+      status: {
+        id: account.id,
+        label,
+        state: "ok",
+        problem: previews ? null : "Meta was slow, so message previews are hidden. Open a conversation to read it.",
+        conversations: conversations.length,
+      },
       conversations,
     };
   } catch {

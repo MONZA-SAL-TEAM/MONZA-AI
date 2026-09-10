@@ -9,6 +9,7 @@ import { MEDIA_CAPABILITIES } from "@/lib/permissions/media";
 import { readThreadForStaff } from "@/lib/channels/live";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 const NO_STORE = { "cache-control": "no-store" };
 

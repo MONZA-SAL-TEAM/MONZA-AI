@@ -27,6 +27,7 @@ import { decodeThreadId } from "@/lib/channels/live-map";
 import { sendOnThread } from "@/lib/channels/live";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 const MAX_LENGTH = 1000;
 

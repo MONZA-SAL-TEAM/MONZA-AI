@@ -27,6 +27,9 @@ export const metadata: Metadata = {
  * to reply to an invented customer, nor to mistake a real one for an example.
  */
 export const dynamic = "force-dynamic";
+// Every account is read from Meta while the page renders, and Instagram's
+// listing can take a while (see LIST_TIMEOUT_MS in lib/channels/live.ts).
+export const maxDuration = 60;
 
 export default async function InboxPage() {
   const user = await requireStaffForPage("/inbox");
