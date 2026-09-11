@@ -303,6 +303,76 @@ export function isTooMuchData(payload: unknown): boolean {
   return message !== null && /reduce the amount of data/i.test(message);
 }
 
+/* ── Diagnosis (staff only) ──────────────────────────────────────────────── */
+
+/**
+ * Meta's own error fields — code, subcode, type, message — for the staff-only
+ * diagnosis. graphProblem's plain sentence folds several refusals into one
+ * ("not yet given permission" covers codes 3, 10 and 200-299), and they need
+ * different fixes. Meta does not echo keys in errors; the message is capped.
+ */
+export function metaErrorDetail(payload: unknown): string | null {
+  const e = obj(obj(payload)?.error);
+  if (!e) return null;
+  const parts: string[] = [];
+  if (typeof e.code === "number") parts.push(`code ${e.code}`);
+  if (typeof e.error_subcode === "number") parts.push(`subcode ${e.error_subcode}`);
+  const type = str(e.type);
+  if (type) parts.push(type);
+  const message = str(e.message);
+  if (message) parts.push(`"${message.slice(0, 200)}"`);
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+/** A permission the diagnosis checks, and the Page or Instagram id it must reach. */
+export interface ScopeWant {
+  scope: string;
+  id: string;
+}
+
+/**
+ * Meta's debug_token answer, in brief: is the key valid, what kind is it, which
+ * app issued it — and the part that settles "why is Instagram refused": is each
+ * permission granted, and does it reach THIS Page or Instagram account? A
+ * system-user key lists the accounts each permission covers (granular_scopes);
+ * a permission without such a list covers every account. Never includes the key.
+ */
+export function summariseDebugToken(payload: unknown, wants: readonly ScopeWant[]): string {
+  const d = obj(obj(payload)?.data);
+  if (!d) return "Meta returned no details for this key.";
+
+  const expiresAt = typeof d.expires_at === "number" ? d.expires_at : 0;
+  const head = [
+    d.is_valid === true ? "valid" : "NOT valid",
+    str(d.type) ?? "unknown kind",
+    `app ${str(d.app_id) ?? "unknown"}`,
+    expiresAt > 0 ? `expires ${new Date(expiresAt * 1000).toISOString().slice(0, 10)}` : "never expires",
+  ].join(", ");
+
+  const scopes = Array.isArray(d.scopes)
+    ? d.scopes.filter((s): s is string => typeof s === "string")
+    : [];
+  const targets = new Map<string, string[]>();
+  for (const raw of Array.isArray(d.granular_scopes) ? d.granular_scopes : []) {
+    const g = obj(raw);
+    const scope = str(g?.scope);
+    if (scope && Array.isArray(g?.target_ids)) {
+      targets.set(scope, g.target_ids.filter((x): x is string => typeof x === "string"));
+    }
+  }
+
+  const checks = wants.map(({ scope, id }) => {
+    if (!scopes.includes(scope)) return `${scope}: NOT granted`;
+    const ids = targets.get(scope);
+    if (!ids) return `${scope}: granted (every account)`;
+    return ids.includes(id)
+      ? `${scope}: granted for ${id}`
+      : `${scope}: granted, but NOT for ${id} (covers ${ids.join(", ") || "nothing"})`;
+  });
+
+  return [head, ...checks, `all permissions: ${scopes.join(", ") || "none"}`].join(" · ");
+}
+
 /* ── Paging ("Load more") ────────────────────────────────────────────────── */
 
 /**

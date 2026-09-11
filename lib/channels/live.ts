@@ -22,7 +22,8 @@
  * budget — Facebook is on screen meanwhile.
  */
 
-import { channelToken } from "@/lib/env";
+import { channelToken, metaAppSecret, metaAppSecretsMap } from "@/lib/env";
+import { parseMetaAppSecrets } from "@/lib/channels/meta-signature";
 import { listAccounts, type StoredAccount } from "@/lib/channels/store";
 import { instagramAdapter } from "@/lib/channels/instagram";
 import { messengerAdapter } from "@/lib/channels/messenger";
@@ -38,14 +39,17 @@ import {
   lastCustomerAt,
   mapConversations,
   mapThread,
+  metaErrorDetail,
   nextCursor,
   pageIdFor,
   peerOf,
   readPageInfo,
   sortNewestFirst,
+  summariseDebugToken,
   type AccountState,
   type AccountStatus,
   type Peer,
+  type ScopeWant,
 } from "@/lib/channels/live-map";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
@@ -85,7 +89,8 @@ const THREAD_LIMITS = [20, 8] as const;
 
 type GraphResult =
   | { ok: true; json: unknown }
-  | { ok: false; problem: string; retryLighter: boolean };
+  /** meta: Meta's own code/subcode/message, for the staff-only diagnosis. */
+  | { ok: false; problem: string; retryLighter: boolean; meta?: string | null };
 
 async function graphGet(
   path: string,
@@ -106,7 +111,12 @@ async function graphGet(
       !res.ok ||
       (json !== null && typeof json === "object" && "error" in (json as object));
     return errored
-      ? { ok: false, problem: graphProblem(json, res.status), retryLighter: isTooMuchData(json) }
+      ? {
+          ok: false,
+          problem: graphProblem(json, res.status),
+          retryLighter: isTooMuchData(json),
+          meta: metaErrorDetail(json),
+        }
       : { ok: true, json };
   } catch (e) {
     // "Took too long" and "could not connect" need different fixes, so they
@@ -119,6 +129,7 @@ async function graphGet(
         ? `Meta took too long to answer (over ${Math.round(timeoutMs / 1000)} s).`
         : "Could not reach Meta just now.",
       retryLighter: timedOut,
+      meta: null,
     };
   }
 }
@@ -499,8 +510,46 @@ export async function diagnoseAccount(accountId: unknown): Promise<Diagnosis> {
   ) => {
     const t = Date.now();
     const r = await graphGet(path, params, ctx.token, timeoutMs);
-    steps.push({ step, ms: Date.now() - t, ok: r.ok, detail: r.ok ? briefly(r.json) : r.problem });
+    const detail = r.ok ? briefly(r.json) : r.meta ? `${r.problem} [Meta: ${r.meta}]` : r.problem;
+    steps.push({ step, ms: Date.now() - t, ok: r.ok, detail });
   };
+
+  // What the brand's access key actually carries, and for which accounts. Meta
+  // answers this only to the app that issued the key, so it is asked with that
+  // app's own id and secret; neither the key nor the secret is ever returned.
+  const envToken = channelToken(account.tokenEnv);
+  const secret = account.appId
+    ? parseMetaAppSecrets(metaAppSecretsMap(), metaAppSecret()).find((s) => s.appId === account.appId)
+    : undefined;
+  const wants: ScopeWant[] = [
+    ...(account.channel === "instagram"
+      ? [
+          { scope: "instagram_manage_messages", id: account.externalId },
+          { scope: "instagram_basic", id: account.externalId },
+        ]
+      : []),
+    { scope: "pages_messaging", id: ctx.pageId },
+    { scope: "pages_manage_metadata", id: ctx.pageId },
+    { scope: "pages_read_engagement", id: ctx.pageId },
+    { scope: "pages_show_list", id: ctx.pageId },
+  ];
+  const tk = Date.now();
+  if (!envToken || !secret || !account.appId) {
+    steps.push({
+      step: "Access key permissions",
+      ms: 0,
+      ok: false,
+      detail: "Skipped: this account's app id or app secret is not configured.",
+    });
+  } else {
+    const r = await graphGet("debug_token", { input_token: envToken }, `${account.appId}|${secret.secret}`, 10_000);
+    steps.push({
+      step: "Access key permissions",
+      ms: Date.now() - tk,
+      ok: r.ok,
+      detail: r.ok ? summariseDebugToken(r.json, wants) : r.meta ? `${r.problem} [Meta: ${r.meta}]` : r.problem,
+    });
+  }
 
   await timed(
     "Facebook conversations: 1 row, id only",
