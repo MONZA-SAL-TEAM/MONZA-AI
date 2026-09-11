@@ -8,7 +8,87 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { metaErrorDetail, summariseDebugToken, type ScopeWant } from "@/lib/channels/live-map";
+import {
+  metaErrorDetail,
+  summariseAppSubscriptions,
+  summariseDebugToken,
+  summariseSubscribedApps,
+  type ScopeWant,
+} from "@/lib/channels/live-map";
+
+describe("metaErrorDetail keeps Meta's plain-language explanation", () => {
+  test("the Instagram listing timeout says why", () => {
+    const d = metaErrorDetail({
+      error: {
+        code: -2,
+        error_subcode: 2534084,
+        message: "Timeout",
+        error_user_msg: "Your query has timed out since you have too many conversations with users who do not have a role on app.",
+      },
+    });
+    assert.match(d ?? "", /code -2, subcode 2534084/);
+    assert.match(d ?? "", /do not have a role on app/);
+  });
+
+  test("does not repeat a user message identical to the message", () => {
+    const d = metaErrorDetail({ error: { code: 1, message: "Same", error_user_msg: "Same" } }) ?? "";
+    assert.equal(d.match(/Same/g)?.length, 1);
+  });
+});
+
+describe("summariseAppSubscriptions", () => {
+  const OURS = "https://monza-ai.vercel.app/api/channels/meta";
+
+  test("reports each object: active, callback, fields", () => {
+    const s = summariseAppSubscriptions(
+      {
+        data: [
+          { object: "page", callback_url: OURS, active: true, fields: [{ name: "messages", version: "v26.0" }] },
+          {
+            object: "instagram",
+            callback_url: OURS,
+            active: true,
+            fields: [{ name: "messages" }, { name: "messaging_postbacks" }],
+          },
+        ],
+      },
+      ["page", "instagram"]
+    );
+    assert.equal(
+      s,
+      `page: active, ${OURS}, fields messages · instagram: active, ${OURS}, fields messages, messaging_postbacks`
+    );
+  });
+
+  test("an object Meta has no record of says NOT subscribed", () => {
+    const s = summariseAppSubscriptions({ data: [{ object: "page", active: true, fields: [] }] }, ["page", "instagram"]);
+    assert.match(s, /instagram: NOT subscribed/);
+    assert.match(s, /page: active, no callback, fields none/);
+  });
+
+  test("no list at all is said plainly", () => {
+    assert.equal(summariseAppSubscriptions({ error: { code: 190 } }, ["page"]), "Meta returned no subscription list.");
+  });
+});
+
+describe("summariseSubscribedApps", () => {
+  test("names every app the Page sends events to, and whether ours is one", () => {
+    const s = summariseSubscribedApps(
+      { data: [{ id: "912301501380919", name: "Monza SAL CHAT BOT", subscribed_fields: ["messages", "messaging_postbacks"] }] },
+      "912301501380919"
+    );
+    assert.equal(s, "our app is subscribed · Monza SAL CHAT BOT (912301501380919): messages, messaging_postbacks");
+  });
+
+  test("another app only means ours is NOT subscribed", () => {
+    const s = summariseSubscribedApps({ data: [{ id: "1", name: "Other", subscribed_fields: [] }] }, "912301501380919");
+    assert.match(s, /^our app is NOT subscribed · Other \(1\): no fields$/);
+  });
+
+  test("an empty list says no app is subscribed", () => {
+    assert.equal(summariseSubscribedApps({ data: [] }, "912301501380919"), "No app is subscribed to this Page.");
+  });
+});
 
 const IG = "17841469421956644";
 const PAGE = "419538711242175";

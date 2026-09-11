@@ -321,7 +321,53 @@ export function metaErrorDetail(payload: unknown): string | null {
   if (type) parts.push(type);
   const message = str(e.message);
   if (message) parts.push(`"${message.slice(0, 200)}"`);
+  // Meta's plain-language explanation. For the Instagram listing timeout
+  // (-2 / 2534084) this is the only field that says WHY it timed out.
+  const userMessage = str(e.error_user_msg);
+  if (userMessage && userMessage !== message) parts.push(`"${userMessage.slice(0, 300)}"`);
   return parts.length > 0 ? parts.join(", ") : null;
+}
+
+/**
+ * GET /{app-id}/subscriptions, asked with the app's own id and secret: Meta's
+ * record of this app's webhooks — per object (page, instagram) whether it is
+ * active, where it delivers, and which fields are on. The dashboard's product
+ * switcher is unreliable; this is the same fact without clicking. The callback
+ * is our own public URL; nothing secret is in the answer.
+ */
+export function summariseAppSubscriptions(payload: unknown, objects: readonly string[]): string {
+  if (!Array.isArray(obj(payload)?.data)) return "Meta returned no subscription list.";
+  const rows = list(payload).map(obj).filter((r): r is Record<string, unknown> => r !== null);
+  return objects
+    .map((name) => {
+      const row = rows.find((r) => str(r.object) === name);
+      if (!row) return `${name}: NOT subscribed`;
+      const fields = (Array.isArray(row.fields) ? row.fields : [])
+        .map((f) => str(obj(f)?.name) ?? str(f))
+        .filter((f): f is string => f !== null);
+      const url = (str(row.callback_url) ?? "no callback").replace(/[?#].*/, "");
+      return `${name}: ${row.active === true ? "active" : "NOT active"}, ${url}, fields ${fields.join(", ") || "none"}`;
+    })
+    .join(" · ");
+}
+
+/**
+ * GET /{page-id}/subscribed_apps, asked with the Page's token: the apps this
+ * Page actually sends its events to, and for which fields. An app missing here
+ * receives nothing from the Page, whatever the dashboard shows.
+ */
+export function summariseSubscribedApps(payload: unknown, appId: string | null): string {
+  if (!Array.isArray(obj(payload)?.data)) return "Meta returned no app list for this Page.";
+  const rows = list(payload).map(obj).filter((r): r is Record<string, unknown> => r !== null);
+  if (rows.length === 0) return "No app is subscribed to this Page.";
+  const apps = rows.map((r) => {
+    const fields = (Array.isArray(r.subscribed_fields) ? r.subscribed_fields : []).filter(
+      (f): f is string => typeof f === "string"
+    );
+    return `${str(r.name) ?? "unnamed"} (${str(r.id) ?? "?"}): ${fields.join(", ") || "no fields"}`;
+  });
+  const ours = appId !== null && rows.some((r) => str(r.id) === appId);
+  return [`our app is ${ours ? "" : "NOT "}subscribed`, ...apps].join(" · ");
 }
 
 /** A permission the diagnosis checks, and the Page or Instagram id it must reach. */

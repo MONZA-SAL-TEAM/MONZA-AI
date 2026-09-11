@@ -45,7 +45,9 @@ import {
   peerOf,
   readPageInfo,
   sortNewestFirst,
+  summariseAppSubscriptions,
   summariseDebugToken,
+  summariseSubscribedApps,
   type AccountState,
   type AccountStatus,
   type Peer,
@@ -550,6 +552,32 @@ export async function diagnoseAccount(accountId: unknown): Promise<Diagnosis> {
       detail: r.ok ? summariseDebugToken(r.json, wants) : r.meta ? `${r.problem} [Meta: ${r.meta}]` : r.problem,
     });
   }
+
+  // Meta's own record of where this app's webhooks go and which fields are on,
+  // and which apps this Page really sends its events to — the dashboard's
+  // product switcher is unreliable, so these are read from the API instead.
+  const readWith = async (
+    step: string,
+    path: string,
+    token: string,
+    summarise: (json: unknown) => string
+  ) => {
+    const t = Date.now();
+    const r = await graphGet(path, {}, token, 10_000);
+    const detail = r.ok ? summarise(r.json) : r.meta ? `${r.problem} [Meta: ${r.meta}]` : r.problem;
+    steps.push({ step, ms: Date.now() - t, ok: r.ok, detail });
+  };
+  if (secret && account.appId) {
+    await readWith(
+      "Meta's record of this app's webhooks",
+      `${account.appId}/subscriptions`,
+      `${account.appId}|${secret.secret}`,
+      (json) => summariseAppSubscriptions(json, ["page", "instagram"])
+    );
+  }
+  await readWith("Apps this Page sends events to", `${ctx.pageId}/subscribed_apps`, ctx.token, (json) =>
+    summariseSubscribedApps(json, account.appId)
+  );
 
   await timed(
     "Facebook conversations: 1 row, id only",
