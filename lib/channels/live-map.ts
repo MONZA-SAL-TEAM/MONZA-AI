@@ -487,3 +487,73 @@ export function inboundIndexRow(input: {
     sent_at: input.at,
   };
 }
+
+/* ── Diagnosis: what Meta has actually delivered ─────────────────────────── */
+
+/** One row of `channel_deliveries`, as the diagnosis reads it. The payload was
+ *  redacted on arrival (redactDelivery), so this carries shapes and counts —
+ *  never a customer's words. */
+export interface DeliveryRecord {
+  /** The webhook OBJECT Meta named: "page" for Messenger, "instagram" for
+   *  Instagram Direct. They are separate subscriptions and fail separately. */
+  object: string | null;
+  /** `entry[].id` — the account each entry arrived at. */
+  ids: string[];
+  receivedAt: string;
+  eventCount: number;
+  storedCount: number;
+}
+
+/**
+ * The cheapest and most decisive question in the whole diagnosis, and the one
+ * that needs no token, no app secret and no call to Meta: has Meta EVER posted
+ * a webhook naming this account?
+ *
+ * It splits the two failures that look identical from the outside and have
+ * nothing in common. Nothing delivered means the fault is upstream — the
+ * subscription, the permission, the account's own settings — and no amount of
+ * reading our own code will find it. Delivered but not stored means the fault
+ * is ours and the payload shape is recorded above.
+ *
+ * `expectedObject` matters because one endpoint serves both: an app can be
+ * subscribed to `page` and receive Messenger DMs for years while `instagram`
+ * was never subscribed at all, and the symptom is only ever silence.
+ */
+export function summariseDeliveries(
+  rows: readonly DeliveryRecord[],
+  externalId: string,
+  expectedObject: string
+): string {
+  if (rows.length === 0) {
+    return "Meta has never posted a webhook to this endpoint — not for this account, not for any.";
+  }
+
+  const mine = rows.filter((r) => r.ids.includes(externalId));
+  const sameObject = rows.filter((r) => r.object === expectedObject);
+  const objects = [...new Set(rows.map((r) => r.object ?? "unnamed"))].sort();
+  const total = `${rows.length} delivery(ies) recorded in total, object(s): ${objects.join(", ")}`;
+
+  if (mine.length === 0) {
+    const other =
+      sameObject.length === 0
+        ? `Meta has never sent a "${expectedObject}" delivery at all, so that subscription is the place to look`
+        : `"${expectedObject}" deliveries do arrive, but none has named this account`;
+    return `NOTHING for ${externalId}. ${other}. ${total}.`;
+  }
+
+  const last = mine.reduce((a, b) => (a.receivedAt > b.receivedAt ? a : b));
+  const events = mine.reduce((n, r) => n + r.eventCount, 0);
+  const stored = mine.reduce((n, r) => n + r.storedCount, 0);
+  const wrongObject = mine.some((r) => r.object !== expectedObject)
+    ? ` · WARNING: arrived under object ${[...new Set(mine.map((r) => r.object ?? "unnamed"))].join(", ")}, expected ${expectedObject}`
+    : "";
+  const dropped =
+    events > 0 && stored === 0
+      ? " · every event was DROPPED: delivered and understood, but nothing was kept — an echo, a receipt, or an account this app may not speak for"
+      : "";
+
+  return (
+    `${mine.length} delivery(ies) named ${externalId}, most recently ${last.receivedAt}` +
+    ` · ${events} event(s), ${stored} stored${dropped}${wrongObject} · ${total}.`
+  );
+}

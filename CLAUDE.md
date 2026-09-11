@@ -134,6 +134,43 @@ rule has a scar, the scar is named — a rule without its reason gets argued awa
     badge. That number *has* the badge. Confirm the trade before pulling the
     lever.
 
+### Instagram DMs specifically — scar, 2026-09-11
+
+31. **`page` and `instagram` are TWO separate webhook subscriptions and they
+    fail separately.** Messenger DMs arrive under `object: "page"`; Instagram
+    Direct arrives under `object: "instagram"`. An app subscribed to `page` with
+    the `messages` field receives Facebook DMs forever while Instagram stays
+    completely silent, and the only symptom is an empty inbox. Check both with
+    `GET /{app-id}/subscriptions` — the diagnosis already reads it.
+32. **Ask our own `channel_deliveries` table BEFORE asking Meta anything.** It
+    costs no token, no app secret and no call, and it splits the only two
+    diagnoses that matter: "Meta never sent it" (fault is upstream — the
+    subscription, the permission, the account's own settings) and "it arrived
+    and we lost it" (fault is ours, and the payload shape is recorded). This is
+    now the FIRST step of `diagnoseAccount`. It would have ended a day of
+    screenshot-driven debugging in one query.
+33. **The evidence as of 2026-09-11 13:01 UTC.** Exactly ONE delivery has ever
+    reached production: `object: "page"`, entry `408893845643871` (the VOYAH
+    Facebook Page), 1 event, 1 stored, routed to brand `voyah`, conversation
+    `584e3f9c…` with `unread_count` 1. That single row proves the whole spine —
+    signature check, app→account matching, adapter, idempotent store, brand
+    routing, Inbox — is correct in production for app `912301501380919`. So any
+    Instagram theory that also implicates the endpoint, the app secret, the
+    callback URL, the token env or the storage layer is **already disproven**.
+    The fault is Instagram-side and nothing else.
+34. **The Instagram conversations listing fails with `code -2 / subcode
+    2534084`, "too many conversations with users who do not have a role on
+    app".** That sentence is Meta describing **Development mode**: it is
+    filtering the list down to people with an app role and timing out doing it.
+    It is evidence, not a timeout to retry. An app in Development mode also
+    sends no messaging webhooks for anyone without a role — which is exactly the
+    observed silence. Check App Review → app mode before touching anything else.
+35. **The Instagram account's own "Allow access to messages" toggle is a real
+    gate and is invisible to every API.** Instagram app → Settings → Messages
+    and story replies → Connected tools. Off means no webhook, whatever the
+    subscription says. It has no relation to Accounts Center, and Accounts
+    Center linkage of anybody's PERSONAL accounts has no bearing on any of this.
+
 ### Operational notes
 
 - Business Manager demands SMS 2FA to Samer's phone on portfolio switch, so asset
@@ -152,9 +189,9 @@ Keep this current. It is what stops the same Meta problem being rediscovered.
 
 | Brand | Portfolio | Instagram | Facebook | IG followers | FB followers | Messaging | Status |
 |---|---|---|---|---|---|---|---|
-| VOYAH | VoyahLebanon `1235692167762623` | ✅ read daily | ✅ read daily | 3,582 | 703 | not subscribed | 🟡 reading proven; messaging untested |
-| MHERO | M Hero Lebanon `465327473223381` | ✅ read daily | ✅ read daily | 3,191 | 238 | not subscribed | 🟡 reading proven; messaging untested |
-| MONZA SAL | MONZA SAL | ✅ read daily | ✅ read daily | 1,369 | 32 | not subscribed | 🟡 reading proven; messaging untested |
+| VOYAH | VoyahLebanon `1235692167762623` | ✅ read daily | ✅ read daily | 3,582 | 703 | FB **proven end to end**; IG has never delivered | 🟢 Messenger connected; 🔴 Instagram silent |
+| MHERO | M Hero Lebanon `465327473223381` | ✅ read daily | ✅ read daily | 3,191 | 238 | neither has ever delivered | 🟡 rows exist; nothing received |
+| MONZA SAL | MONZA SAL `1362868064516225` | ✅ read daily | ✅ read daily | 1,369 | 32 | neither has ever delivered | 🟡 rows exist; nothing received |
 | WhatsApp | VoyahLebanon (owns the WABAs) | WABA `1502691630809243` | phone id `984244264767607` | — | — | — | 🔴 Coexistence gate, rules 27–30 |
 
 **Corrected 2026-09-09.** The previous version of this table said MHERO's
@@ -179,10 +216,13 @@ machine** — neither `MONZA-CRM` checkout named in the project memory still
 exists on the Desktop. Find it before assuming a token env name; it is the one
 place the working credentials are already wired.
 
-`channel_accounts` (the TABLE, in the AI project — `CHANNEL_ACCOUNTS` in
-`lib/channels/types.ts` no longer exists) is **empty** and stays empty until a
-row above is verified end to end. Failing closed beats attaching a customer's
-message to the wrong brand.
+`channel_accounts` (the TABLE, in the AI project `fpsgsgldepgcowyivoow` —
+`CHANNEL_ACCOUNTS` in `lib/channels/types.ts` no longer exists) **now holds six
+rows**, added 2026-09-10: `fb-voyah` / `ig-voyah` (app `912301501380919`),
+`fb-mhero` / `ig-mhero` (app `1793221688521200`), `fb-monza` / `ig-monza` (app
+`1603541974633258`). A row is a claim that the account is configured; it is not
+a claim that anything has ever arrived. `connected_at` is still null on all six,
+and that is the honest field to read.
 
 ---
 
@@ -225,11 +265,11 @@ address a stranger or send one brand's reply from another's account.
 
 **Not yet done — do not assume these hold:**
 
-- **No real DM has been through production.** The endpoint is reachable and
-  refuses correctly; that is not the same thing. See the definition of done
-  below.
-- **No account is connected.** `channel_accounts` is empty, so the inbox shows
-  the demo dataset — real or demo, never both.
+- **Instagram has never delivered a single webhook.** Messenger has — see the
+  scar below. Every Instagram account in the table is configured and silent.
+- **MHERO and MONZA SAL have received nothing on either channel.** Only the
+  VOYAH Facebook Page has ever produced a delivery, so the other five rows are
+  "configured", not "working".
 - **WhatsApp has no adapter.** Instagram and Messenger both do (`lib/channels/
   messenger.ts`, added 2026-09-09, envelope isolation tested both ways).
 - **No lead has ever been matched to a CRM customer**, because no conversation

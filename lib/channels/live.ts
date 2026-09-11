@@ -24,7 +24,7 @@
 
 import { channelToken, metaAppSecret, metaAppSecretsMap } from "@/lib/env";
 import { parseMetaAppSecrets } from "@/lib/channels/meta-signature";
-import { listAccounts, type StoredAccount } from "@/lib/channels/store";
+import { listAccounts, readDeliveries, type StoredAccount } from "@/lib/channels/store";
 import { instagramAdapter } from "@/lib/channels/instagram";
 import { messengerAdapter } from "@/lib/channels/messenger";
 import { replyWindow, windowExplanation, type ReplyWindow } from "@/lib/channels/types";
@@ -46,6 +46,7 @@ import {
   readPageInfo,
   sortNewestFirst,
   summariseAppSubscriptions,
+  summariseDeliveries,
   summariseDebugToken,
   summariseSubscribedApps,
   type AccountState,
@@ -494,6 +495,23 @@ export async function diagnoseAccount(accountId: unknown): Promise<Diagnosis> {
   }
 
   const steps: DiagnoseStep[] = [];
+
+  // FIRST, because it costs nothing and settles the direction of the fault:
+  // has Meta ever posted a webhook naming this account? Our own record answers
+  // it without a token, an app secret or a call to Meta — and "nothing ever
+  // arrived" and "it arrived and we lost it" have no fix in common.
+  const expectedObject = account.channel === "instagram" ? "instagram" : "page";
+  const td = Date.now();
+  const deliveries = await readDeliveries();
+  steps.push({
+    step: "Webhooks Meta has actually delivered",
+    ms: Date.now() - td,
+    ok: deliveries.ok && deliveries.rows.some((r) => r.ids.includes(account.externalId)),
+    detail: deliveries.ok
+      ? summariseDeliveries(deliveries.rows, account.externalId, expectedObject)
+      : `The delivery record could not be read, so this is unknown rather than empty: ${deliveries.error}`,
+  });
+
   const t0 = Date.now();
   const ctx = await accountContext(account, all);
   steps.push({

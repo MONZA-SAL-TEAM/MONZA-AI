@@ -41,7 +41,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { noStoreFetch } from "@/lib/supabase-fetch";
 import { aiServiceRoleKey, aiUrl } from "@/lib/env";
 import type { InboundEvent } from "@/lib/channels/types";
-import { inboundIndexRow, redactDelivery } from "@/lib/channels/live-map";
+import { inboundIndexRow, redactDelivery, type DeliveryRecord } from "@/lib/channels/live-map";
 import { noteInboundLead } from "@/lib/leads/store";
 
 export interface StoredAccount {
@@ -249,4 +249,46 @@ export async function recordDelivery(
   } catch {
     /* diagnostics are not worth failing a delivery over */
   }
+}
+
+/**
+ * The delivery record, newest first, for the staff-only diagnosis. Capped
+ * because this answers "has anything ever arrived", not "show me everything",
+ * and an uncapped read of a table Meta writes to would grow without limit.
+ *
+ * Returns rows or the reason it could not read them — never an empty list
+ * standing in for a failed read, which would report "Meta sent nothing" when
+ * the truth is "we could not look".
+ */
+export async function readDeliveries(
+  limit = 500
+): Promise<{ ok: true; rows: DeliveryRecord[] } | { ok: false; error: string }> {
+  const sb = client();
+  if (!sb) return { ok: false, error: "The database key for this product is not configured." };
+  try {
+    const { data, error } = await sb
+      .from("channel_deliveries")
+      .select("payload, event_count, stored_count, received_at")
+      .order("received_at", { ascending: false })
+      .limit(limit);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, rows: (data ?? []).map(deliveryRecord) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "The delivery record could not be read." };
+  }
+}
+
+/** One stored row, read defensively: the payload is whatever shape arrived. */
+function deliveryRecord(row: Record<string, unknown>): DeliveryRecord {
+  const payload = row.payload && typeof row.payload === "object" ? (row.payload as Record<string, unknown>) : {};
+  const entries = Array.isArray(payload.entries) ? payload.entries : [];
+  return {
+    object: typeof payload.object === "string" ? payload.object : null,
+    ids: entries
+      .map((e) => (e && typeof e === "object" ? (e as Record<string, unknown>).id : null))
+      .filter((id): id is string => typeof id === "string"),
+    receivedAt: typeof row.received_at === "string" ? row.received_at : "",
+    eventCount: typeof row.event_count === "number" ? row.event_count : 0,
+    storedCount: typeof row.stored_count === "number" ? row.stored_count : 0,
+  };
 }

@@ -12,7 +12,9 @@ import {
   metaErrorDetail,
   summariseAppSubscriptions,
   summariseDebugToken,
+  summariseDeliveries,
   summariseSubscribedApps,
+  type DeliveryRecord,
   type ScopeWant,
 } from "@/lib/channels/live-map";
 
@@ -186,5 +188,70 @@ describe("summariseDebugToken", () => {
 
   test("no data is said plainly", () => {
     assert.equal(summariseDebugToken({ error: { code: 190 } }, WANTS), "Meta returned no details for this key.");
+  });
+});
+
+/**
+ * The delivery record is the one check that needs no token: it separates "Meta
+ * never sent it" from "it arrived and we lost it". Messenger delivering while
+ * Instagram stays silent is the exact shape of a `page` subscription that works
+ * and an `instagram` subscription that was never made, and the diagnosis has to
+ * say so rather than report both as "nothing in the inbox".
+ */
+describe("summariseDeliveries", () => {
+  const messengerDelivery: DeliveryRecord = {
+    object: "page",
+    ids: ["408893845643871"],
+    receivedAt: "2026-09-11T13:01:12.168Z",
+    eventCount: 1,
+    storedCount: 1,
+  };
+
+  test("no delivery at all blames the endpoint, not the account", () => {
+    const s = summariseDeliveries([], "17841457996874250", "instagram");
+    assert.match(s, /never posted a webhook to this endpoint/);
+  });
+
+  test("Messenger delivering while Instagram is silent points at the instagram subscription", () => {
+    const s = summariseDeliveries([messengerDelivery], "17841457996874250", "instagram");
+    assert.match(s, /NOTHING for 17841457996874250/);
+    assert.match(s, /never sent a "instagram" delivery at all/);
+    assert.match(s, /1 delivery\(ies\) recorded in total/);
+  });
+
+  test("an account that has received deliveries reports the most recent", () => {
+    const s = summariseDeliveries([messengerDelivery], "408893845643871", "page");
+    assert.match(s, /1 delivery\(ies\) named 408893845643871/);
+    assert.match(s, /2026-09-11T13:01:12\.168Z/);
+    assert.match(s, /1 event\(s\), 1 stored/);
+    assert.doesNotMatch(s, /DROPPED/);
+  });
+
+  test("delivered but nothing kept is called out as dropped, not as silence", () => {
+    const s = summariseDeliveries(
+      [{ ...messengerDelivery, eventCount: 3, storedCount: 0 }],
+      "408893845643871",
+      "page"
+    );
+    assert.match(s, /DROPPED/);
+  });
+
+  test("the right account under the wrong webhook object is a warning", () => {
+    const s = summariseDeliveries(
+      [{ ...messengerDelivery, ids: ["17841457996874250"] }],
+      "17841457996874250",
+      "instagram"
+    );
+    assert.match(s, /WARNING: arrived under object page, expected instagram/);
+  });
+
+  test("deliveries for another account under the same object do not count as this one's", () => {
+    const s = summariseDeliveries(
+      [{ ...messengerDelivery, object: "instagram", ids: ["17841469421956644"] }],
+      "17841457996874250",
+      "instagram"
+    );
+    assert.match(s, /NOTHING for 17841457996874250/);
+    assert.match(s, /do arrive, but none has named this account/);
   });
 });
