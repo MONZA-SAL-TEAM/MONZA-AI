@@ -188,11 +188,11 @@ rule has a scar, the scar is named — a rule without its reason gets argued awa
     (that page does not demand SMS 2FA), or a DM from an account with no app
     role producing a delivery. Neither has been done. Do not record this as the
     cause until one of them has.
-35. **UNVERIFIED against these accounts: Instagram's own "Allow access to
-    messages" setting** (Instagram app → Settings → Messages and story replies
-    → Connected tools). It is documented as a prerequisite and is invisible to
-    every API, so it cannot be ruled out remotely and must be checked by hand on
-    each account. Separately and with confidence: **Accounts Center linkage of
+35. **Instagram's own "Allow access to messages" setting** (Instagram app →
+    Settings → Messages and story replies → Connected tools). Documented as a
+    prerequisite and invisible to every API, so it can only be checked by hand.
+    **@voyahlebanon CONFIRMED ON, 2026-09-12** — eliminated as a cause for VOYAH.
+    @mherolebanon and @monzasal.official are still unchecked. Separately and with confidence: **Accounts Center linkage of
     anybody's PERSONAL Instagram and Facebook has no bearing on whether a
     business account's DM fires a webhook.** That check is noise; do not
     reintroduce it.
@@ -348,12 +348,13 @@ rule has a scar, the scar is named — a rule without its reason gets argued awa
        hypothesis and it matches the `-2 / 2534084` error text.
     3. **The permission is not scoped to `17841457996874250`** on the system-user
        token. `debug_token`'s `granular_scopes` settles it; the diagnosis reads it.
-    4. **The account's "Allow access to messages" toggle** (rule 35), still
-       unreadable by any API.
+    4. ~~The account's "Allow access to messages" toggle.~~ **ELIMINATED for
+       VOYAH 2026-09-12: confirmed ON by hand (rule 35).** Still unchecked on
+       MHERO and MONZA SAL.
     5. **A 403 at signature check**, which writes no row (rule 36). Only the
        Vercel request log distinguishes "never arrived" from "arrived and was
        rejected". That log has never been read for this question and is the one
-       place that separates these five.
+       place that separates these.
 44. **One callback URL serves both objects, and that is safe HERE because the
     adapters gate on the envelope.** `lib/channels/instagram.ts:159` returns an
     empty list unless `object === "instagram"`; `lib/channels/messenger.ts:132`
@@ -471,7 +472,7 @@ Keep this current. It is what stops the same Meta problem being rediscovered.
 
 | Brand | Portfolio | Instagram | Facebook | IG followers | FB followers | Messaging | Status |
 |---|---|---|---|---|---|---|---|
-| VOYAH | VoyahLebanon `1235692167762623` | ✅ read daily | ✅ read daily | 3,582 | 703 | FB: subscribed + 1 delivery stored/routed; IG: **subscribed and live**, no delivery recorded | 🟡 Messenger 5/6 of done; 🟡 Instagram subscribed, never delivered |
+| VOYAH | VoyahLebanon `1235692167762623` | ✅ read daily · msg-access ON | ✅ read daily | 3,582 | 703 | FB: subscribed + 1 delivery stored/routed; IG: **subscribed and live**, msg-access ON, no delivery recorded | 🟡 Messenger 5/6 of done; 🟡 Instagram fully configured, never delivered |
 | MHERO | M Hero Lebanon `465327473223381` | ✅ read daily | ✅ read daily | 3,191 | 238 | no delivery recorded on either | 🟡 rows exist; nothing recorded |
 | MONZA SAL | MONZA SAL `1362868064516225` | ✅ read daily | ✅ read daily | 1,369 | 32 | no delivery recorded on either | 🟡 rows exist; nothing recorded |
 | WhatsApp | VoyahLebanon (owns the WABAs) | WABA `1502691630809243` | phone id `984244264767607` | — | — | — | 🔴 Coexistence gate, rules 27–30 |
