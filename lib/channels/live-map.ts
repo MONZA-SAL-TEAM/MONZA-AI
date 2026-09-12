@@ -370,6 +370,49 @@ export function summariseSubscribedApps(payload: unknown, appId: string | null):
   return [`our app is ${ours ? "" : "NOT "}subscribed`, ...apps].join(" · ");
 }
 
+/**
+ * WHICH Instagram messaging API this access key belongs to — the question that
+ * decides whether this product works at all, answered from the key's own scope
+ * list rather than from the dashboard.
+ *
+ * Meta ships two Instagram messaging APIs with nothing in common but the
+ * webhook envelope:
+ *
+ *   Facebook Login   instagram_basic + instagram_manage_messages, Page token,
+ *                    graph.facebook.com, {page-id}/conversations
+ *   Instagram Login  instagram_business_basic + instagram_business_manage_messages,
+ *                    Instagram user token, graph.instagram.com, its own endpoints
+ *
+ * lib/channels/live.ts reads conversations from {page-id}/conversations and the
+ * Inbox renders from that call, NOT from our stored rows. So an Instagram-Login
+ * key can receive webhooks perfectly and still show an empty Inbox forever.
+ * That failure is silent and looks exactly like "the webhook is broken", which
+ * is why it is named here rather than left to be inferred.
+ */
+export function instagramApiFlavour(payload: unknown): string {
+  const d = obj(obj(payload)?.data);
+  const scopes = Array.isArray(d?.scopes)
+    ? d.scopes.filter((x): x is string => typeof x === "string")
+    : [];
+  const fbLogin = scopes.some((x) => x === "instagram_basic" || x === "instagram_manage_messages");
+  const igLogin = scopes.some((x) => x.startsWith("instagram_business_"));
+
+  if (fbLogin && igLogin) {
+    return "BOTH vocabularies present — check which the app's Instagram product is actually configured for.";
+  }
+  if (fbLogin) {
+    return "Facebook Login — the configuration this product is written for.";
+  }
+  if (igLogin) {
+    return (
+      "Instagram Login — NOT the configuration this product is written for. " +
+      "Webhooks may arrive and store, but the Inbox reads {page-id}/conversations " +
+      "with a Page token, which this key cannot do, so Instagram threads will not appear."
+    );
+  }
+  return "Neither vocabulary is present: this key carries no Instagram messaging permission at all.";
+}
+
 /** A permission the diagnosis checks, and the Page or Instagram id it must reach. */
 export interface ScopeWant {
   scope: string;

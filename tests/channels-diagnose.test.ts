@@ -9,6 +9,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  instagramApiFlavour,
   metaErrorDetail,
   summariseAppSubscriptions,
   summariseDebugToken,
@@ -286,5 +287,44 @@ describe("summariseDeliveries", () => {
       CAP
     );
     assert.match(s, /NOTE: arrived under object page, expected instagram/);
+  });
+});
+
+/**
+ * Meta ships two Instagram messaging APIs. The Inbox renders from
+ * {page-id}/conversations with a Page token, which only the Facebook-Login one
+ * supports — so an Instagram-Login key receives webhooks and shows an empty
+ * screen, with no error anywhere. The diagnosis has to name that out loud.
+ */
+describe("instagramApiFlavour", () => {
+  const withScopes = (scopes: string[]) => ({ data: { is_valid: true, scopes } });
+
+  test("the Facebook-Login vocabulary is the supported one", () => {
+    const s = instagramApiFlavour(withScopes(["instagram_basic", "instagram_manage_messages", "pages_messaging"]));
+    assert.match(s, /^Facebook Login/);
+  });
+
+  test("the Instagram-Login vocabulary warns that the Inbox will stay empty", () => {
+    const s = instagramApiFlavour(
+      withScopes(["instagram_business_basic", "instagram_business_manage_messages"])
+    );
+    assert.match(s, /^Instagram Login/);
+    assert.match(s, /NOT the configuration this product is written for/);
+    assert.match(s, /will not appear/);
+  });
+
+  test("both vocabularies is ambiguous and says so rather than picking one", () => {
+    const s = instagramApiFlavour(withScopes(["instagram_basic", "instagram_business_basic"]));
+    assert.match(s, /BOTH vocabularies present/);
+  });
+
+  test("no Instagram messaging permission at all is distinguished from the wrong one", () => {
+    const s = instagramApiFlavour(withScopes(["pages_messaging", "pages_show_list"]));
+    assert.match(s, /no Instagram messaging permission at all/);
+  });
+
+  test("a malformed answer does not read as Facebook Login", () => {
+    assert.doesNotMatch(instagramApiFlavour({ error: { code: 190 } }), /^Facebook Login/);
+    assert.doesNotMatch(instagramApiFlavour(null), /^Facebook Login/);
   });
 });

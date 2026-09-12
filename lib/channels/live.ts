@@ -45,6 +45,7 @@ import {
   peerOf,
   readPageInfo,
   sortNewestFirst,
+  instagramApiFlavour,
   summariseAppSubscriptions,
   summariseDeliveries,
   summariseDebugToken,
@@ -542,8 +543,13 @@ export async function diagnoseAccount(accountId: unknown): Promise<Diagnosis> {
   const wants: ScopeWant[] = [
     ...(account.channel === "instagram"
       ? [
+          // Both vocabularies, because "NOT granted" on the Facebook-Login
+          // names means nothing until you know the key is not an
+          // Instagram-Login key carrying the other set.
           { scope: "instagram_manage_messages", id: account.externalId },
           { scope: "instagram_basic", id: account.externalId },
+          { scope: "instagram_business_manage_messages", id: account.externalId },
+          { scope: "instagram_business_basic", id: account.externalId },
         ]
       : []),
     ...(registryPageId
@@ -571,6 +577,17 @@ export async function diagnoseAccount(accountId: unknown): Promise<Diagnosis> {
       ok: r.ok,
       detail: r.ok ? summariseDebugToken(r.json, wants) : r.meta ? `${r.problem} [Meta: ${r.meta}]` : r.problem,
     });
+    // Which of Meta's two Instagram messaging APIs this key belongs to. The
+    // Inbox renders from {page-id}/conversations, so the wrong one is a silent
+    // empty screen rather than an error anybody would notice.
+    if (account.channel === "instagram" && r.ok) {
+      steps.push({
+        step: "Which Instagram API this key is for",
+        ms: 0,
+        ok: /^Facebook Login/.test(instagramApiFlavour(r.json)),
+        detail: instagramApiFlavour(r.json),
+      });
+    }
   }
 
   const readWith = async (

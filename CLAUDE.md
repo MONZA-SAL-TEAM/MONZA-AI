@@ -205,6 +205,35 @@ rule has a scar, the scar is named — a rule without its reason gets argued awa
     the row does not distinguish. Enforced in `summariseDeliveries` and asserted
     against in `tests/channels-diagnose.test.ts`.
 
+37. **Meta ships TWO Instagram messaging APIs and this product works with only
+    one of them.** *Instagram API with Facebook Login* — Page token,
+    `graph.facebook.com`, `{page-id}/conversations`, scopes `instagram_basic` /
+    `instagram_manage_messages`. *Instagram API with Instagram business login* —
+    Instagram user token, `graph.instagram.com`, its own endpoints, scopes
+    `instagram_business_basic` / `instagram_business_manage_messages`, and its
+    webhooks are configured **inside the Instagram product**, never in the app's
+    Webhooks panel. That last detail is how you can tell which one an app is on
+    without any API call.
+
+    **The webhook envelope is identical on both**, so `lib/channels/instagram.ts`
+    parses either. **Everything staff SEE is not.** `readInbox()` renders from
+    `{page-id}/conversations?platform=instagram` — a live Meta call, NOT from
+    `channel_conversations`. So an Instagram-Login app can receive, authenticate,
+    store and route every DM correctly and still show an empty Inbox forever,
+    with no error in any log. That silent half-success is the worst outcome
+    available here and is why the API configuration is settled BEFORE the
+    webhook is subscribed.
+
+    `instagramApiFlavour()` reports which vocabulary a key carries, and the
+    diagnosis checks both sets of scope names — because "instagram_manage_messages:
+    NOT granted" means nothing until you know the key is not an Instagram-Login
+    key carrying the other four.
+38. **The Inbox is a live read, not a database view.** Worth stating on its own
+    because it inverts the obvious debugging instinct: rows in
+    `channel_conversations` prove the webhook worked and prove nothing about what
+    the screen shows. `channel_deliveries` and the stored rows exist for
+    deduplication, lead capture and attribution. Display comes from Meta.
+
 ### Operational notes
 
 - Business Manager demands SMS 2FA to Samer's phone on portfolio switch, so asset
@@ -262,7 +291,7 @@ and that is the honest field to read.
 
 ## What the code enforces today, and what it does not
 
-**Enforced and tested** (528 tests): raw-body timing-safe signature check before
+**Enforced and tested** (533 tests): raw-body timing-safe signature check before
 parsing; missing secret refuses; 403 only for bad signatures; routing by account
 id; username never trusted (Instagram does not even send it); payload
 timestamps; echoes/receipts/reactions dropped; customer text carried verbatim;
