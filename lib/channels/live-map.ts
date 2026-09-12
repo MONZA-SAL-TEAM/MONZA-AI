@@ -516,6 +516,34 @@ export function summariseInstagramLoginAccount(
       };
 }
 
+/**
+ * Before an Instagram-login key reads or answers anything for a brand: does it
+ * belong to THAT brand's account (rule 4)? graph.instagram.com/me returns
+ * `user_id` — the professional account's id, which must equal the registry's —
+ * and `id`, the app-scoped id the same account may appear under in that host's
+ * conversations. Both, plus the registry id, count as "us", so our own replies
+ * are never shown as the customer's and a reply is never addressed to ourselves.
+ */
+export function readInstagramLoginSelf(
+  payload: unknown,
+  registryId: string
+): { ok: true; selfIds: string[] } | { ok: false; problem: string } {
+  const root = obj(payload);
+  const asId = (v: unknown) => (typeof v === "string" || typeof v === "number" ? String(v) : null);
+  const userId = asId(root?.user_id);
+  const scopedId = asId(root?.id);
+  if (!userId) {
+    return { ok: false, problem: "Meta did not say which Instagram account the Instagram-login key belongs to." };
+  }
+  if (userId !== registryId) {
+    return {
+      ok: false,
+      problem: `The Instagram-login key belongs to account ${userId}, not ${registryId}, so it is not used for this brand.`,
+    };
+  }
+  return { ok: true, selfIds: [...new Set([registryId, userId, ...(scopedId ? [scopedId] : [])])] };
+}
+
 /** A permission the diagnosis checks, and the Page or Instagram id it must reach. */
 export interface ScopeWant {
   scope: string;

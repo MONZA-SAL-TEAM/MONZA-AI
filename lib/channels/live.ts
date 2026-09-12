@@ -25,7 +25,7 @@
 import { channelToken, metaAppSecret, metaAppSecretsMap } from "@/lib/env";
 import { parseMetaAppSecrets } from "@/lib/channels/meta-signature";
 import { listAccounts, readDeliveries, type StoredAccount } from "@/lib/channels/store";
-import { instagramAdapter } from "@/lib/channels/instagram";
+import { instagramAdapter, sendInstagramLogin } from "@/lib/channels/instagram";
 import { messengerAdapter } from "@/lib/channels/messenger";
 import { replyWindow, windowExplanation, type ReplyWindow } from "@/lib/channels/types";
 import type { ChannelKey } from "@/lib/domain/types";
@@ -43,6 +43,7 @@ import {
   nextCursor,
   pageIdFor,
   peerOf,
+  readInstagramLoginSelf,
   readPageInfo,
   sortNewestFirst,
   instagramApiFlavour,
@@ -295,6 +296,80 @@ async function accountContext(
   return { ok: true, pageId, token: info.token, selfIds: [account.externalId, pageId] };
 }
 
+/* ── Which route an account is read on ───────────────────────────────────── */
+
+/**
+ * WHY TWO ROUTES (Samer, 2026-09-12 — CLAUDE.md rule 49). On Facebook login
+ * Meta refuses to list customer conversations at standard access (-2 /
+ * 2534084, "too many conversations with users who do not have a role on app").
+ * Through Instagram login the same account's conversations list in ~4 s. So a
+ * brand whose Instagram-login key is set (META_IG_LOGIN_TOKEN_<BRAND>) reads,
+ * opens and answers Instagram through graph.instagram.com; a brand without one
+ * stays on the Facebook-login route exactly as before. Facebook Pages never
+ * change route.
+ */
+type InstagramLogin = { ok: true; token: string; selfIds: string[] } | { ok: false; problem: string };
+
+/** Memory only, a few minutes. Keyed on the credential, never persisted. */
+const igSelfCache = new Map<string, { selfIds: string[]; until: number }>();
+
+async function instagramLoginRoute(account: StoredAccount): Promise<InstagramLogin | null> {
+  if (account.channel !== "instagram") return null;
+  const env = instagramLoginTokenEnv(account.brand);
+  const token = env ? channelToken(env) : null;
+  if (!token) return null;
+
+  const key = `${account.id}:${token.length}:${token.slice(-6)}`;
+  const hit = igSelfCache.get(key);
+  if (hit && hit.until > Date.now()) return { ok: true, token, selfIds: hit.selfIds };
+
+  const me = await igGraphGet("me", { fields: "id,user_id,username" }, token, TIMEOUT_MS);
+  if (!me.ok) return { ok: false, problem: me.problem };
+  // A key for another brand's account is refused here, before it reads anything.
+  const self = readInstagramLoginSelf(me.json, account.externalId);
+  if (!self.ok) return self;
+  igSelfCache.set(key, { selfIds: self.selfIds, until: Date.now() + PAGE_CACHE_MS });
+  return { ok: true, token, selfIds: self.selfIds };
+}
+
+type ReadRoute =
+  | {
+      ok: true;
+      via: "instagram-login" | "facebook-login";
+      get: GraphFn;
+      listPath: string;
+      token: string;
+      selfIds: string[];
+    }
+  | { ok: false; state: "no_token" | "no_page" | "error"; problem: string };
+
+/** The one place that decides an account's route, for listing, opening and replying alike. */
+async function readRoute(account: StoredAccount, all: readonly StoredAccount[]): Promise<ReadRoute> {
+  const igLogin = await instagramLoginRoute(account);
+  if (igLogin) {
+    return igLogin.ok
+      ? {
+          ok: true,
+          via: "instagram-login",
+          get: igGraphGet,
+          listPath: "me/conversations",
+          token: igLogin.token,
+          selfIds: igLogin.selfIds,
+        }
+      : { ok: false, state: "error", problem: `Instagram login: ${igLogin.problem}` };
+  }
+  const ctx = await accountContext(account, all);
+  if (!ctx.ok) return ctx;
+  return {
+    ok: true,
+    via: "facebook-login",
+    get: graphGet,
+    listPath: `${ctx.pageId}/conversations`,
+    token: ctx.token,
+    selfIds: ctx.selfIds,
+  };
+}
+
 /* ── The inbox list ──────────────────────────────────────────────────────── */
 
 function partialNote(used: ListAttempt): string | null {
@@ -331,11 +406,11 @@ async function readAccount(
   });
 
   try {
-    const ctx = await accountContext(account, all);
-    if (!ctx.ok) return result(ctx.state, ctx.problem);
+    const route = await readRoute(account, all);
+    if (!route.ok) return result(route.state, route.problem);
 
     const platform = account.channel === "instagram" ? "instagram" : "messenger";
-    const path = `${ctx.pageId}/conversations`;
+    const path = route.listPath;
     const attempts = LIST_ATTEMPTS.slice(Math.min(opts.startAt ?? 0, LIST_ATTEMPTS.length - 1));
 
     const started = Date.now();
@@ -349,7 +424,7 @@ async function readAccount(
         break;
       }
       used = attempt;
-      r = await graphGet(
+      r = await route.get(
         path,
         {
           platform,
@@ -357,7 +432,7 @@ async function readAccount(
           limit: String(attempt.limit),
           ...(opts.after ? { after: opts.after } : {}),
         },
-        ctx.token,
+        route.token,
         Math.min(attempt.timeoutMs, remaining)
       );
       // Only a "too slow" or "too much" answer is worth asking again, lighter.
@@ -373,7 +448,7 @@ async function readAccount(
       return result("error", r.problem);
     }
 
-    const conversations = mapConversations(r.json, account, ctx.selfIds);
+    const conversations = mapConversations(r.json, account, route.selfIds);
     return {
       status: {
         id: account.id,
@@ -465,6 +540,8 @@ type OpenThread =
       ok: true;
       account: StoredAccount;
       token: string;
+      /** Which route the thread was read on — a reply goes back on the same one. */
+      via: "instagram-login" | "facebook-login";
       messages: InboxMessage[];
       peer: Peer | null;
       window: ReplyWindow;
@@ -481,15 +558,15 @@ async function openThread(threadId: unknown, now: Date): Promise<OpenThread> {
     return { ok: false, status: 404, problem: "That account is not connected." };
   }
 
-  const ctx = await accountContext(account, all);
-  if (!ctx.ok) return { ok: false, status: 503, problem: ctx.problem };
+  const route = await readRoute(account, all);
+  if (!route.ok) return { ok: false, status: 503, problem: route.problem };
 
   let r: GraphResult = { ok: false, problem: "Nothing was asked.", retryLighter: false };
   for (const limit of THREAD_LIMITS) {
-    r = await graphGet(
+    r = await route.get(
       ids.metaConversationId,
       { fields: `participants,messages.limit(${limit}){${MESSAGE_FIELDS}}` },
-      ctx.token,
+      route.token,
       THREAD_TIMEOUT_MS
     );
     if (r.ok || !r.retryLighter) break;
@@ -497,13 +574,14 @@ async function openThread(threadId: unknown, now: Date): Promise<OpenThread> {
   if (!r.ok) return { ok: false, status: 502, problem: r.problem };
 
   const threadId_ = `${ids.accountId}~${ids.metaConversationId}`;
-  const messages = mapThread(r.json, threadId_, ctx.selfIds);
+  const messages = mapThread(r.json, threadId_, route.selfIds);
   return {
     ok: true,
     account,
-    token: ctx.token,
+    token: route.token,
+    via: route.via,
     messages,
-    peer: peerOf(r.json, ctx.selfIds),
+    peer: peerOf(r.json, route.selfIds),
     window: replyWindow(lastCustomerAt(messages), now),
   };
 }
@@ -1008,11 +1086,15 @@ export async function sendOnThread(
   }
   if (!live) return { kind: "switched_off" };
 
-  const adapter = t.account.channel === "instagram" ? instagramAdapter : messengerAdapter;
-  const result = await adapter.send(
-    { accountId: t.account.id, toExternalId: t.peer.id, text },
-    t.token
-  );
+  // A thread read through Instagram login is answered through it too: its
+  // token and its customer id belong to graph.instagram.com.
+  const send =
+    t.account.channel !== "instagram"
+      ? messengerAdapter.send
+      : t.via === "instagram-login"
+        ? sendInstagramLogin
+        : instagramAdapter.send;
+  const result = await send({ accountId: t.account.id, toExternalId: t.peer.id, text }, t.token);
   return result.ok
     ? { kind: "sent" }
     : { kind: "refused", status: 502, problem: `Meta did not accept it: ${result.error}` };

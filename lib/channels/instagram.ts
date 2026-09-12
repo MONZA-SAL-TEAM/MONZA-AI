@@ -218,15 +218,28 @@ export function parseInstagram(
 
 /* ── Sending ─────────────────────────────────────────────────────────────── */
 
-async function sendInstagram(
-  message: OutboundMessage,
-  token: string
-): Promise<SendResult> {
+/** Instagram's own host — the "Instagram API with Instagram login" route. */
+const IG_LOGIN_GRAPH = "https://graph.instagram.com/v21.0";
+
+async function sendInstagram(message: OutboundMessage, token: string): Promise<SendResult> {
+  return sendVia(GRAPH, message, token);
+}
+
+/**
+ * The reply for an account read through Instagram login: the same request, to
+ * graph.instagram.com with that route's own key. A thread opened on one route
+ * is always answered on the same route — its token and customer id belong to it.
+ */
+export async function sendInstagramLogin(message: OutboundMessage, token: string): Promise<SendResult> {
+  return sendVia(IG_LOGIN_GRAPH, message, token);
+}
+
+async function sendVia(host: string, message: OutboundMessage, token: string): Promise<SendResult> {
   const account = message.accountId;
   if (!account) return { ok: false, error: "No account.", retryable: false };
 
   try {
-    const res = await fetch(`${GRAPH}/me/messages`, {
+    const res = await fetch(`${host}/me/messages`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,

@@ -416,6 +416,40 @@ rule has a scar, the scar is named — a rule without its reason gets argued awa
     permission that rejects the sub-field syntax would take the Instagram inbox
     down to gain the diagnosis a second id. The fallback is the plain question
     the code asked before that field was added. Never remove it.
+49. **Instagram is read through Instagram LOGIN for any brand that has an
+    Instagram-login key — supersedes rule 39's "nothing to switch" (2026-09-12).**
+    Evidence: `/api/channels/diagnose?account=ig-voyah&route=instagram-login`
+    → the key's `user_id` is `17841457996874250` (matches the registry) and
+    `graph.instagram.com/me/conversations` returned **5 rows, more available, in
+    ~4 s at standard access**, while `{page-id}/conversations?platform=instagram`
+    on Facebook login keeps failing `-2 / 2534084`.
+
+    - `META_IG_LOGIN_TOKEN_<BRAND>` set → that brand's Instagram is listed,
+      opened and answered through `graph.instagram.com` (`readRoute()` in
+      `lib/channels/live.ts`). Unset → the Facebook-login route, unchanged.
+      Facebook Pages never change route, and a thread is always answered on the
+      route it was read on (`OpenThread.via`, `sendInstagramLogin`).
+    - The key is REFUSED unless its `user_id` equals the registry id
+      (`readInstagramLoginSelf`), so one brand's key can never read another's
+      account (rule 4). Its `id` (app-scoped) also counts as "us".
+    - **Getting the key:** app → Instagram use case → *API setup with Instagram
+      login* → *Add account* → the account is invited as **Instagram Tester** →
+      accept at `instagram.com/accounts/manage_access` (Tester Invites) → *Generate
+      token* → Vercel. Inviting the app's OWN business account first showed
+      "Unable to add a user with a role on the app's owning business", yet the
+      invite then appeared **Pending** under App roles and could be accepted.
+      **Never invite another portfolio's account** (e.g. @mherolebanon on
+      VOYAH's app) — it crosses brands and invites Tech-Provider scrutiny.
+      Business Settings → Apps → *Connect assets* offers only ad accounts.
+    - **These keys expire after 60 days and nothing refreshes them.** Regenerate
+      and replace in Vercel before expiry. Never paste one into chat — one was,
+      2026-09-12, and must be revoked (manage_access → Active → Remove) and
+      replaced.
+    - **Webhooks for this route are NOT configured** (step 3 of that page, empty).
+      Display does not need them (rule 38). Lead capture and attribution for
+      Instagram wait on them, and those deliveries will be signed with the
+      Instagram app's own secret (`2636993883137857` on VOYAH), which
+      `META_APP_SECRETS` must then hold (rule 39, "TWO app ids, TWO app secrets").
 
 ### Operational notes
 

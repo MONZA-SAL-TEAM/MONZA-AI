@@ -13,7 +13,57 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
 import { diagnoseInstagramLogin, type DiagnoseIO, type DiagnoseStep } from "@/lib/channels/live";
-import { instagramLoginTokenEnv, summariseInstagramLoginAccount } from "@/lib/channels/live-map";
+import {
+  instagramLoginTokenEnv,
+  readInstagramLoginSelf,
+  summariseInstagramLoginAccount,
+} from "@/lib/channels/live-map";
+import { sendInstagramLogin } from "@/lib/channels/instagram";
+
+describe("readInstagramLoginSelf — the key must be this brand's account (rule 4)", () => {
+  const REG = "17841457996874250";
+
+  test("the right account: registry, user_id and the app-scoped id all count as us", () => {
+    const r = readInstagramLoginSelf({ id: "9001", user_id: REG, username: "voyahlebanon" }, REG);
+    assert.equal(r.ok, true);
+    if (!r.ok) return;
+    assert.deepEqual(r.selfIds.sort(), [REG, "9001"].sort());
+  });
+
+  test("another brand's account is refused, naming both ids", () => {
+    const r = readInstagramLoginSelf({ id: "1", user_id: "17841469421956644" }, REG);
+    assert.equal(r.ok, false);
+    if (r.ok) return;
+    assert.match(r.problem, /17841469421956644/);
+    assert.match(r.problem, new RegExp(REG));
+  });
+
+  test("no user_id is refused, never guessed", () => {
+    assert.equal(readInstagramLoginSelf({ id: "1" }, REG).ok, false);
+  });
+});
+
+describe("sendInstagramLogin", () => {
+  test("posts to graph.instagram.com with the Instagram-login key, never graph.facebook.com", async () => {
+    const real = globalThis.fetch;
+    const seen: { url?: string; auth?: string | null; body?: string } = {};
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      seen.url = String(input);
+      seen.auth = new Headers(init?.headers).get("authorization");
+      seen.body = String(init?.body);
+      return new Response(JSON.stringify({ message_id: "m1" }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      const r = await sendInstagramLogin({ accountId: "ig-voyah", toExternalId: "123", text: "hi" }, "ig-login-key");
+      assert.equal(r.ok, true);
+      assert.match(seen.url ?? "", /^https:\/\/graph\.instagram\.com\/v21\.0\/me\/messages$/);
+      assert.equal(seen.auth, "Bearer ig-login-key");
+      assert.deepEqual(JSON.parse(seen.body ?? "{}"), { recipient: { id: "123" }, message: { text: "hi" } });
+    } finally {
+      globalThis.fetch = real;
+    }
+  });
+});
 import type { StoredAccount } from "@/lib/channels/store";
 
 const VOYAH_IG = "17841457996874250";
