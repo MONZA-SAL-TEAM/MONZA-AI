@@ -483,6 +483,13 @@ function briefly(json: unknown): string {
  * slow or refused Instagram listing can be told apart from a slow token, a
  * slow Page, or an Instagram account Meta will not let us read at all
  * (2026-09-10: every Instagram list shape timed out while Facebook took ~2 s).
+ *
+ * Every step that CAN be answered without the Page's token runs first and runs
+ * unconditionally. A refused Page token used to end the diagnosis before the
+ * delivery record, the key's permissions and the app's webhook subscriptions
+ * had been read — which hid the three facts most likely to explain the refusal
+ * behind the refusal itself. Steps that genuinely need the Page token are the
+ * only ones skipped, and the skip is reported rather than left as a short list.
  */
 export async function diagnoseAccount(accountId: unknown): Promise<Diagnosis> {
   if (typeof accountId !== "string") {
@@ -496,10 +503,17 @@ export async function diagnoseAccount(accountId: unknown): Promise<Diagnosis> {
 
   const steps: DiagnoseStep[] = [];
 
-  // FIRST, because it costs nothing and settles the direction of the fault:
-  // has Meta ever posted a webhook naming this account? Our own record answers
-  // it without a token, an app secret or a call to Meta — and "nothing ever
-  // arrived" and "it arrived and we lost it" have no fix in common.
+  // ── Steps that need NO Page token, so nothing below can suppress them ────
+  //
+  // The order here is the point. Every step that can be answered from our own
+  // records or from the app's own id and secret runs BEFORE the Page/Instagram
+  // link is consulted, because that link is the thing most likely to fail and
+  // it used to take the whole diagnosis down with it — leaving the reader with
+  // one unexplained refusal and none of the facts that would explain it.
+
+  // Has Meta ever posted a webhook naming this account? No token, no secret,
+  // no call to Meta — and "nothing ever arrived" and "it arrived and we lost
+  // it" have no fix in common.
   const expectedObject = account.channel === "instagram" ? "instagram" : "page";
   const td = Date.now();
   const deliveries = await readDeliveries();
@@ -512,27 +526,9 @@ export async function diagnoseAccount(accountId: unknown): Promise<Diagnosis> {
       : `The delivery record could not be read, so this is unknown rather than empty: ${deliveries.error}`,
   });
 
-  const t0 = Date.now();
-  const ctx = await accountContext(account, all);
-  steps.push({
-    step: "Page key and linked Instagram account",
-    ms: Date.now() - t0,
-    ok: ctx.ok,
-    detail: ctx.ok ? "ok" : ctx.problem,
-  });
-  if (!ctx.ok) return { ok: true, account: account.id, steps };
-
-  const timed = async (
-    step: string,
-    path: string,
-    params: Record<string, string>,
-    timeoutMs: number
-  ) => {
-    const t = Date.now();
-    const r = await graphGet(path, params, ctx.token, timeoutMs);
-    const detail = r.ok ? briefly(r.json) : r.meta ? `${r.problem} [Meta: ${r.meta}]` : r.problem;
-    steps.push({ step, ms: Date.now() - t, ok: r.ok, detail });
-  };
+  // The Page id comes from the registry, not from Meta, so the permission
+  // check below can name the right Page even when Meta will not talk to us.
+  const registryPageId = pageIdFor(account, all);
 
   // What the brand's access key actually carries, and for which accounts. Meta
   // answers this only to the app that issued the key, so it is asked with that
@@ -548,10 +544,14 @@ export async function diagnoseAccount(accountId: unknown): Promise<Diagnosis> {
           { scope: "instagram_basic", id: account.externalId },
         ]
       : []),
-    { scope: "pages_messaging", id: ctx.pageId },
-    { scope: "pages_manage_metadata", id: ctx.pageId },
-    { scope: "pages_read_engagement", id: ctx.pageId },
-    { scope: "pages_show_list", id: ctx.pageId },
+    ...(registryPageId
+      ? [
+          { scope: "pages_messaging", id: registryPageId },
+          { scope: "pages_manage_metadata", id: registryPageId },
+          { scope: "pages_read_engagement", id: registryPageId },
+          { scope: "pages_show_list", id: registryPageId },
+        ]
+      : []),
   ];
   const tk = Date.now();
   if (!envToken || !secret || !account.appId) {
@@ -571,9 +571,6 @@ export async function diagnoseAccount(accountId: unknown): Promise<Diagnosis> {
     });
   }
 
-  // Meta's own record of where this app's webhooks go and which fields are on,
-  // and which apps this Page really sends its events to — the dashboard's
-  // product switcher is unreliable, so these are read from the API instead.
   const readWith = async (
     step: string,
     path: string,
@@ -585,6 +582,11 @@ export async function diagnoseAccount(accountId: unknown): Promise<Diagnosis> {
     const detail = r.ok ? summarise(r.json) : r.meta ? `${r.problem} [Meta: ${r.meta}]` : r.problem;
     steps.push({ step, ms: Date.now() - t, ok: r.ok, detail });
   };
+
+  // Meta's own record of where this app's webhooks go and which fields are on,
+  // per object. This is the step that separates "the instagram object was never
+  // subscribed" from every other cause, and it needs only the app's own id and
+  // secret — so it must never be gated behind a Page token.
   if (secret && account.appId) {
     await readWith(
       "Meta's record of this app's webhooks",
@@ -592,7 +594,49 @@ export async function diagnoseAccount(accountId: unknown): Promise<Diagnosis> {
       `${account.appId}|${secret.secret}`,
       (json) => summariseAppSubscriptions(json, ["page", "instagram"])
     );
+  } else {
+    steps.push({
+      step: "Meta's record of this app's webhooks",
+      ms: 0,
+      ok: false,
+      detail: "Skipped: this account's app id or app secret is not configured.",
+    });
   }
+
+  // ── Steps that do need the Page token ───────────────────────────────────
+  const t0 = Date.now();
+  const ctx = await accountContext(account, all);
+  steps.push({
+    step: "Page key and linked Instagram account",
+    ms: Date.now() - t0,
+    ok: ctx.ok,
+    detail: ctx.ok ? "ok" : ctx.problem,
+  });
+  if (!ctx.ok) {
+    // Everything remaining is asked WITH the Page's token, so it cannot be
+    // answered. Say which steps were not run and why, rather than ending the
+    // list silently and letting the reader assume they passed.
+    steps.push({
+      step: "Page and conversation reads",
+      ms: 0,
+      ok: false,
+      detail: `Not attempted: these need the Page's own token, which could not be obtained. ${ctx.problem}`,
+    });
+    return { ok: true, account: account.id, steps };
+  }
+
+  const timed = async (
+    step: string,
+    path: string,
+    params: Record<string, string>,
+    timeoutMs: number
+  ) => {
+    const t = Date.now();
+    const r = await graphGet(path, params, ctx.token, timeoutMs);
+    const detail = r.ok ? briefly(r.json) : r.meta ? `${r.problem} [Meta: ${r.meta}]` : r.problem;
+    steps.push({ step, ms: Date.now() - t, ok: r.ok, detail });
+  };
+
   await readWith("Apps this Page sends events to", `${ctx.pageId}/subscribed_apps`, ctx.token, (json) =>
     summariseSubscribedApps(json, account.appId)
   );
