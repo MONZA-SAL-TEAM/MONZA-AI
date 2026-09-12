@@ -46,10 +46,12 @@ import {
   readPageInfo,
   sortNewestFirst,
   instagramApiFlavour,
+  instagramLoginTokenEnv,
   summariseAppSubscriptions,
   summariseDeliveries,
   summariseDebugToken,
   summariseInstagramIdentity,
+  summariseInstagramLoginAccount,
   summariseSubscribedApps,
   type AccountState,
   type DeliveryRecord,
@@ -59,6 +61,8 @@ import {
 } from "@/lib/channels/live-map";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
+/** Instagram's own host, for the opt-in Instagram-login diagnosis only. */
+const IG_GRAPH = "https://graph.instagram.com/v21.0";
 /** A single small call: the Page's own token and linked Instagram account. */
 const TIMEOUT_MS = 12_000;
 /** Opening one thread. Inside the thread route's 60 s. */
@@ -115,9 +119,37 @@ async function graphGet(
 ): Promise<GraphResult> {
   const url = new URL(`${GRAPH}/${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  return fetchMeta(url, { Authorization: `Bearer ${token}` }, timeoutMs);
+}
+
+/**
+ * graph.instagram.com — Meta's OTHER Instagram API, "Instagram API with
+ * Instagram login" (rule 37). Used only by the opt-in Instagram-login
+ * diagnosis. That host documents the key as an access_token parameter; it goes
+ * to Meta over HTTPS only and is never logged or returned.
+ */
+async function igGraphGet(
+  path: string,
+  params: Record<string, string>,
+  token: string,
+  timeoutMs: number = TIMEOUT_MS
+): Promise<GraphResult> {
+  const url = new URL(`${IG_GRAPH}/${path}`);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  url.searchParams.set("access_token", token);
+  return fetchMeta(url, {}, timeoutMs);
+}
+
+/** The shared half of every Meta call — timeout, JSON, and the error shapes the
+ *  screen and the diagnosis read. The two hosts differ only in how the key goes. */
+async function fetchMeta(
+  url: URL,
+  headers: Record<string, string>,
+  timeoutMs: number
+): Promise<GraphResult> {
   try {
     const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers,
       cache: "no-store",
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -537,6 +569,8 @@ export interface DiagnoseIO {
   secretFor: (appId: string | null) => string | null;
   now: () => number;
   budgetMs: number;
+  /** graph.instagram.com, for the opt-in Instagram-login check only. */
+  igGraph?: GraphFn;
 }
 
 /** Inside the route's 60 s, leaving room to serialise what was gathered. */
@@ -557,6 +591,7 @@ export function liveDiagnoseIO(): DiagnoseIO {
             ?.secret ?? null,
     now: () => Date.now(),
     budgetMs: DIAGNOSE_BUDGET_MS,
+    igGraph: igGraphGet,
   };
 }
 
@@ -836,6 +871,108 @@ export async function diagnoseAccount(
       `${ctx.pageId}/conversations`,
       { platform: "instagram", fields: "id", limit: "1" },
       35_000
+    );
+  }
+  return { ok: true, account: account.id, steps, truncated };
+}
+
+/**
+ * THE INSTAGRAM-LOGIN EXPERIMENT (Samer, 2026-09-12, "Path 1"). Opt-in through
+ * ?route=instagram-login; the standard diagnosis above is untouched.
+ *
+ * The live integration is on Facebook login (rule 39), and there Meta will not
+ * list customer conversations at standard access (-2 / 2534084). Meta's
+ * Instagram-login docs allow standard access for accounts "you own or manage or
+ * have added to your app" without saying whether conversations with people who
+ * hold no role come back. This asks exactly that, read-only, with a SEPARATE
+ * Instagram-login key under its own env name: the working system-user key is
+ * not touched (rule 8) and nothing is subscribed (rule 37).
+ */
+export async function diagnoseInstagramLogin(
+  accountId: unknown,
+  io: DiagnoseIO = liveDiagnoseIO()
+): Promise<Diagnosis> {
+  if (typeof accountId !== "string") {
+    return { ok: false, status: 400, problem: "Say which account to check." };
+  }
+  const all = await io.accounts();
+  const account = all.find((a) => a.id === accountId);
+  if (!account || account.channel !== "instagram") {
+    return { ok: false, status: 404, problem: "That is not a connected Instagram account." };
+  }
+
+  const steps: DiagnoseStep[] = [];
+  const add = (step: string, ms: number, status: CheckStatus, detail: string) =>
+    steps.push({ step, ms, status, detail });
+  const deadline = io.now() + io.budgetMs;
+  let truncated = false;
+  const budgetLeft = (): number | null => {
+    const left = deadline - io.now();
+    return left >= MIN_STEP_MS ? left : null;
+  };
+  const failure = (r: { problem: string; meta?: string | null }) =>
+    r.meta ? `${r.problem} [Meta: ${r.meta}]` : r.problem;
+
+  const envName = instagramLoginTokenEnv(account.brand);
+  const token = envName ? io.tokenFor(envName) : null;
+  if (!envName || !token) {
+    add(
+      "Instagram-login key",
+      0,
+      "skipped",
+      `Skipped: no value is set for ${envName ?? "an Instagram-login key for this brand"}. ` +
+        "This check runs only once the account's Instagram-login key is stored under that name."
+    );
+    return { ok: true, account: account.id, steps, truncated };
+  }
+  add("Instagram-login key", 0, "pass", `${envName} is set (the value is never shown).`);
+  const ig = io.igGraph ?? igGraphGet;
+
+  // Whose key is it? user_id is the professional account's id — the number a
+  // webhook carries — so a key for the wrong account is caught before any read.
+  const meLeft = budgetLeft();
+  if (meLeft === null) {
+    truncated = true;
+    add("Which Instagram account this key is for", 0, "skipped", "Not attempted: the time budget was spent.");
+  } else {
+    const t = io.now();
+    const me = await ig("me", { fields: "user_id,username" }, token, Math.min(10_000, meLeft));
+    if (me.ok) {
+      const s = summariseInstagramLoginAccount(me.json, account.externalId);
+      add("Which Instagram account this key is for", io.now() - t, s.status, s.detail);
+    } else {
+      add("Which Instagram account this key is for", io.now() - t, "unknown", failure(me));
+    }
+  }
+
+  // The question Path 1 exists to answer: does Instagram login list this
+  // account's conversations with customers at standard access?
+  const convLeft = budgetLeft();
+  if (convLeft === null) {
+    truncated = true;
+    add("Instagram-login conversations: 5 rows, id only", 0, "skipped", "Not attempted: the time budget was spent.");
+  } else {
+    const t = io.now();
+    const conv = await ig(
+      "me/conversations",
+      { platform: "instagram", fields: "id,updated_time", limit: "5" },
+      token,
+      Math.min(35_000, convLeft)
+    );
+    const rows = conv.ok && Array.isArray((conv.json as { data?: unknown } | null)?.data)
+      ? ((conv.json as { data: unknown[] }).data.length)
+      : 0;
+    add(
+      "Instagram-login conversations: 5 rows, id only",
+      io.now() - t,
+      // An empty 200 is not a pass (rule 21): this inbox is full of customers,
+      // so "no conversations" reads as a permission filter, not a quiet inbox.
+      conv.ok ? (rows > 0 ? "pass" : "unknown") : "unknown",
+      conv.ok
+        ? rows > 0
+          ? `${briefly(conv.json)} — Meta lists this account's conversations through Instagram login.`
+          : "Meta answered with an EMPTY list. The inbox has customers, so this reads as a permission filter, not an empty inbox (rule 21)."
+        : failure(conv)
     );
   }
   return { ok: true, account: account.id, steps, truncated };

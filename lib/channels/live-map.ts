@@ -481,6 +481,41 @@ export function instagramApiFlavour(payload: unknown): string {
   return "Neither vocabulary is present: this key carries no Instagram messaging permission at all.";
 }
 
+/**
+ * The env var for a brand's Instagram-LOGIN key (graph.instagram.com), used only
+ * by the opt-in Instagram-login experiment. It is deliberately separate from
+ * the working system-user key named in channel_accounts.token_env (rule 8).
+ * Null for anything but a plain lower-case brand word, so a crafted brand can
+ * never name another variable.
+ */
+export function instagramLoginTokenEnv(brand: string): string | null {
+  return /^[a-z0-9]{1,20}$/.test(brand) ? `META_IG_LOGIN_TOKEN_${brand.toUpperCase()}` : null;
+}
+
+/**
+ * graph.instagram.com/me?fields=user_id,username, for the Instagram-login
+ * experiment. `user_id` is the professional account's id — the same number a
+ * webhook carries in entry[].id — so it must equal the registry's id. (`id` on
+ * that host is app-scoped and is not compared.) A mismatch means the key was
+ * issued for a different Instagram account and nothing it returns is ours.
+ */
+export function summariseInstagramLoginAccount(
+  payload: unknown,
+  registryId: string
+): { status: "pass" | "fail" | "unknown"; detail: string } {
+  const root = obj(payload);
+  const raw = root?.user_id;
+  const userId = typeof raw === "string" || typeof raw === "number" ? String(raw) : null;
+  if (!userId) return { status: "unknown", detail: "Meta did not say which account this key belongs to." };
+  const who = `${str(root?.username) ? `@${str(root?.username)}, ` : ""}account ${userId}`;
+  return userId === registryId
+    ? { status: "pass", detail: `${who} — matches the registry.` }
+    : {
+        status: "fail",
+        detail: `${who} — NOT the registry's ${registryId}. This key belongs to a different Instagram account.`,
+      };
+}
+
 /** A permission the diagnosis checks, and the Page or Instagram id it must reach. */
 export interface ScopeWant {
   scope: string;
