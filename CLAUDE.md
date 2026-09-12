@@ -250,8 +250,16 @@ rule has a scar, the scar is named — a rule without its reason gets argued awa
       behind a `Customize` button.
     - **The Instagram use case has five sub-tabs**: `Permissions and features`,
       `API setup with Instagram login`, `API integration helper`, `API setup with
-      Facebook login`, `Webhooks`. The Instagram webhook is subscribed on that
-      last tab — not in any app-wide Webhooks panel.
+      Facebook login`, `Webhooks`. **CORRECTED 2026-09-12:** that last tab does
+      NOT open an Instagram-scoped page — it navigates to the APP-WIDE webhooks
+      page (`use_case_enum=WEBHOOKS`), which carries a Product selector listing
+      `User, Page, Permissions, Application, Instagram, Whatsapp Business
+      Account, Ad Account, Catalog`. It opens defaulted to **User**, which is
+      irrelevant to messaging and whose emptiness proves nothing. The
+      Facebook-login Instagram subscription lives under the **Instagram** object
+      in that selector; the *Instagram-login* variant is the one configured
+      inside its own product, which is what Meta's "only within the product
+      itself" message referred to.
     - **The Instagram-login setup is EMPTY**: all five steps incomplete, no
       account added, no token generated, callback and verify token blank. Yet the
       Dashboard shows a live Instagram rate-limit card for `voyahlebanon`. Add
@@ -282,6 +290,35 @@ rule has a scar, the scar is named — a rule without its reason gets argued awa
     in any log saying "wrong id". `summariseInstagramIdentity()` now reports both
     ids before the first DM, and the first Instagram delivery's `entry[].id` must
     be read out of `channel_deliveries` and compared.
+
+41. **The app's setup page showing NO connected Page and NO connected Instagram
+    account is EXPECTED here, not a fault.** Read live 2026-09-12: neither the
+    Facebook-login tab nor the Instagram-login tab lists a Page, an account or a
+    token, yet the Dashboard shows a live Instagram rate-limit card for
+    `voyahlebanon` and insights read daily.
+
+    Both are true because **Monza authenticates with system-user tokens issued
+    at the business portfolio** (`1235692167762623`), not through Facebook Login
+    for Business. The app's setup page only records app-level OAuth connections
+    made by a business authorising the app — a path Monza has never used and does
+    not need. The rate-limit card reflects API traffic by that portfolio token,
+    which is why it exists with no app-page connection behind it. **Do not go
+    looking for a missing connection, and do not run Facebook Login for Business
+    to "fix" it** — that would add a second, redundant authorisation path.
+
+    On that tab, step 1 `Add required permissions` shows **Complete**, listing
+    for messaging: `instagram_basic`, `instagram_manage_messages`,
+    `pages_read_engagement`, `pages_show_list`, `business_management`. Complete
+    means the permissions are ADDED TO THE APP. It does not mean granted to any
+    token, and it does not mean scoped to `17841457996874250` — `debug_token`
+    and its `granular_scopes` are the only thing that says that (rule 21's shape:
+    present-but-empty is not the same as present).
+42. **Webhook fields are pinned per object to an API version** — every field on
+    this app reads `v26.0`, while `lib/channels/live.ts` calls
+    `graph.facebook.com/v21.0`. Reading and receiving are separate paths so this
+    is not automatically a fault, but the DELIVERED payload shape follows the
+    subscription's version, not ours. If a v26 Instagram payload ever fails to
+    parse, this is the first place to look, not the adapter.
 
 ### Operational notes
 
