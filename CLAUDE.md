@@ -417,6 +417,42 @@ rule has a scar, the scar is named — a rule without its reason gets argued awa
     down to gain the diagnosis a second id. The fallback is the plain question
     the code asked before that field was added. Never remove it.
 
+49. **ROOT CAUSE, documented rather than inferred: the app has Standard
+    Access, and a customer's DM needs Advanced Access.** Meta's own definitions,
+    read 2026-09-12:
+
+    - *Standard Access* — "the default access level for all apps that limits the
+      data your app can get and is intended for apps that will only be used by
+      **people who have roles on them**, during app development, or for testing."
+    - *Advanced Access* — "the access level required if your app serves
+      Instagram professional accounts that you don't own or manage and **can be
+      used by app users who do not have a role on your app** or a role on a
+      business portfolio that has claimed your app. This access level **requires
+      App Review and Business Verification**."
+
+    A customer messaging @voyahlebanon holds no role on app `912301501380919`
+    and none on the VoyahLebanon portfolio, so under Standard Access their
+    message is not served to us. That is consistent with every observation: the
+    `instagram` object subscribed, active and pointed at our production callback
+    (rule 43), and zero Instagram deliveries ever recorded. It also explains
+    `code -2 / subcode 2534084`, *"too many conversations with users who do not
+    have a role on app"* — Standard Access describing itself. **Rule 34's
+    Development-mode hypothesis is superseded by this; the mechanism is the
+    access LEVEL, not the publish state.**
+
+    ⚠ **`Published` is not Advanced Access.** Publishing decides whether the app
+    is live; access level decides whose data it may serve. The Instagram page's
+    "webhooks require published state" is a different, already-passed gate. Do
+    not read one as the other.
+
+    Still unproven and the reason this is not yet stated as certain: no
+    Instagram DM has ever been sent to any of these accounts and looked for
+    afterwards, so "Standard Access is filtering it" and "nobody ever tried"
+    remain untested against each other. The cheapest test is still a real DM
+    from an account WITH an app role — if that one arrives and a stranger's does
+    not, the access level is proven to be the cause. Submission materials are
+    prepared in `docs/APP-REVIEW-INSTAGRAM.md`.
+
 ### Operational notes
 
 - Business Manager demands SMS 2FA to Samer's phone on portfolio switch, so asset
