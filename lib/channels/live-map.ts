@@ -129,12 +129,61 @@ export function pageIdFor(
 }
 
 /** The two facts read from GET /{page-id}?fields=access_token,instagram_business_account. */
-export function readPageInfo(json: unknown): { token: string | null; igId: string | null } {
+export function readPageInfo(json: unknown): {
+  token: string | null;
+  igId: string | null;
+  igLegacyId: string | null;
+  igUsername: string | null;
+} {
   const root = obj(json);
+  const ig = obj(root?.instagram_business_account);
   return {
     token: str(root?.access_token),
-    igId: str(obj(root?.instagram_business_account)?.id),
+    igId: str(ig?.id),
+    // Meta gives one Instagram account TWO numeric identities: the Graph node
+    // id (17841…) and the older `ig_id`. The app dashboard's rate-limit card
+    // shows the SECOND one, so a person comparing the dashboard against our
+    // registry sees a mismatch that is not a mismatch. Read both, name both.
+    igLegacyId: ig?.ig_id === undefined || ig?.ig_id === null ? null : String(ig.ig_id),
+    igUsername: str(ig?.username),
   };
+}
+
+/**
+ * The identity question that decides whether a delivered Instagram webhook is
+ * stored or silently dropped: does `entry[].id` match what our registry holds?
+ *
+ * An event naming an account we do not recognise is counted and DROPPED — there
+ * is no brand to file it under and guessing is the mistake the schema exists to
+ * prevent. So a perfect subscription plus the wrong id in `channel_accounts`
+ * produces a delivery row with `stored_count: 0` and an empty Inbox, with
+ * nothing in any log that says "wrong id". This step makes both of Meta's ids
+ * visible BEFORE the first DM rather than after a day of looking for it.
+ */
+export function summariseInstagramIdentity(
+  registryId: string,
+  graphId: string | null,
+  legacyId: string | null,
+  username: string | null
+): string {
+  if (!graphId) {
+    return "Meta did not report an Instagram account linked to this Page, so the id on record cannot be checked.";
+  }
+  const head = `registry ${registryId} · Graph id ${graphId}` +
+    (legacyId ? ` · ig_id ${legacyId}` : " · ig_id not returned") +
+    (username ? ` · @${username}` : "");
+
+  if (graphId === registryId) {
+    return (
+      `${head} — MATCHES. Note that the app dashboard's rate-limit card shows ig_id` +
+      `${legacyId ? ` (${legacyId})` : ""}, not the Graph id, so those two differing is expected and is not a fault. ` +
+      `If a delivered webhook's entry[].id turns out to be the ig_id instead, the event is dropped: check channel_deliveries.`
+    );
+  }
+  return (
+    `${head} — MISMATCH on the Graph id. Every Instagram event for this account will be dropped ` +
+    `until the registry row holds ${graphId}.`
+  );
 }
 
 /* ── Mapping ─────────────────────────────────────────────────────────────── */

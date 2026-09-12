@@ -49,6 +49,7 @@ import {
   summariseAppSubscriptions,
   summariseDeliveries,
   summariseDebugToken,
+  summariseInstagramIdentity,
   summariseSubscribedApps,
   type AccountState,
   type AccountStatus,
@@ -147,6 +148,10 @@ function isMetaChannel(account: StoredAccount): boolean {
 interface PageInfo {
   token: string;
   igId: string | null;
+  /** Meta's OTHER numeric id for the same Instagram account — what the app
+   *  dashboard's rate-limit card displays. Diagnosis only; never an identity. */
+  igLegacyId: string | null;
+  igUsername: string | null;
   until: number;
 }
 
@@ -167,11 +172,15 @@ async function pageInfo(pageId: string, envToken: string): Promise<PageInfo> {
   const hit = pageCache.get(key);
   if (hit && hit.until > Date.now()) return hit;
 
-  const r = await graphGet(pageId, { fields: "access_token,instagram_business_account" }, envToken);
-  const read = r.ok ? readPageInfo(r.json) : { token: null, igId: null };
+  const r = await graphGet(pageId, { fields: "access_token,instagram_business_account{id,ig_id,username}" }, envToken);
+  const read = r.ok
+    ? readPageInfo(r.json)
+    : { token: null, igId: null, igLegacyId: null, igUsername: null };
   const info: PageInfo = {
     token: read.token ?? envToken,
     igId: read.igId,
+    igLegacyId: read.igLegacyId,
+    igUsername: read.igUsername,
     until: Date.now() + PAGE_CACHE_MS,
   };
   if (r.ok) pageCache.set(key, info); // a failure is retried next time, not remembered
@@ -642,6 +651,23 @@ export async function diagnoseAccount(accountId: unknown): Promise<Diagnosis> {
       detail: `Not attempted: these need the Page's own token, which could not be obtained. ${ctx.problem}`,
     });
     return { ok: true, account: account.id, steps };
+  }
+
+  // Which Instagram account our registry claims, against BOTH ids Meta holds
+  // for it. An event naming an id we do not recognise is dropped, silently.
+  if (account.channel === "instagram") {
+    const info = await pageInfo(ctx.pageId, channelToken(account.tokenEnv) ?? ctx.token);
+    steps.push({
+      step: "Instagram id on record vs Meta's two ids",
+      ms: 0,
+      ok: info.igId === account.externalId,
+      detail: summariseInstagramIdentity(
+        account.externalId,
+        info.igId,
+        info.igLegacyId,
+        info.igUsername
+      ),
+    });
   }
 
   const timed = async (

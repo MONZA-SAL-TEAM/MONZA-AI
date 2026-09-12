@@ -189,13 +189,26 @@ describe("which Page reads an account", () => {
     assert.equal(pageIdFor(IG_VOYAH, [...ALL, second]), null);
   });
 
-  test("the Page answer yields its token and linked Instagram id", () => {
+  test("the Page answer yields its token and BOTH of Meta's Instagram ids", () => {
+    // ig_id is the older numeric identity of the same account, and it is what
+    // the app dashboard's rate-limit card displays — so it is read and reported
+    // rather than left to look like a mismatch. It is never an identity: only
+    // `id` decides whether an event is ours.
     assert.deepEqual(
-      readPageInfo({ access_token: "PAGE_TOKEN", instagram_business_account: { id: VOYAH_IG_ID }, id: VOYAH_PAGE }),
-      { token: "PAGE_TOKEN", igId: VOYAH_IG_ID }
+      readPageInfo({
+        access_token: "PAGE_TOKEN",
+        instagram_business_account: { id: VOYAH_IG_ID, ig_id: 117114624612614, username: "voyahlebanon" },
+        id: VOYAH_PAGE,
+      }),
+      { token: "PAGE_TOKEN", igId: VOYAH_IG_ID, igLegacyId: "117114624612614", igUsername: "voyahlebanon" }
     );
-    assert.deepEqual(readPageInfo({ id: VOYAH_PAGE }), { token: null, igId: null });
-    assert.deepEqual(readPageInfo(null), { token: null, igId: null });
+    assert.deepEqual(readPageInfo({ id: VOYAH_PAGE }), {
+      token: null,
+      igId: null,
+      igLegacyId: null,
+      igUsername: null,
+    });
+    assert.deepEqual(readPageInfo(null), { token: null, igId: null, igLegacyId: null, igUsername: null });
   });
 });
 

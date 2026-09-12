@@ -14,6 +14,7 @@ import {
   summariseAppSubscriptions,
   summariseDebugToken,
   summariseDeliveries,
+  summariseInstagramIdentity,
   summariseSubscribedApps,
   type DeliveryRecord,
   type ScopeWant,
@@ -326,5 +327,56 @@ describe("instagramApiFlavour", () => {
   test("a malformed answer does not read as Facebook Login", () => {
     assert.doesNotMatch(instagramApiFlavour({ error: { code: 190 } }), /^Facebook Login/);
     assert.doesNotMatch(instagramApiFlavour(null), /^Facebook Login/);
+  });
+});
+
+/**
+ * Meta gives one Instagram account two numeric identities: the Graph node id
+ * (17841…) and the older ig_id, which is what the app dashboard's rate-limit
+ * card displays. Confirmed live 2026-09-12: the VOYAH dashboard showed
+ * 117114624612614 while our registry holds 17841457996874250, and a person
+ * comparing the two reasonably concluded the registry was wrong.
+ *
+ * Both halves matter. Reading the dashboard id as a fault sends you fixing a
+ * row that is correct; a REAL mismatch on the Graph id silently drops every
+ * Instagram event, because an unrecognised account has no brand to file under.
+ */
+describe("summariseInstagramIdentity", () => {
+  test("the Graph id matching is a match, whatever the dashboard shows", () => {
+    const s = summariseInstagramIdentity(
+      "17841457996874250",
+      "17841457996874250",
+      "117114624612614",
+      "voyahlebanon"
+    );
+    assert.match(s, /MATCHES/);
+    assert.match(s, /117114624612614/);
+    assert.match(s, /is expected and is not a fault/);
+    assert.match(s, /@voyahlebanon/);
+  });
+
+  test("a match still warns that entry\[\].id is the thing that decides storage", () => {
+    const s = summariseInstagramIdentity("17841457996874250", "17841457996874250", "117114624612614", null);
+    assert.match(s, /entry\[\]\.id/);
+    assert.match(s, /channel_deliveries/);
+  });
+
+  test("a real mismatch says every event will be dropped and names the right id", () => {
+    const s = summariseInstagramIdentity("117114624612614", "17841457996874250", "117114624612614", "voyahlebanon");
+    assert.match(s, /MISMATCH on the Graph id/);
+    assert.match(s, /dropped/);
+    assert.match(s, /until the registry row holds 17841457996874250/);
+    assert.doesNotMatch(s, /MATCHES/);
+  });
+
+  test("no linked account is unknown, not a mismatch", () => {
+    const s = summariseInstagramIdentity("17841457996874250", null, null, null);
+    assert.match(s, /did not report an Instagram account/);
+    assert.doesNotMatch(s, /MISMATCH/);
+  });
+
+  test("a missing ig_id is stated rather than left blank", () => {
+    const s = summariseInstagramIdentity("17841457996874250", "17841457996874250", null, null);
+    assert.match(s, /ig_id not returned/);
   });
 });

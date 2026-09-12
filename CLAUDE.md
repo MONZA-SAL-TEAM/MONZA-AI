@@ -234,6 +234,55 @@ rule has a scar, the scar is named — a rule without its reason gets argued awa
     the screen shows. `channel_deliveries` and the stored rows exist for
     deduplication, lead capture and attribution. Display comes from Meta.
 
+39. **Read live from the VOYAH dashboard, 2026-09-12 — this app is on Meta's
+    "use cases" dashboard, not the legacy Products UI.** Consequences, all
+    confirmed by observation rather than inferred:
+
+    - **There is no "Development / Live" label.** The sidebar carries
+      `Publish → Published`, accessible name "App Publish Status". A DOM search
+      for "Development", "Live", "In development" matched nothing else.
+      **[Likely]** `Published` is the Live equivalent, and the Instagram-login
+      page's own text — *"To receive webhooks, your app must be in published
+      state"* — means that gate is passed. Rule 34's Development-mode hypothesis
+      is therefore WEAKENED, not confirmed.
+    - **The sidebar holds no products.** Only `Facebook Login for Business`.
+      Instagram, Messenger and WhatsApp live on the **Use cases** page, each
+      behind a `Customize` button.
+    - **The Instagram use case has five sub-tabs**: `Permissions and features`,
+      `API setup with Instagram login`, `API integration helper`, `API setup with
+      Facebook login`, `Webhooks`. The Instagram webhook is subscribed on that
+      last tab — not in any app-wide Webhooks panel.
+    - **The Instagram-login setup is EMPTY**: all five steps incomplete, no
+      account added, no token generated, callback and verify token blank. Yet the
+      Dashboard shows a live Instagram rate-limit card for `voyahlebanon`. Add
+      Meta's own sentence on that page — *"If you want to be able to track
+      hashtags and insights, switch to the API setup with Facebook login"* — and
+      the daily insights reads that demonstrably work, and the conclusion is:
+      **the live Instagram integration is ALREADY on Facebook login.** So there
+      is nothing to switch, and rule 37's fork does not require a migration here.
+      The webhook was simply never subscribed.
+    - **TWO app ids, TWO app secrets.** The Facebook app is `912301501380919`;
+      the Instagram app is `2636993883137857` with its own secret. Which secret
+      signs an Instagram delivery depends on which setup sent it, and
+      `META_APP_SECRETS` maps app id → secret. Mixing them is a 403 and no row.
+    - `business_id` on the app is `1235692167762623` — the VoyahLebanon
+      portfolio, matching the registry above.
+40. **One Instagram account has TWO numeric ids, and the dashboard shows the one
+    we do NOT store.** The Graph node id is `17841457996874250`; `ig_id` is
+    `117114624612614`, and the app dashboard's rate-limit card displays the
+    latter. They differing is **expected and is not a fault** — a live read on
+    2026-09-12 produced exactly that confusion.
+
+    Only the Graph `id` is an identity here: `accountContext()` refuses to read
+    an account whose registry id does not match `instagram_business_account.id`.
+    But the id that actually decides storage is **`entry[].id` in the delivered
+    payload**, and an event naming an account we do not recognise is counted and
+    **dropped** — so a perfect subscription with the wrong id produces a
+    `channel_deliveries` row with `stored_count: 0`, an empty Inbox, and nothing
+    in any log saying "wrong id". `summariseInstagramIdentity()` now reports both
+    ids before the first DM, and the first Instagram delivery's `entry[].id` must
+    be read out of `channel_deliveries` and compared.
+
 ### Operational notes
 
 - Business Manager demands SMS 2FA to Samer's phone on portfolio switch, so asset
@@ -291,7 +340,7 @@ and that is the honest field to read.
 
 ## What the code enforces today, and what it does not
 
-**Enforced and tested** (533 tests): raw-body timing-safe signature check before
+**Enforced and tested** (538 tests): raw-body timing-safe signature check before
 parsing; missing secret refuses; 403 only for bad signatures; routing by account
 id; username never trusted (Instagram does not even send it); payload
 timestamps; echoes/receipts/reactions dropped; customer text carried verbatim;
