@@ -134,6 +134,289 @@ rule has a scar, the scar is named — a rule without its reason gets argued awa
     badge. That number *has* the badge. Confirm the trade before pulling the
     lever.
 
+### Instagram DMs specifically — scar, 2026-09-11
+
+31. **`page` and `instagram` are TWO separate webhook subscriptions and they
+    fail separately.** Messenger DMs arrive under `object: "page"`; Instagram
+    Direct arrives under `object: "instagram"`. An app subscribed to `page` with
+    the `messages` field receives Facebook DMs forever while Instagram stays
+    completely silent, and the only symptom is an empty inbox. Check both with
+    `GET /{app-id}/subscriptions` — the diagnosis already reads it.
+32. **Ask our own `channel_deliveries` table BEFORE asking Meta anything.** It
+    costs no token, no app secret and no call, and it splits the only two
+    diagnoses that matter: "Meta never sent it" (fault is upstream — the
+    subscription, the permission, the account's own settings) and "it arrived
+    and we lost it" (fault is ours, and the payload shape is recorded). This is
+    now the FIRST step of `diagnoseAccount`. It would have ended a day of
+    screenshot-driven debugging in one query.
+33. **The evidence as of 2026-09-11 13:01 UTC, and its exact limits.** One
+    delivery has ever been recorded: `object: "page"`, entry `408893845643871`
+    (the VOYAH Facebook Page), 1 event, 1 stored, `channel_conversations` row
+    `584e3f9c…` with `unread_count` 1, `channel_messages` row for brand `voyah`.
+
+    **It proves, for app `912301501380919` on the `page` object:** the
+    production endpoint is reachable; the stored app secret verified a real
+    Meta signature over a raw body; the Messenger adapter parsed it; the
+    insert was routed to the correct brand. That is **five of the six**
+    conditions in the definition of done — Inbox *display* has not been
+    confirmed by anybody looking at the screen.
+
+    **It does NOT prove, and must not be cited as proving:**
+    - that the **`instagram` object is subscribed, active, or pointing at the
+      same callback URL**. App subscriptions are per-object and each carries
+      its OWN `callback_url`. ~~This is unread, and it is the likeliest
+      fault.~~ **DISPROVEN 2026-09-12 — see rule 43. It is subscribed and
+      live.**
+    - that `instagram_manage_messages` is granted, or scoped to
+      `17841457996874250`. Granular scopes are per-asset.
+    - that `lib/channels/instagram.ts` parses a real payload. It is a
+      different code path from `messenger.ts` and has never run in production.
+    - anything about MHERO or MONZA SAL, which run on different apps with
+      different secrets.
+
+    The app secret and the signature-check code ARE shared between the two
+    objects, so **[Likely]** a signature problem is ruled out for this app —
+    but absence of a delivery row is consistent with a signature failure (403
+    writes nothing), so that inference rests on the Messenger row, not on
+    Instagram's silence.
+34. **HYPOTHESIS, not established: the app may be in Development mode.** The
+    Instagram conversations listing fails with `code -2 / subcode 2534084`,
+    *"too many conversations with users who do not have a role on app"* — which
+    reads as Meta filtering to app-role holders and timing out. Dev mode would
+    also suppress messaging webhooks for anyone without a role, matching the
+    silence. **What would confirm it:** the app dashboard's own mode indicator
+    (that page does not demand SMS 2FA), or a DM from an account with no app
+    role producing a delivery. Neither has been done. Do not record this as the
+    cause until one of them has.
+35. **UNVERIFIED against these accounts: Instagram's own "Allow access to
+    messages" setting** (Instagram app → Settings → Messages and story replies
+    → Connected tools). It is documented as a prerequisite and is invisible to
+    every API, so it cannot be ruled out remotely and must be checked by hand on
+    each account. Separately and with confidence: **Accounts Center linkage of
+    anybody's PERSONAL Instagram and Facebook has no bearing on whether a
+    business account's DM fires a webhook.** That check is noise; do not
+    reintroduce it.
+36. **The diagnosis reports absence of a delivery row as absence of a ROW, never
+    as proof Meta sent nothing.** Four things leave no row: a 403 on signature
+    verification, a parse failure, a failed best-effort log insert, and age
+    beyond the inspected sample (capped, and spanning all accounts, so a quiet
+    account's rows can be pushed out by a busy one). And `event_count` /
+    `stored_count` are **payload-level, not per-account** — one payload can name
+    several accounts of the same app — while `stored 0` can mean a duplicate
+    redelivery, an echo, an unspeakable-for account, or a failed write, which
+    the row does not distinguish. Enforced in `summariseDeliveries` and asserted
+    against in `tests/channels-diagnose.test.ts`.
+
+37. **Meta ships TWO Instagram messaging APIs and this product works with only
+    one of them.** *Instagram API with Facebook Login* — Page token,
+    `graph.facebook.com`, `{page-id}/conversations`, scopes `instagram_basic` /
+    `instagram_manage_messages`. *Instagram API with Instagram business login* —
+    Instagram user token, `graph.instagram.com`, its own endpoints, scopes
+    `instagram_business_basic` / `instagram_business_manage_messages`, and its
+    webhooks are configured **inside the Instagram product**, never in the app's
+    Webhooks panel. That last detail is how you can tell which one an app is on
+    without any API call.
+
+    **The webhook envelope is identical on both**, so `lib/channels/instagram.ts`
+    parses either. **Everything staff SEE is not.** `readInbox()` renders from
+    `{page-id}/conversations?platform=instagram` — a live Meta call, NOT from
+    `channel_conversations`. So an Instagram-Login app can receive, authenticate,
+    store and route every DM correctly and still show an empty Inbox forever,
+    with no error in any log. That silent half-success is the worst outcome
+    available here and is why the API configuration is settled BEFORE the
+    webhook is subscribed.
+
+    `instagramApiFlavour()` reports which vocabulary a key carries, and the
+    diagnosis checks both sets of scope names — because "instagram_manage_messages:
+    NOT granted" means nothing until you know the key is not an Instagram-Login
+    key carrying the other four.
+38. **The Inbox is a live read, not a database view.** Worth stating on its own
+    because it inverts the obvious debugging instinct: rows in
+    `channel_conversations` prove the webhook worked and prove nothing about what
+    the screen shows. `channel_deliveries` and the stored rows exist for
+    deduplication, lead capture and attribution. Display comes from Meta.
+
+39. **Read live from the VOYAH dashboard, 2026-09-12 — this app is on Meta's
+    "use cases" dashboard, not the legacy Products UI.** Consequences, all
+    confirmed by observation rather than inferred:
+
+    - **There is no "Development / Live" label.** The sidebar carries
+      `Publish → Published`, accessible name "App Publish Status". A DOM search
+      for "Development", "Live", "In development" matched nothing else.
+      **[Likely]** `Published` is the Live equivalent, and the Instagram-login
+      page's own text — *"To receive webhooks, your app must be in published
+      state"* — means that gate is passed. Rule 34's Development-mode hypothesis
+      is therefore WEAKENED, not confirmed.
+    - **The sidebar holds no products.** Only `Facebook Login for Business`.
+      Instagram, Messenger and WhatsApp live on the **Use cases** page, each
+      behind a `Customize` button.
+    - **The Instagram use case has five sub-tabs**: `Permissions and features`,
+      `API setup with Instagram login`, `API integration helper`, `API setup with
+      Facebook login`, `Webhooks`. **CORRECTED 2026-09-12:** that last tab does
+      NOT open an Instagram-scoped page — it navigates to the APP-WIDE webhooks
+      page (`use_case_enum=WEBHOOKS`), which carries a Product selector listing
+      `User, Page, Permissions, Application, Instagram, Whatsapp Business
+      Account, Ad Account, Catalog`. It opens defaulted to **User**, which is
+      irrelevant to messaging and whose emptiness proves nothing. The
+      Facebook-login Instagram subscription lives under the **Instagram** object
+      in that selector; the *Instagram-login* variant is the one configured
+      inside its own product, which is what Meta's "only within the product
+      itself" message referred to.
+    - **The Instagram-login setup is EMPTY**: all five steps incomplete, no
+      account added, no token generated, callback and verify token blank. Yet the
+      Dashboard shows a live Instagram rate-limit card for `voyahlebanon`. Add
+      Meta's own sentence on that page — *"If you want to be able to track
+      hashtags and insights, switch to the API setup with Facebook login"* — and
+      the daily insights reads that demonstrably work, and the conclusion is:
+      **the live Instagram integration is ALREADY on Facebook login.** So there
+      is nothing to switch, and rule 37's fork does not require a migration here.
+      The webhook was simply never subscribed.
+    - **TWO app ids, TWO app secrets.** The Facebook app is `912301501380919`;
+      the Instagram app is `2636993883137857` with its own secret. Which secret
+      signs an Instagram delivery depends on which setup sent it, and
+      `META_APP_SECRETS` maps app id → secret. Mixing them is a 403 and no row.
+    - `business_id` on the app is `1235692167762623` — the VoyahLebanon
+      portfolio, matching the registry above.
+40. **One Instagram account has TWO numeric ids, and the dashboard shows the one
+    we do NOT store.** The Graph node id is `17841457996874250`; `ig_id` is
+    `117114624612614`, and the app dashboard's rate-limit card displays the
+    latter. They differing is **expected and is not a fault** — a live read on
+    2026-09-12 produced exactly that confusion.
+
+    Only the Graph `id` is an identity here: `accountContext()` refuses to read
+    an account whose registry id does not match `instagram_business_account.id`.
+    But the id that actually decides storage is **`entry[].id` in the delivered
+    payload**, and an event naming an account we do not recognise is counted and
+    **dropped** — so a perfect subscription with the wrong id produces a
+    `channel_deliveries` row with `stored_count: 0`, an empty Inbox, and nothing
+    in any log saying "wrong id". `summariseInstagramIdentity()` now reports both
+    ids before the first DM, and the first Instagram delivery's `entry[].id` must
+    be read out of `channel_deliveries` and compared.
+
+41. **The app's setup page showing NO connected Page and NO connected Instagram
+    account is EXPECTED here, not a fault.** Read live 2026-09-12: neither the
+    Facebook-login tab nor the Instagram-login tab lists a Page, an account or a
+    token, yet the Dashboard shows a live Instagram rate-limit card for
+    `voyahlebanon` and insights read daily.
+
+    Both are true because **Monza authenticates with system-user tokens issued
+    at the business portfolio** (`1235692167762623`), not through Facebook Login
+    for Business. The app's setup page only records app-level OAuth connections
+    made by a business authorising the app — a path Monza has never used and does
+    not need. The rate-limit card reflects API traffic by that portfolio token,
+    which is why it exists with no app-page connection behind it. **Do not go
+    looking for a missing connection, and do not run Facebook Login for Business
+    to "fix" it** — that would add a second, redundant authorisation path.
+
+    On that tab, step 1 `Add required permissions` shows **Complete**, listing
+    for messaging: `instagram_basic`, `instagram_manage_messages`,
+    `pages_read_engagement`, `pages_show_list`, `business_management`. Complete
+    means the permissions are ADDED TO THE APP. It does not mean granted to any
+    token, and it does not mean scoped to `17841457996874250` — `debug_token`
+    and its `granular_scopes` are the only thing that says that (rule 21's shape:
+    present-but-empty is not the same as present).
+42. **Webhook fields are pinned per object to an API version** — every field on
+    this app reads `v26.0`, while `lib/channels/live.ts` calls
+    `graph.facebook.com/v21.0`. Reading and receiving are separate paths so this
+    is not automatically a fault, but the DELIVERED payload shape follows the
+    subscription's version, not ours. If a v26 Instagram payload ever fails to
+    parse, this is the first place to look, not the adapter.
+
+43. **The Instagram webhook IS subscribed and live. Read on the app-wide
+    webhooks page, 2026-09-12, VOYAH app `912301501380919`:**
+
+    | Object | Callback | Subscribed fields | Version |
+    |---|---|---|---|
+    | `instagram` | `https://monza-ai.vercel.app/api/channels/meta` | `messages`, `messaging_postbacks`, `messaging_referral` | v26.0 |
+    | `page` | byte-identical URL | `messages`, `messaging_postbacks`, `messaging_referrals` | v26.0 |
+
+    Both verify tokens are filled, 16 masked characters, same length — one env
+    var serving both. `Verify and save` is `aria-disabled` on both, meaning
+    nothing is pending; `Remove subscription` is enabled on both, meaning a
+    subscription exists.
+
+    **So every hypothesis that blamed the subscription is dead**, and with it
+    most of rules 31–34. Meta says it will deliver Instagram DMs to our
+    endpoint. `channel_deliveries` holds zero Instagram rows. What is left, in
+    order of cheapness:
+
+    1. **Nobody has actually sent an Instagram DM since the subscription
+       existed.** Free to eliminate and never yet done. Eliminate it first.
+    2. **App Review is incomplete**, so `instagram_manage_messages` has standard
+       access only and live data is limited to people holding a role on the app.
+       A stranger's DM then produces no webhook at all. This is now the leading
+       hypothesis and it matches the `-2 / 2534084` error text.
+    3. **The permission is not scoped to `17841457996874250`** on the system-user
+       token. `debug_token`'s `granular_scopes` settles it; the diagnosis reads it.
+    4. **The account's "Allow access to messages" toggle** (rule 35), still
+       unreadable by any API.
+    5. **A 403 at signature check**, which writes no row (rule 36). Only the
+       Vercel request log distinguishes "never arrived" from "arrived and was
+       rejected". That log has never been read for this question and is the one
+       place that separates these five.
+44. **One callback URL serves both objects, and that is safe HERE because the
+    adapters gate on the envelope.** `lib/channels/instagram.ts:159` returns an
+    empty list unless `object === "instagram"`; `lib/channels/messenger.ts:132`
+    does the same for `"page"`. The route runs both adapters over every payload,
+    each ignoring what is not its own, so ordering cannot matter. Without those
+    two lines an Instagram DM would be processed as a Messenger DM and a reply
+    addressed with the wrong id — silently, because Meta reports both objects
+    healthy either way.
+45. **Meta names the same concept differently per object: the `instagram` object
+    subscribes `messaging_referral` (singular), the `page` object
+    `messaging_referrals` (plural).** Those are SUBSCRIPTION field names. The
+    delivered payload carries the key `referral` on both, and both adapters read
+    the payload (`event.referral`, `message.referral`, and on Messenger
+    `postback.referral`) rather than the subscription name — so the asymmetry
+    cannot drop attribution here. Anything that ever string-matches subscription
+    field names must handle both spellings.
+46. **`messaging_seen`, `message_reactions` and `message_echoes` are deliberately
+    NOT subscribed, and that is correct.** Rule 19 drops echoes, receipts and
+    reactions on arrival. Subscribing them would cost deliveries to process and
+    throw away. Do not "fix" this. The consequence is real and intended: read
+    receipts, reactions and our own outbound sends are invisible to this product.
+
+47. **What the diagnosis reports, and the four claims it is now forbidden from
+    making.** `diagnoseAccount` returns `{ steps, truncated }` where every step
+    carries a **four-state** `status`, never a boolean:
+
+    | status | means |
+    |---|---|
+    | `pass` | asked, and the answer was good |
+    | `fail` | asked, and the answer was bad — a fault to fix |
+    | `skipped` | deliberately not asked (no key, no app secret, budget spent) |
+    | `unknown` | asked and got no usable answer, or the question cannot be settled from here |
+
+    A boolean collapsed `fail` and `unknown` into one value, and those need
+    opposite next actions. Specifically forbidden, each asserted in
+    `tests/channels-diagnose-run.test.ts`:
+
+    - **No matching delivery row is `unknown`, never `fail`.** Four things leave
+      no row (rule 36), so absence is not evidence Meta sent nothing.
+    - **An unreadable delivery record is `unknown`, never an empty one.**
+    - **A missing token or app secret is `skipped`, never `fail`** — we did not
+      ask, so there is nothing to conclude.
+    - **A working Messenger delivery is never cited as proving the Instagram
+      path.** Rule 33 lists exactly what that one row proves and what it does
+      not; `instagram.ts` is a separate code path that has still never run in
+      production, and the subscription, permission and account settings are all
+      separately verified.
+
+    Two further contracts: a **shared 45 s budget** governs the whole run, so one
+    slow Instagram listing cannot burn the route's timeout and discard every
+    completed check — work already done is returned and `truncated` says the
+    rest was not attempted. And **callback URLs are redacted before display**
+    (`safeCallbackUrl`): query and fragment go unconditionally, because a webhook
+    callback is a place people put tokens and this output is read by staff and
+    pasted into chat. The redaction is stated in the output, never silent.
+48. **`pageInfo` asks Meta for `instagram_business_account{id,ig_id,username}`
+    and FALLS BACK to the plain field on any failure.** That read is on the
+    INBOX's hot path, not only the diagnosis: `accountContext()` refuses to read
+    an Instagram account whose linked id it cannot confirm, so a Meta version or
+    permission that rejects the sub-field syntax would take the Instagram inbox
+    down to gain the diagnosis a second id. The fallback is the plain question
+    the code asked before that field was added. Never remove it.
+
 ### Operational notes
 
 - Business Manager demands SMS 2FA to Samer's phone on portfolio switch, so asset
@@ -152,9 +435,9 @@ Keep this current. It is what stops the same Meta problem being rediscovered.
 
 | Brand | Portfolio | Instagram | Facebook | IG followers | FB followers | Messaging | Status |
 |---|---|---|---|---|---|---|---|
-| VOYAH | VoyahLebanon `1235692167762623` | ✅ read daily | ✅ read daily | 3,582 | 703 | not subscribed | 🟡 reading proven; messaging untested |
-| MHERO | M Hero Lebanon `465327473223381` | ✅ read daily | ✅ read daily | 3,191 | 238 | not subscribed | 🟡 reading proven; messaging untested |
-| MONZA SAL | MONZA SAL | ✅ read daily | ✅ read daily | 1,369 | 32 | not subscribed | 🟡 reading proven; messaging untested |
+| VOYAH | VoyahLebanon `1235692167762623` | ✅ read daily | ✅ read daily | 3,582 | 703 | FB: subscribed + 1 delivery stored/routed; IG: **subscribed and live**, no delivery recorded | 🟡 Messenger 5/6 of done; 🟡 Instagram subscribed, never delivered |
+| MHERO | M Hero Lebanon `465327473223381` | ✅ read daily | ✅ read daily | 3,191 | 238 | no delivery recorded on either | 🟡 rows exist; nothing recorded |
+| MONZA SAL | MONZA SAL `1362868064516225` | ✅ read daily | ✅ read daily | 1,369 | 32 | no delivery recorded on either | 🟡 rows exist; nothing recorded |
 | WhatsApp | VoyahLebanon (owns the WABAs) | WABA `1502691630809243` | phone id `984244264767607` | — | — | — | 🔴 Coexistence gate, rules 27–30 |
 
 **Corrected 2026-09-09.** The previous version of this table said MHERO's
@@ -179,16 +462,19 @@ machine** — neither `MONZA-CRM` checkout named in the project memory still
 exists on the Desktop. Find it before assuming a token env name; it is the one
 place the working credentials are already wired.
 
-`channel_accounts` (the TABLE, in the AI project — `CHANNEL_ACCOUNTS` in
-`lib/channels/types.ts` no longer exists) is **empty** and stays empty until a
-row above is verified end to end. Failing closed beats attaching a customer's
-message to the wrong brand.
+`channel_accounts` (the TABLE, in the AI project `fpsgsgldepgcowyivoow` —
+`CHANNEL_ACCOUNTS` in `lib/channels/types.ts` no longer exists) **now holds six
+rows**, added 2026-09-10: `fb-voyah` / `ig-voyah` (app `912301501380919`),
+`fb-mhero` / `ig-mhero` (app `1793221688521200`), `fb-monza` / `ig-monza` (app
+`1603541974633258`). A row is a claim that the account is configured; it is not
+a claim that anything has ever arrived. `connected_at` is still null on all six,
+and that is the honest field to read.
 
 ---
 
 ## What the code enforces today, and what it does not
 
-**Enforced and tested** (456 tests): raw-body timing-safe signature check before
+**Enforced and tested** (557 tests): raw-body timing-safe signature check before
 parsing; missing secret refuses; 403 only for bad signatures; routing by account
 id; username never trusted (Instagram does not even send it); payload
 timestamps; echoes/receipts/reactions dropped; customer text carried verbatim;
@@ -225,11 +511,16 @@ address a stranger or send one brand's reply from another's account.
 
 **Not yet done — do not assume these hold:**
 
-- **No real DM has been through production.** The endpoint is reachable and
-  refuses correctly; that is not the same thing. See the definition of done
-  below.
-- **No account is connected.** `channel_accounts` is empty, so the inbox shows
-  the demo dataset — real or demo, never both.
+- **No Instagram delivery has been recorded.** Messenger has one — see rule 33
+  for exactly what that does and does not prove. Every Instagram account in the
+  table is configured and silent.
+- **No delivery is recorded for MHERO or MONZA SAL on either channel.** Only the
+  VOYAH Facebook Page has produced one, so the other five rows are "configured",
+  not "working".
+- **No live Meta configuration has been read for any Instagram account.** The
+  diagnosis endpoint exists but has not been run in production against
+  `ig-voyah`, `ig-mhero` or `ig-monza`. Every statement about which
+  subscription, permission or setting is at fault is a hypothesis.
 - **WhatsApp has no adapter.** Instagram and Messenger both do (`lib/channels/
   messenger.ts`, added 2026-09-09, envelope isolation tested both ways).
 - **No lead has ever been matched to a CRM customer**, because no conversation

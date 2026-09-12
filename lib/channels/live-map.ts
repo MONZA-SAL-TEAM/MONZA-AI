@@ -129,12 +129,61 @@ export function pageIdFor(
 }
 
 /** The two facts read from GET /{page-id}?fields=access_token,instagram_business_account. */
-export function readPageInfo(json: unknown): { token: string | null; igId: string | null } {
+export function readPageInfo(json: unknown): {
+  token: string | null;
+  igId: string | null;
+  igLegacyId: string | null;
+  igUsername: string | null;
+} {
   const root = obj(json);
+  const ig = obj(root?.instagram_business_account);
   return {
     token: str(root?.access_token),
-    igId: str(obj(root?.instagram_business_account)?.id),
+    igId: str(ig?.id),
+    // Meta gives one Instagram account TWO numeric identities: the Graph node
+    // id (17841…) and the older `ig_id`. The app dashboard's rate-limit card
+    // shows the SECOND one, so a person comparing the dashboard against our
+    // registry sees a mismatch that is not a mismatch. Read both, name both.
+    igLegacyId: ig?.ig_id === undefined || ig?.ig_id === null ? null : String(ig.ig_id),
+    igUsername: str(ig?.username),
   };
+}
+
+/**
+ * The identity question that decides whether a delivered Instagram webhook is
+ * stored or silently dropped: does `entry[].id` match what our registry holds?
+ *
+ * An event naming an account we do not recognise is counted and DROPPED — there
+ * is no brand to file it under and guessing is the mistake the schema exists to
+ * prevent. So a perfect subscription plus the wrong id in `channel_accounts`
+ * produces a delivery row with `stored_count: 0` and an empty Inbox, with
+ * nothing in any log that says "wrong id". This step makes both of Meta's ids
+ * visible BEFORE the first DM rather than after a day of looking for it.
+ */
+export function summariseInstagramIdentity(
+  registryId: string,
+  graphId: string | null,
+  legacyId: string | null,
+  username: string | null
+): string {
+  if (!graphId) {
+    return "Meta did not report an Instagram account linked to this Page, so the id on record cannot be checked.";
+  }
+  const head = `registry ${registryId} · Graph id ${graphId}` +
+    (legacyId ? ` · ig_id ${legacyId}` : " · ig_id not returned") +
+    (username ? ` · @${username}` : "");
+
+  if (graphId === registryId) {
+    return (
+      `${head} — MATCHES. Note that the app dashboard's rate-limit card shows ig_id` +
+      `${legacyId ? ` (${legacyId})` : ""}, not the Graph id, so those two differing is expected and is not a fault. ` +
+      `If a delivered webhook's entry[].id turns out to be the ig_id instead, the event is dropped: check channel_deliveries.`
+    );
+  }
+  return (
+    `${head} — MISMATCH on the Graph id. Every Instagram event for this account will be dropped ` +
+    `until the registry row holds ${graphId}.`
+  );
 }
 
 /* ── Mapping ─────────────────────────────────────────────────────────────── */
@@ -335,6 +384,25 @@ export function metaErrorDetail(payload: unknown): string | null {
  * switcher is unreliable; this is the same fact without clicking. The callback
  * is our own public URL; nothing secret is in the answer.
  */
+/**
+ * A callback URL, safe to show a staff member.
+ *
+ * Our own callback carries no secret today, but a webhook callback is a place
+ * people PUT secrets — a token in a query string is a known pattern, and this
+ * output is rendered to staff and pasted into chat. So the query and fragment
+ * are removed unconditionally rather than inspected for anything that "looks
+ * like" a secret, and their removal is STATED: a silent strip would let someone
+ * compare this against the dashboard, see a shorter string, and go hunting for
+ * a configuration difference that does not exist.
+ */
+export function safeCallbackUrl(raw: unknown): string {
+  const url = str(raw);
+  if (!url) return "no callback";
+  const cut = url.search(/[?#]/);
+  if (cut === -1) return url;
+  return `${url.slice(0, cut)} [query/fragment hidden]`;
+}
+
 export function summariseAppSubscriptions(payload: unknown, objects: readonly string[]): string {
   if (!Array.isArray(obj(payload)?.data)) return "Meta returned no subscription list.";
   const rows = list(payload).map(obj).filter((r): r is Record<string, unknown> => r !== null);
@@ -345,7 +413,7 @@ export function summariseAppSubscriptions(payload: unknown, objects: readonly st
       const fields = (Array.isArray(row.fields) ? row.fields : [])
         .map((f) => str(obj(f)?.name) ?? str(f))
         .filter((f): f is string => f !== null);
-      const url = (str(row.callback_url) ?? "no callback").replace(/[?#].*/, "");
+      const url = safeCallbackUrl(row.callback_url);
       return `${name}: ${row.active === true ? "active" : "NOT active"}, ${url}, fields ${fields.join(", ") || "none"}`;
     })
     .join(" · ");
@@ -368,6 +436,49 @@ export function summariseSubscribedApps(payload: unknown, appId: string | null):
   });
   const ours = appId !== null && rows.some((r) => str(r.id) === appId);
   return [`our app is ${ours ? "" : "NOT "}subscribed`, ...apps].join(" · ");
+}
+
+/**
+ * WHICH Instagram messaging API this access key belongs to — the question that
+ * decides whether this product works at all, answered from the key's own scope
+ * list rather than from the dashboard.
+ *
+ * Meta ships two Instagram messaging APIs with nothing in common but the
+ * webhook envelope:
+ *
+ *   Facebook Login   instagram_basic + instagram_manage_messages, Page token,
+ *                    graph.facebook.com, {page-id}/conversations
+ *   Instagram Login  instagram_business_basic + instagram_business_manage_messages,
+ *                    Instagram user token, graph.instagram.com, its own endpoints
+ *
+ * lib/channels/live.ts reads conversations from {page-id}/conversations and the
+ * Inbox renders from that call, NOT from our stored rows. So an Instagram-Login
+ * key can receive webhooks perfectly and still show an empty Inbox forever.
+ * That failure is silent and looks exactly like "the webhook is broken", which
+ * is why it is named here rather than left to be inferred.
+ */
+export function instagramApiFlavour(payload: unknown): string {
+  const d = obj(obj(payload)?.data);
+  const scopes = Array.isArray(d?.scopes)
+    ? d.scopes.filter((x): x is string => typeof x === "string")
+    : [];
+  const fbLogin = scopes.some((x) => x === "instagram_basic" || x === "instagram_manage_messages");
+  const igLogin = scopes.some((x) => x.startsWith("instagram_business_"));
+
+  if (fbLogin && igLogin) {
+    return "BOTH vocabularies present — check which the app's Instagram product is actually configured for.";
+  }
+  if (fbLogin) {
+    return "Facebook Login — the configuration this product is written for.";
+  }
+  if (igLogin) {
+    return (
+      "Instagram Login — NOT the configuration this product is written for. " +
+      "Webhooks may arrive and store, but the Inbox reads {page-id}/conversations " +
+      "with a Page token, which this key cannot do, so Instagram threads will not appear."
+    );
+  }
+  return "Neither vocabulary is present: this key carries no Instagram messaging permission at all.";
 }
 
 /** A permission the diagnosis checks, and the Page or Instagram id it must reach. */
@@ -486,4 +597,111 @@ export function inboundIndexRow(input: {
     status: "received",
     sent_at: input.at,
   };
+}
+
+/* ── Diagnosis: what Meta has actually delivered ─────────────────────────── */
+
+/** One row of `channel_deliveries`, as the diagnosis reads it. The payload was
+ *  redacted on arrival (redactDelivery), so this carries shapes and counts —
+ *  never a customer's words. */
+export interface DeliveryRecord {
+  /** The webhook OBJECT Meta named: "page" for Messenger, "instagram" for
+   *  Instagram Direct. They are separate subscriptions and fail separately. */
+  object: string | null;
+  /** `entry[].id` — the account each entry arrived at. */
+  ids: string[];
+  receivedAt: string;
+  eventCount: number;
+  storedCount: number;
+}
+
+/**
+ * The cheapest question in the whole diagnosis, and the one that needs no
+ * token, no app secret and no call to Meta: is there a recorded delivery
+ * naming this account?
+ *
+ * ── What this CANNOT establish ──────────────────────────────────────────────
+ * It cannot say Meta never sent anything, and the wording below never claims
+ * it. Four things leave no row:
+ *
+ *   - a delivery that failed signature verification (answered 403 before any
+ *     write) — which is also the shape of a WRONG app secret, so absence here
+ *     is consistent with a secret problem rather than ruling one out
+ *   - a payload that threw while being parsed (answered 200, logged only)
+ *   - a failed insert: recordDelivery is best-effort and swallows its errors,
+ *     because diagnostics must never fail a delivery
+ *   - anything older than the inspected sample, which is capped and spans ALL
+ *     accounts, so a quiet account's older rows can be pushed out by a busy one
+ *
+ * So the honest report is "no matching delivery in the inspected sample", with
+ * the sample's bounds stated, and never "Meta sent nothing".
+ *
+ * ── What the counters CANNOT establish ──────────────────────────────────────
+ * `event_count` and `stored_count` describe the ENTIRE payload, which may carry
+ * entries for several accounts of the same app. They are not per-account and
+ * are not per-brand. And `stored 0` has at least four causes that need opposite
+ * fixes — a duplicate redelivery (the idempotent no-op, which is CORRECT), an
+ * echo or receipt (correctly ignored), an account this app may not speak for
+ * (correctly refused), and a failed write (a real fault) — which the row does
+ * not distinguish, because duplicates are not recorded separately.
+ *
+ * `expectedObject` matters because one endpoint serves both: an app can be
+ * subscribed to `page` and receive Messenger DMs for years while `instagram`
+ * was never subscribed at all, and the symptom is only ever silence.
+ */
+export function summariseDeliveries(
+  rows: readonly DeliveryRecord[],
+  externalId: string,
+  expectedObject: string,
+  sampleLimit: number
+): string {
+  /** Never "Meta sent nothing" — see the four ways a delivery leaves no row. */
+  const caveat =
+    "A delivery that failed signature verification, failed to parse, or failed to log leaves no row, " +
+    "so absence here is not evidence that Meta sent nothing.";
+
+  if (rows.length === 0) {
+    return `No delivery rows are recorded at all. ${caveat}`;
+  }
+
+  const times = rows.map((r) => r.receivedAt).filter((t) => t !== "");
+  const newest = times.length > 0 ? times.reduce((a, b) => (a > b ? a : b)) : "unknown";
+  const oldest = times.length > 0 ? times.reduce((a, b) => (a < b ? a : b)) : "unknown";
+  const objects = [...new Set(rows.map((r) => r.object ?? "unnamed"))].sort();
+  const truncated = rows.length >= sampleLimit;
+  const sample =
+    `Inspected sample: ${rows.length} row(s) across ALL accounts, ${oldest} to ${newest},` +
+    ` object(s) ${objects.join(", ")}, cap ${sampleLimit}` +
+    (truncated ? " — AT THE CAP, so older rows for this account may fall outside it" : "");
+
+  const mine = rows.filter((r) => r.ids.includes(externalId));
+  if (mine.length === 0) {
+    const other = rows.some((r) => r.object === expectedObject)
+      ? `"${expectedObject}" deliveries do appear in the sample, but none names this account`
+      : `no "${expectedObject}" delivery appears in the sample at all, which points at that subscription`;
+    return `No matching delivery recorded in the inspected sample for ${externalId}: ${other}. ${sample}. ${caveat}`;
+  }
+
+  const last = mine.reduce((a, b) => (a.receivedAt > b.receivedAt ? a : b));
+  // Payload-level, NOT per-account: one delivery can carry entries for several
+  // accounts of the same app, and these counters cover the whole payload.
+  const events = mine.reduce((n, r) => n + r.eventCount, 0);
+  const stored = mine.reduce((n, r) => n + r.storedCount, 0);
+  const multiAccount = mine.some((r) => r.ids.length > 1)
+    ? " (at least one of these payloads named more than one account, so the counts are not this account's alone)"
+    : "";
+  const wrongObject = mine.some((r) => r.object !== expectedObject)
+    ? ` · NOTE: arrived under object ${[...new Set(mine.map((r) => r.object ?? "unnamed"))].join(", ")}, expected ${expectedObject}`
+    : "";
+  const nothingStored =
+    events > 0 && stored === 0
+      ? " · nothing was stored from these payloads, which can mean a duplicate redelivery (correct), an echo or receipt (correct)," +
+        " an account this app may not speak for (correct), or a failed write (a fault) — the row does not distinguish them"
+      : "";
+
+  return (
+    `${mine.length} delivery(ies) in the sample name ${externalId}, most recently ${last.receivedAt}` +
+    ` · payload-level counts: ${events} event(s), ${stored} stored${multiAccount}` +
+    `${nothingStored}${wrongObject} · ${sample}.`
+  );
 }

@@ -24,7 +24,7 @@
 
 import { channelToken, metaAppSecret, metaAppSecretsMap } from "@/lib/env";
 import { parseMetaAppSecrets } from "@/lib/channels/meta-signature";
-import { listAccounts, type StoredAccount } from "@/lib/channels/store";
+import { listAccounts, readDeliveries, type StoredAccount } from "@/lib/channels/store";
 import { instagramAdapter } from "@/lib/channels/instagram";
 import { messengerAdapter } from "@/lib/channels/messenger";
 import { replyWindow, windowExplanation, type ReplyWindow } from "@/lib/channels/types";
@@ -45,10 +45,14 @@ import {
   peerOf,
   readPageInfo,
   sortNewestFirst,
+  instagramApiFlavour,
   summariseAppSubscriptions,
+  summariseDeliveries,
   summariseDebugToken,
+  summariseInstagramIdentity,
   summariseSubscribedApps,
   type AccountState,
+  type DeliveryRecord,
   type AccountStatus,
   type Peer,
   type ScopeWant,
@@ -93,6 +97,15 @@ type GraphResult =
   | { ok: true; json: unknown }
   /** meta: Meta's own code/subcode/message, for the staff-only diagnosis. */
   | { ok: false; problem: string; retryLighter: boolean; meta?: string | null };
+
+/** One call to Meta. Named so the diagnosis can be handed a fake one in a test
+ *  without the production path gaining an injection point it never uses. */
+export type GraphFn = (
+  path: string,
+  params: Record<string, string>,
+  token: string,
+  timeoutMs: number
+) => Promise<GraphResult>;
 
 async function graphGet(
   path: string,
@@ -145,6 +158,10 @@ function isMetaChannel(account: StoredAccount): boolean {
 interface PageInfo {
   token: string;
   igId: string | null;
+  /** Meta's OTHER numeric id for the same Instagram account — what the app
+   *  dashboard's rate-limit card displays. Diagnosis only; never an identity. */
+  igLegacyId: string | null;
+  igUsername: string | null;
   until: number;
 }
 
@@ -160,19 +177,40 @@ const PAGE_CACHE_MS = 10 * 60_000;
  * converts the first into the second; with the second, Meta simply answers with
  * the same key, so both work.
  */
-async function pageInfo(pageId: string, envToken: string): Promise<PageInfo> {
+async function pageInfo(pageId: string, envToken: string, graph: GraphFn = graphGet): Promise<PageInfo> {
   const key = `${pageId}:${envToken.length}:${envToken.slice(-6)}`;
-  const hit = pageCache.get(key);
+  // The cache is keyed on the real credential, so a test graph must never read
+  // from it or write to it — otherwise one test's fake Page leaks into the next.
+  const live = graph === graphGet;
+  const hit = live ? pageCache.get(key) : undefined;
   if (hit && hit.until > Date.now()) return hit;
 
-  const r = await graphGet(pageId, { fields: "access_token,instagram_business_account" }, envToken);
-  const read = r.ok ? readPageInfo(r.json) : { token: null, igId: null };
+  // The expanded read carries ig_id and username, which the diagnosis needs to
+  // stop the dashboard's OTHER Instagram id from reading as a mismatch. It is
+  // asked on the INBOX's hot path, so a Meta version or permission that rejects
+  // the sub-field syntax must not cost us the linked-account id and take the
+  // Instagram inbox down with it. On any failure, ask the plain question the
+  // code asked before this field was added.
+  let r = await graph(
+    pageId,
+    { fields: "access_token,instagram_business_account{id,ig_id,username}" },
+    envToken,
+    TIMEOUT_MS
+  );
+  if (!r.ok) {
+    r = await graph(pageId, { fields: "access_token,instagram_business_account" }, envToken, TIMEOUT_MS);
+  }
+  const read = r.ok
+    ? readPageInfo(r.json)
+    : { token: null, igId: null, igLegacyId: null, igUsername: null };
   const info: PageInfo = {
     token: read.token ?? envToken,
     igId: read.igId,
+    igLegacyId: read.igLegacyId,
+    igUsername: read.igUsername,
     until: Date.now() + PAGE_CACHE_MS,
   };
-  if (r.ok) pageCache.set(key, info); // a failure is retried next time, not remembered
+  if (r.ok && live) pageCache.set(key, info); // a failure is retried next time, not remembered
   return info;
 }
 
@@ -182,7 +220,9 @@ type AccountContext =
 
 async function accountContext(
   account: StoredAccount,
-  all: readonly StoredAccount[]
+  all: readonly StoredAccount[],
+  graph: GraphFn = graphGet,
+  tokenFor: (env: string) => string | null = channelToken
 ): Promise<AccountContext> {
   const pageId = pageIdFor(account, all);
   if (!pageId) {
@@ -193,12 +233,12 @@ async function accountContext(
     };
   }
 
-  const envToken = channelToken(account.tokenEnv);
+  const envToken = tokenFor(account.tokenEnv);
   if (!envToken) {
     return { ok: false, state: "no_token", problem: "The access key for this account has not been added yet." };
   }
 
-  const info = await pageInfo(pageId, envToken);
+  const info = await pageInfo(pageId, envToken, graph);
 
   // Our own Instagram id decides which messages are "ours". If the registry
   // holds the wrong one, our replies would look like the customer's and a reply
@@ -456,17 +496,69 @@ export async function readThreadForStaff(threadId: unknown): Promise<ThreadView>
 
 /* ── Diagnosis ───────────────────────────────────────────────────────────── */
 
+/**
+ * Four outcomes, never two. A boolean collapses "we asked and the answer was
+ * no" into the same value as "we could not ask", and those need opposite next
+ * actions — the first is a fault to fix, the second is a fact still unknown.
+ */
+export type CheckStatus = "pass" | "fail" | "skipped" | "unknown";
+
 export interface DiagnoseStep {
   step: string;
   ms: number;
-  ok: boolean;
+  status: CheckStatus;
   /** What Meta answered, in brief: a row count, or its error. Never a key. */
   detail: string;
 }
 
 export type Diagnosis =
-  | { ok: true; account: string; steps: DiagnoseStep[] }
+  | {
+      ok: true;
+      account: string;
+      steps: DiagnoseStep[];
+      /** True when the time budget ran out before every check was attempted.
+       *  The steps already gathered are returned rather than discarded. */
+      truncated: boolean;
+    }
   | { ok: false; status: number; problem: string };
+
+/**
+ * Everything the diagnosis reaches outside itself. Production passes the real
+ * implementations; a test passes fakes, which is the only way to assert that a
+ * refused Page token still returns the checks that do not depend on it.
+ */
+export interface DiagnoseIO {
+  accounts: () => Promise<StoredAccount[]>;
+  deliveries: () => Promise<
+    { ok: true; rows: DeliveryRecord[]; limit: number } | { ok: false; error: string }
+  >;
+  graph: GraphFn;
+  tokenFor: (envName: string) => string | null;
+  secretFor: (appId: string | null) => string | null;
+  now: () => number;
+  budgetMs: number;
+}
+
+/** Inside the route's 60 s, leaving room to serialise what was gathered. */
+const DIAGNOSE_BUDGET_MS = 45_000;
+/** Below this, a network step is not worth starting: it would only time out. */
+const MIN_STEP_MS = 1_500;
+
+export function liveDiagnoseIO(): DiagnoseIO {
+  return {
+    accounts: listAccounts,
+    deliveries: readDeliveries,
+    graph: graphGet,
+    tokenFor: channelToken,
+    secretFor: (appId) =>
+      appId === null
+        ? null
+        : parseMetaAppSecrets(metaAppSecretsMap(), metaAppSecret()).find((x) => x.appId === appId)
+            ?.secret ?? null,
+    now: () => Date.now(),
+    budgetMs: DIAGNOSE_BUDGET_MS,
+  };
+}
 
 function briefly(json: unknown): string {
   const root = json && typeof json === "object" ? (json as Record<string, unknown>) : null;
@@ -482,102 +574,254 @@ function briefly(json: unknown): string {
  * slow or refused Instagram listing can be told apart from a slow token, a
  * slow Page, or an Instagram account Meta will not let us read at all
  * (2026-09-10: every Instagram list shape timed out while Facebook took ~2 s).
+ *
+ * Two ordering rules, both learned the hard way:
+ *
+ *   - Every check that CAN be answered without the Page's token runs first and
+ *     runs unconditionally. A refused Page token used to end the diagnosis
+ *     before the delivery record, the key's permissions and the app's webhook
+ *     subscriptions had been read — hiding the three facts most likely to
+ *     explain the refusal behind the refusal itself.
+ *   - A shared deadline governs the whole run. One Instagram listing can burn
+ *     35 s on its own, and without a budget the route's own timeout would
+ *     discard every completed check along with it. Work already done is
+ *     returned; what was not attempted says so.
  */
-export async function diagnoseAccount(accountId: unknown): Promise<Diagnosis> {
+export async function diagnoseAccount(
+  accountId: unknown,
+  io: DiagnoseIO = liveDiagnoseIO()
+): Promise<Diagnosis> {
   if (typeof accountId !== "string") {
     return { ok: false, status: 400, problem: "Say which account to check." };
   }
-  const all = await listAccounts();
+  const all = await io.accounts();
   const account = all.find((a) => a.id === accountId);
   if (!account || !isMetaChannel(account)) {
     return { ok: false, status: 404, problem: "That account is not connected." };
   }
 
   const steps: DiagnoseStep[] = [];
-  const t0 = Date.now();
-  const ctx = await accountContext(account, all);
-  steps.push({
-    step: "Page key and linked Instagram account",
-    ms: Date.now() - t0,
-    ok: ctx.ok,
-    detail: ctx.ok ? "ok" : ctx.problem,
-  });
-  if (!ctx.ok) return { ok: true, account: account.id, steps };
+  const deadline = io.now() + io.budgetMs;
+  let truncated = false;
 
-  const timed = async (
-    step: string,
-    path: string,
-    params: Record<string, string>,
-    timeoutMs: number
-  ) => {
-    const t = Date.now();
-    const r = await graphGet(path, params, ctx.token, timeoutMs);
-    const detail = r.ok ? briefly(r.json) : r.meta ? `${r.problem} [Meta: ${r.meta}]` : r.problem;
-    steps.push({ step, ms: Date.now() - t, ok: r.ok, detail });
+  const add = (step: string, ms: number, status: CheckStatus, detail: string) =>
+    steps.push({ step, ms, status, detail });
+
+  /** Time left for network work, or null when the budget is spent. */
+  const budgetLeft = (): number | null => {
+    const left = deadline - io.now();
+    return left >= MIN_STEP_MS ? left : null;
   };
+  const outOfTime = (step: string) => {
+    truncated = true;
+    add(step, 0, "skipped", "Not attempted: the diagnosis time budget was spent on earlier checks.");
+  };
+
+  // ── Checks that need NO Page token, so nothing below can suppress them ────
+
+  // Has Meta ever posted a webhook naming this account? No token, no secret,
+  // no call to Meta — and "nothing matching was recorded" and "it arrived and
+  // we lost it" have no fix in common.
+  const expectedObject = account.channel === "instagram" ? "instagram" : "page";
+  const td = io.now();
+  const deliveries = await io.deliveries();
+  if (!deliveries.ok) {
+    add(
+      "Webhooks Meta has actually delivered",
+      io.now() - td,
+      "unknown",
+      `The delivery record could not be read, so this is unknown rather than empty: ${deliveries.error}`
+    );
+  } else {
+    const found = deliveries.rows.some((r) => r.ids.includes(account.externalId));
+    add(
+      "Webhooks Meta has actually delivered",
+      io.now() - td,
+      // Never "fail": no matching row is not proof Meta sent nothing. The
+      // detail spells out the four ways a delivery leaves no row.
+      found ? "pass" : "unknown",
+      summariseDeliveries(deliveries.rows, account.externalId, expectedObject, deliveries.limit)
+    );
+  }
+
+  // The Page id comes from the registry, not from Meta, so the permission
+  // check below can name the right Page even when Meta will not talk to us.
+  const registryPageId = pageIdFor(account, all);
+
+  const envToken = io.tokenFor(account.tokenEnv);
+  const secret = io.secretFor(account.appId);
+  const appSecretToken = account.appId && secret ? `${account.appId}|${secret}` : null;
+  const wants: ScopeWant[] = [
+    ...(account.channel === "instagram"
+      ? [
+          // Both vocabularies, because "NOT granted" on the Facebook-Login
+          // names means nothing until you know the key is not an
+          // Instagram-Login key carrying the other set.
+          { scope: "instagram_manage_messages", id: account.externalId },
+          { scope: "instagram_basic", id: account.externalId },
+          { scope: "instagram_business_manage_messages", id: account.externalId },
+          { scope: "instagram_business_basic", id: account.externalId },
+        ]
+      : []),
+    ...(registryPageId
+      ? [
+          { scope: "pages_messaging", id: registryPageId },
+          { scope: "pages_manage_metadata", id: registryPageId },
+          { scope: "pages_read_engagement", id: registryPageId },
+          { scope: "pages_show_list", id: registryPageId },
+        ]
+      : []),
+  ];
 
   // What the brand's access key actually carries, and for which accounts. Meta
   // answers this only to the app that issued the key, so it is asked with that
   // app's own id and secret; neither the key nor the secret is ever returned.
-  const envToken = channelToken(account.tokenEnv);
-  const secret = account.appId
-    ? parseMetaAppSecrets(metaAppSecretsMap(), metaAppSecret()).find((s) => s.appId === account.appId)
-    : undefined;
-  const wants: ScopeWant[] = [
-    ...(account.channel === "instagram"
-      ? [
-          { scope: "instagram_manage_messages", id: account.externalId },
-          { scope: "instagram_basic", id: account.externalId },
-        ]
-      : []),
-    { scope: "pages_messaging", id: ctx.pageId },
-    { scope: "pages_manage_metadata", id: ctx.pageId },
-    { scope: "pages_read_engagement", id: ctx.pageId },
-    { scope: "pages_show_list", id: ctx.pageId },
-  ];
-  const tk = Date.now();
-  if (!envToken || !secret || !account.appId) {
-    steps.push({
-      step: "Access key permissions",
-      ms: 0,
-      ok: false,
-      detail: "Skipped: this account's app id or app secret is not configured.",
-    });
+  if (!envToken || !appSecretToken) {
+    add(
+      "Access key permissions",
+      0,
+      "skipped",
+      !envToken
+        ? `Skipped: no value is set for ${account.tokenEnv}.`
+        : "Skipped: this account's app id or app secret is not configured."
+    );
+    add("Which Instagram API this key is for", 0, "skipped", "Skipped: the key's permissions could not be read.");
   } else {
-    const r = await graphGet("debug_token", { input_token: envToken }, `${account.appId}|${secret.secret}`, 10_000);
-    steps.push({
-      step: "Access key permissions",
-      ms: Date.now() - tk,
-      ok: r.ok,
-      detail: r.ok ? summariseDebugToken(r.json, wants) : r.meta ? `${r.problem} [Meta: ${r.meta}]` : r.problem,
-    });
+    const left = budgetLeft();
+    if (left === null) {
+      outOfTime("Access key permissions");
+      outOfTime("Which Instagram API this key is for");
+    } else {
+      const tk = io.now();
+      const r = await io.graph("debug_token", { input_token: envToken }, appSecretToken, Math.min(10_000, left));
+      add(
+        "Access key permissions",
+        io.now() - tk,
+        r.ok ? "pass" : "unknown",
+        r.ok ? summariseDebugToken(r.json, wants) : r.meta ? `${r.problem} [Meta: ${r.meta}]` : r.problem
+      );
+      // Which of Meta's two Instagram messaging APIs this key belongs to. The
+      // Inbox renders from {page-id}/conversations, so the wrong one is a
+      // silent empty screen rather than an error anybody would notice.
+      if (account.channel === "instagram") {
+        if (!r.ok) {
+          add("Which Instagram API this key is for", 0, "unknown", "Meta did not answer for this key.");
+        } else {
+          const flavour = instagramApiFlavour(r.json);
+          add(
+            "Which Instagram API this key is for",
+            0,
+            /^Facebook Login/.test(flavour) ? "pass" : "fail",
+            flavour
+          );
+        }
+      }
+    }
   }
 
   // Meta's own record of where this app's webhooks go and which fields are on,
-  // and which apps this Page really sends its events to — the dashboard's
-  // product switcher is unreliable, so these are read from the API instead.
-  const readWith = async (
-    step: string,
-    path: string,
-    token: string,
-    summarise: (json: unknown) => string
-  ) => {
-    const t = Date.now();
-    const r = await graphGet(path, {}, token, 10_000);
-    const detail = r.ok ? summarise(r.json) : r.meta ? `${r.problem} [Meta: ${r.meta}]` : r.problem;
-    steps.push({ step, ms: Date.now() - t, ok: r.ok, detail });
-  };
-  if (secret && account.appId) {
-    await readWith(
+  // per object. This separates "the instagram object was never subscribed"
+  // from every other cause, and needs only the app's own id and secret — so it
+  // must never be gated behind a Page token.
+  if (!appSecretToken) {
+    add(
       "Meta's record of this app's webhooks",
-      `${account.appId}/subscriptions`,
-      `${account.appId}|${secret.secret}`,
-      (json) => summariseAppSubscriptions(json, ["page", "instagram"])
+      0,
+      "skipped",
+      "Skipped: this account's app id or app secret is not configured."
+    );
+  } else {
+    const left = budgetLeft();
+    if (left === null) {
+      outOfTime("Meta's record of this app's webhooks");
+    } else {
+      const t = io.now();
+      const r = await io.graph(`${account.appId}/subscriptions`, {}, appSecretToken, Math.min(10_000, left));
+      add(
+        "Meta's record of this app's webhooks",
+        io.now() - t,
+        r.ok ? "pass" : "unknown",
+        r.ok
+          ? summariseAppSubscriptions(r.json, ["page", "instagram"])
+          : r.meta
+            ? `${r.problem} [Meta: ${r.meta}]`
+            : r.problem
+      );
+    }
+  }
+
+  // ── Checks that do need the Page token ──────────────────────────────────
+  const ctxLeft = budgetLeft();
+  if (ctxLeft === null) {
+    outOfTime("Page key and linked Instagram account");
+    outOfTime("Page and conversation reads");
+    return { ok: true, account: account.id, steps, truncated };
+  }
+
+  const t0 = io.now();
+  const ctx = await accountContext(account, all, io.graph, io.tokenFor);
+  add(
+    "Page key and linked Instagram account",
+    io.now() - t0,
+    ctx.ok ? "pass" : ctx.state === "no_token" || ctx.state === "no_page" ? "skipped" : "fail",
+    ctx.ok ? "ok" : ctx.problem
+  );
+  if (!ctx.ok) {
+    // Everything remaining is asked WITH the Page's token, so it cannot be
+    // answered. Say which checks were not run and why, rather than ending the
+    // list silently and letting the reader assume they passed.
+    add(
+      "Page and conversation reads",
+      0,
+      "skipped",
+      `Not attempted: these need the Page's own token, which could not be obtained. ${ctx.problem}`
+    );
+    return { ok: true, account: account.id, steps, truncated };
+  }
+
+  const timed = async (step: string, path: string, params: Record<string, string>, timeoutMs: number) => {
+    const left = budgetLeft();
+    if (left === null) return outOfTime(step);
+    const t = io.now();
+    const r = await io.graph(path, params, ctx.token, Math.min(timeoutMs, left));
+    add(
+      step,
+      io.now() - t,
+      r.ok ? "pass" : "unknown",
+      r.ok ? briefly(r.json) : r.meta ? `${r.problem} [Meta: ${r.meta}]` : r.problem
+    );
+  };
+
+  // Which Instagram account our registry claims, against BOTH ids Meta holds
+  // for it. An event naming an id we do not recognise is dropped, silently.
+  if (account.channel === "instagram") {
+    const info = await pageInfo(ctx.pageId, envToken ?? ctx.token, io.graph);
+    add(
+      "Instagram id on record vs Meta's two ids",
+      0,
+      info.igId === null ? "unknown" : info.igId === account.externalId ? "pass" : "fail",
+      summariseInstagramIdentity(account.externalId, info.igId, info.igLegacyId, info.igUsername)
     );
   }
-  await readWith("Apps this Page sends events to", `${ctx.pageId}/subscribed_apps`, ctx.token, (json) =>
-    summariseSubscribedApps(json, account.appId)
-  );
+
+  {
+    const left = budgetLeft();
+    if (left === null) outOfTime("Apps this Page sends events to");
+    else {
+      const t = io.now();
+      const r = await io.graph(`${ctx.pageId}/subscribed_apps`, {}, ctx.token, Math.min(10_000, left));
+      add(
+        "Apps this Page sends events to",
+        io.now() - t,
+        r.ok ? "pass" : "unknown",
+        r.ok
+          ? summariseSubscribedApps(r.json, account.appId)
+          : r.meta
+            ? `${r.problem} [Meta: ${r.meta}]`
+            : r.problem
+      );
+    }
+  }
 
   await timed(
     "Facebook conversations: 1 row, id only",
@@ -594,7 +838,7 @@ export async function diagnoseAccount(accountId: unknown): Promise<Diagnosis> {
       35_000
     );
   }
-  return { ok: true, account: account.id, steps };
+  return { ok: true, account: account.id, steps, truncated };
 }
 
 /* ── Replying ────────────────────────────────────────────────────────────── */
