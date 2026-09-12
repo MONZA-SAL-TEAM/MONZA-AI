@@ -164,7 +164,9 @@ rule has a scar, the scar is named — a rule without its reason gets argued awa
     **It does NOT prove, and must not be cited as proving:**
     - that the **`instagram` object is subscribed, active, or pointing at the
       same callback URL**. App subscriptions are per-object and each carries
-      its OWN `callback_url`. This is unread, and it is the likeliest fault.
+      its OWN `callback_url`. ~~This is unread, and it is the likeliest
+      fault.~~ **DISPROVEN 2026-09-12 — see rule 43. It is subscribed and
+      live.**
     - that `instagram_manage_messages` is granted, or scoped to
       `17841457996874250`. Granular scopes are per-asset.
     - that `lib/channels/instagram.ts` parses a real payload. It is a
@@ -320,6 +322,60 @@ rule has a scar, the scar is named — a rule without its reason gets argued awa
     subscription's version, not ours. If a v26 Instagram payload ever fails to
     parse, this is the first place to look, not the adapter.
 
+43. **The Instagram webhook IS subscribed and live. Read on the app-wide
+    webhooks page, 2026-09-12, VOYAH app `912301501380919`:**
+
+    | Object | Callback | Subscribed fields | Version |
+    |---|---|---|---|
+    | `instagram` | `https://monza-ai.vercel.app/api/channels/meta` | `messages`, `messaging_postbacks`, `messaging_referral` | v26.0 |
+    | `page` | byte-identical URL | `messages`, `messaging_postbacks`, `messaging_referrals` | v26.0 |
+
+    Both verify tokens are filled, 16 masked characters, same length — one env
+    var serving both. `Verify and save` is `aria-disabled` on both, meaning
+    nothing is pending; `Remove subscription` is enabled on both, meaning a
+    subscription exists.
+
+    **So every hypothesis that blamed the subscription is dead**, and with it
+    most of rules 31–34. Meta says it will deliver Instagram DMs to our
+    endpoint. `channel_deliveries` holds zero Instagram rows. What is left, in
+    order of cheapness:
+
+    1. **Nobody has actually sent an Instagram DM since the subscription
+       existed.** Free to eliminate and never yet done. Eliminate it first.
+    2. **App Review is incomplete**, so `instagram_manage_messages` has standard
+       access only and live data is limited to people holding a role on the app.
+       A stranger's DM then produces no webhook at all. This is now the leading
+       hypothesis and it matches the `-2 / 2534084` error text.
+    3. **The permission is not scoped to `17841457996874250`** on the system-user
+       token. `debug_token`'s `granular_scopes` settles it; the diagnosis reads it.
+    4. **The account's "Allow access to messages" toggle** (rule 35), still
+       unreadable by any API.
+    5. **A 403 at signature check**, which writes no row (rule 36). Only the
+       Vercel request log distinguishes "never arrived" from "arrived and was
+       rejected". That log has never been read for this question and is the one
+       place that separates these five.
+44. **One callback URL serves both objects, and that is safe HERE because the
+    adapters gate on the envelope.** `lib/channels/instagram.ts:159` returns an
+    empty list unless `object === "instagram"`; `lib/channels/messenger.ts:132`
+    does the same for `"page"`. The route runs both adapters over every payload,
+    each ignoring what is not its own, so ordering cannot matter. Without those
+    two lines an Instagram DM would be processed as a Messenger DM and a reply
+    addressed with the wrong id — silently, because Meta reports both objects
+    healthy either way.
+45. **Meta names the same concept differently per object: the `instagram` object
+    subscribes `messaging_referral` (singular), the `page` object
+    `messaging_referrals` (plural).** Those are SUBSCRIPTION field names. The
+    delivered payload carries the key `referral` on both, and both adapters read
+    the payload (`event.referral`, `message.referral`, and on Messenger
+    `postback.referral`) rather than the subscription name — so the asymmetry
+    cannot drop attribution here. Anything that ever string-matches subscription
+    field names must handle both spellings.
+46. **`messaging_seen`, `message_reactions` and `message_echoes` are deliberately
+    NOT subscribed, and that is correct.** Rule 19 drops echoes, receipts and
+    reactions on arrival. Subscribing them would cost deliveries to process and
+    throw away. Do not "fix" this. The consequence is real and intended: read
+    receipts, reactions and our own outbound sends are invisible to this product.
+
 ### Operational notes
 
 - Business Manager demands SMS 2FA to Samer's phone on portfolio switch, so asset
@@ -338,7 +394,7 @@ Keep this current. It is what stops the same Meta problem being rediscovered.
 
 | Brand | Portfolio | Instagram | Facebook | IG followers | FB followers | Messaging | Status |
 |---|---|---|---|---|---|---|---|
-| VOYAH | VoyahLebanon `1235692167762623` | ✅ read daily | ✅ read daily | 3,582 | 703 | FB: 1 delivery stored + routed (Inbox display unconfirmed); IG: no delivery recorded | 🟡 Messenger 5/6 of done; 🔴 Instagram silent |
+| VOYAH | VoyahLebanon `1235692167762623` | ✅ read daily | ✅ read daily | 3,582 | 703 | FB: subscribed + 1 delivery stored/routed; IG: **subscribed and live**, no delivery recorded | 🟡 Messenger 5/6 of done; 🟡 Instagram subscribed, never delivered |
 | MHERO | M Hero Lebanon `465327473223381` | ✅ read daily | ✅ read daily | 3,191 | 238 | no delivery recorded on either | 🟡 rows exist; nothing recorded |
 | MONZA SAL | MONZA SAL `1362868064516225` | ✅ read daily | ✅ read daily | 1,369 | 32 | no delivery recorded on either | 🟡 rows exist; nothing recorded |
 | WhatsApp | VoyahLebanon (owns the WABAs) | WABA `1502691630809243` | phone id `984244264767607` | — | — | — | 🔴 Coexistence gate, rules 27–30 |
