@@ -149,27 +149,61 @@ rule has a scar, the scar is named — a rule without its reason gets argued awa
     and we lost it" (fault is ours, and the payload shape is recorded). This is
     now the FIRST step of `diagnoseAccount`. It would have ended a day of
     screenshot-driven debugging in one query.
-33. **The evidence as of 2026-09-11 13:01 UTC.** Exactly ONE delivery has ever
-    reached production: `object: "page"`, entry `408893845643871` (the VOYAH
-    Facebook Page), 1 event, 1 stored, routed to brand `voyah`, conversation
-    `584e3f9c…` with `unread_count` 1. That single row proves the whole spine —
-    signature check, app→account matching, adapter, idempotent store, brand
-    routing, Inbox — is correct in production for app `912301501380919`. So any
-    Instagram theory that also implicates the endpoint, the app secret, the
-    callback URL, the token env or the storage layer is **already disproven**.
-    The fault is Instagram-side and nothing else.
-34. **The Instagram conversations listing fails with `code -2 / subcode
-    2534084`, "too many conversations with users who do not have a role on
-    app".** That sentence is Meta describing **Development mode**: it is
-    filtering the list down to people with an app role and timing out doing it.
-    It is evidence, not a timeout to retry. An app in Development mode also
-    sends no messaging webhooks for anyone without a role — which is exactly the
-    observed silence. Check App Review → app mode before touching anything else.
-35. **The Instagram account's own "Allow access to messages" toggle is a real
-    gate and is invisible to every API.** Instagram app → Settings → Messages
-    and story replies → Connected tools. Off means no webhook, whatever the
-    subscription says. It has no relation to Accounts Center, and Accounts
-    Center linkage of anybody's PERSONAL accounts has no bearing on any of this.
+33. **The evidence as of 2026-09-11 13:01 UTC, and its exact limits.** One
+    delivery has ever been recorded: `object: "page"`, entry `408893845643871`
+    (the VOYAH Facebook Page), 1 event, 1 stored, `channel_conversations` row
+    `584e3f9c…` with `unread_count` 1, `channel_messages` row for brand `voyah`.
+
+    **It proves, for app `912301501380919` on the `page` object:** the
+    production endpoint is reachable; the stored app secret verified a real
+    Meta signature over a raw body; the Messenger adapter parsed it; the
+    insert was routed to the correct brand. That is **five of the six**
+    conditions in the definition of done — Inbox *display* has not been
+    confirmed by anybody looking at the screen.
+
+    **It does NOT prove, and must not be cited as proving:**
+    - that the **`instagram` object is subscribed, active, or pointing at the
+      same callback URL**. App subscriptions are per-object and each carries
+      its OWN `callback_url`. This is unread, and it is the likeliest fault.
+    - that `instagram_manage_messages` is granted, or scoped to
+      `17841457996874250`. Granular scopes are per-asset.
+    - that `lib/channels/instagram.ts` parses a real payload. It is a
+      different code path from `messenger.ts` and has never run in production.
+    - anything about MHERO or MONZA SAL, which run on different apps with
+      different secrets.
+
+    The app secret and the signature-check code ARE shared between the two
+    objects, so **[Likely]** a signature problem is ruled out for this app —
+    but absence of a delivery row is consistent with a signature failure (403
+    writes nothing), so that inference rests on the Messenger row, not on
+    Instagram's silence.
+34. **HYPOTHESIS, not established: the app may be in Development mode.** The
+    Instagram conversations listing fails with `code -2 / subcode 2534084`,
+    *"too many conversations with users who do not have a role on app"* — which
+    reads as Meta filtering to app-role holders and timing out. Dev mode would
+    also suppress messaging webhooks for anyone without a role, matching the
+    silence. **What would confirm it:** the app dashboard's own mode indicator
+    (that page does not demand SMS 2FA), or a DM from an account with no app
+    role producing a delivery. Neither has been done. Do not record this as the
+    cause until one of them has.
+35. **UNVERIFIED against these accounts: Instagram's own "Allow access to
+    messages" setting** (Instagram app → Settings → Messages and story replies
+    → Connected tools). It is documented as a prerequisite and is invisible to
+    every API, so it cannot be ruled out remotely and must be checked by hand on
+    each account. Separately and with confidence: **Accounts Center linkage of
+    anybody's PERSONAL Instagram and Facebook has no bearing on whether a
+    business account's DM fires a webhook.** That check is noise; do not
+    reintroduce it.
+36. **The diagnosis reports absence of a delivery row as absence of a ROW, never
+    as proof Meta sent nothing.** Four things leave no row: a 403 on signature
+    verification, a parse failure, a failed best-effort log insert, and age
+    beyond the inspected sample (capped, and spanning all accounts, so a quiet
+    account's rows can be pushed out by a busy one). And `event_count` /
+    `stored_count` are **payload-level, not per-account** — one payload can name
+    several accounts of the same app — while `stored 0` can mean a duplicate
+    redelivery, an echo, an unspeakable-for account, or a failed write, which
+    the row does not distinguish. Enforced in `summariseDeliveries` and asserted
+    against in `tests/channels-diagnose.test.ts`.
 
 ### Operational notes
 
@@ -189,9 +223,9 @@ Keep this current. It is what stops the same Meta problem being rediscovered.
 
 | Brand | Portfolio | Instagram | Facebook | IG followers | FB followers | Messaging | Status |
 |---|---|---|---|---|---|---|---|
-| VOYAH | VoyahLebanon `1235692167762623` | ✅ read daily | ✅ read daily | 3,582 | 703 | FB **proven end to end**; IG has never delivered | 🟢 Messenger connected; 🔴 Instagram silent |
-| MHERO | M Hero Lebanon `465327473223381` | ✅ read daily | ✅ read daily | 3,191 | 238 | neither has ever delivered | 🟡 rows exist; nothing received |
-| MONZA SAL | MONZA SAL `1362868064516225` | ✅ read daily | ✅ read daily | 1,369 | 32 | neither has ever delivered | 🟡 rows exist; nothing received |
+| VOYAH | VoyahLebanon `1235692167762623` | ✅ read daily | ✅ read daily | 3,582 | 703 | FB: 1 delivery stored + routed (Inbox display unconfirmed); IG: no delivery recorded | 🟡 Messenger 5/6 of done; 🔴 Instagram silent |
+| MHERO | M Hero Lebanon `465327473223381` | ✅ read daily | ✅ read daily | 3,191 | 238 | no delivery recorded on either | 🟡 rows exist; nothing recorded |
+| MONZA SAL | MONZA SAL `1362868064516225` | ✅ read daily | ✅ read daily | 1,369 | 32 | no delivery recorded on either | 🟡 rows exist; nothing recorded |
 | WhatsApp | VoyahLebanon (owns the WABAs) | WABA `1502691630809243` | phone id `984244264767607` | — | — | — | 🔴 Coexistence gate, rules 27–30 |
 
 **Corrected 2026-09-09.** The previous version of this table said MHERO's
@@ -228,7 +262,7 @@ and that is the honest field to read.
 
 ## What the code enforces today, and what it does not
 
-**Enforced and tested** (456 tests): raw-body timing-safe signature check before
+**Enforced and tested** (528 tests): raw-body timing-safe signature check before
 parsing; missing secret refuses; 403 only for bad signatures; routing by account
 id; username never trusted (Instagram does not even send it); payload
 timestamps; echoes/receipts/reactions dropped; customer text carried verbatim;
@@ -265,11 +299,16 @@ address a stranger or send one brand's reply from another's account.
 
 **Not yet done — do not assume these hold:**
 
-- **Instagram has never delivered a single webhook.** Messenger has — see the
-  scar below. Every Instagram account in the table is configured and silent.
-- **MHERO and MONZA SAL have received nothing on either channel.** Only the
-  VOYAH Facebook Page has ever produced a delivery, so the other five rows are
-  "configured", not "working".
+- **No Instagram delivery has been recorded.** Messenger has one — see rule 33
+  for exactly what that does and does not prove. Every Instagram account in the
+  table is configured and silent.
+- **No delivery is recorded for MHERO or MONZA SAL on either channel.** Only the
+  VOYAH Facebook Page has produced one, so the other five rows are "configured",
+  not "working".
+- **No live Meta configuration has been read for any Instagram account.** The
+  diagnosis endpoint exists but has not been run in production against
+  `ig-voyah`, `ig-mhero` or `ig-monza`. Every statement about which
+  subscription, permission or setting is at fault is a hypothesis.
 - **WhatsApp has no adapter.** Instagram and Messenger both do (`lib/channels/
   messenger.ts`, added 2026-09-09, envelope isolation tested both ways).
 - **No lead has ever been matched to a CRM customer**, because no conversation

@@ -260,9 +260,11 @@ export async function recordDelivery(
  * standing in for a failed read, which would report "Meta sent nothing" when
  * the truth is "we could not look".
  */
+export const DELIVERY_SAMPLE = 500;
+
 export async function readDeliveries(
-  limit = 500
-): Promise<{ ok: true; rows: DeliveryRecord[] } | { ok: false; error: string }> {
+  limit = DELIVERY_SAMPLE
+): Promise<{ ok: true; rows: DeliveryRecord[]; limit: number } | { ok: false; error: string }> {
   const sb = client();
   if (!sb) return { ok: false, error: "The database key for this product is not configured." };
   try {
@@ -272,7 +274,7 @@ export async function readDeliveries(
       .order("received_at", { ascending: false })
       .limit(limit);
     if (error) return { ok: false, error: error.message };
-    return { ok: true, rows: (data ?? []).map(deliveryRecord) };
+    return { ok: true, rows: (data ?? []).map(deliveryRecord), limit };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "The delivery record could not be read." };
   }

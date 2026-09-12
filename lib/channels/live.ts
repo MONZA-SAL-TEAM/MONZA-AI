@@ -520,9 +520,11 @@ export async function diagnoseAccount(accountId: unknown): Promise<Diagnosis> {
   steps.push({
     step: "Webhooks Meta has actually delivered",
     ms: Date.now() - td,
+    // ok means "a matching delivery was found", never "Meta sent nothing":
+    // the detail spells out why absence is not evidence.
     ok: deliveries.ok && deliveries.rows.some((r) => r.ids.includes(account.externalId)),
     detail: deliveries.ok
-      ? summariseDeliveries(deliveries.rows, account.externalId, expectedObject)
+      ? summariseDeliveries(deliveries.rows, account.externalId, expectedObject, deliveries.limit)
       : `The delivery record could not be read, so this is unknown rather than empty: ${deliveries.error}`,
   });
 

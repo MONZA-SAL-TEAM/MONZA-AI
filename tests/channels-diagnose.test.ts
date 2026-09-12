@@ -192,13 +192,14 @@ describe("summariseDebugToken", () => {
 });
 
 /**
- * The delivery record is the one check that needs no token: it separates "Meta
- * never sent it" from "it arrived and we lost it". Messenger delivering while
- * Instagram stays silent is the exact shape of a `page` subscription that works
- * and an `instagram` subscription that was never made, and the diagnosis has to
- * say so rather than report both as "nothing in the inbox".
+ * The delivery record is the one check that needs no token. It separates "no
+ * matching row" from "it arrived and nothing was kept" — but it must never be
+ * read as proof that Meta sent nothing, and its counters are payload-level, not
+ * per-account. Both overclaims shipped in the first version of this summariser
+ * and both are asserted against here.
  */
 describe("summariseDeliveries", () => {
+  const CAP = 500;
   const messengerDelivery: DeliveryRecord = {
     object: "page",
     ids: ["408893845643871"],
@@ -207,51 +208,83 @@ describe("summariseDeliveries", () => {
     storedCount: 1,
   };
 
-  test("no delivery at all blames the endpoint, not the account", () => {
-    const s = summariseDeliveries([], "17841457996874250", "instagram");
-    assert.match(s, /never posted a webhook to this endpoint/);
+  test("an empty table is reported as no rows, never as proof Meta sent nothing", () => {
+    const s = summariseDeliveries([], "17841457996874250", "instagram", CAP);
+    assert.match(s, /No delivery rows are recorded at all/);
+    assert.match(s, /not evidence that Meta sent nothing/);
+    assert.doesNotMatch(s, /never posted/);
   });
 
-  test("Messenger delivering while Instagram is silent points at the instagram subscription", () => {
-    const s = summariseDeliveries([messengerDelivery], "17841457996874250", "instagram");
-    assert.match(s, /NOTHING for 17841457996874250/);
-    assert.match(s, /never sent a "instagram" delivery at all/);
-    assert.match(s, /1 delivery\(ies\) recorded in total/);
+  test("a signature or logging failure is named as a reason a row can be missing", () => {
+    const s = summariseDeliveries([messengerDelivery], "17841457996874250", "instagram", CAP);
+    assert.match(s, /failed signature verification, failed to parse, or failed to log/);
   });
 
-  test("an account that has received deliveries reports the most recent", () => {
-    const s = summariseDeliveries([messengerDelivery], "408893845643871", "page");
-    assert.match(s, /1 delivery\(ies\) named 408893845643871/);
+  test("no match is scoped to the inspected sample and states its bounds", () => {
+    const s = summariseDeliveries([messengerDelivery], "17841457996874250", "instagram", CAP);
+    assert.match(s, /No matching delivery recorded in the inspected sample for 17841457996874250/);
+    assert.match(s, /no "instagram" delivery appears in the sample at all/);
+    assert.match(s, /Inspected sample: 1 row\(s\) across ALL accounts/);
+    assert.match(s, /cap 500/);
+    assert.doesNotMatch(s, /NOTHING for/);
+  });
+
+  test("a sample at the cap warns that older rows fall outside it", () => {
+    const rows = Array.from({ length: 3 }, (_, i) => ({
+      ...messengerDelivery,
+      receivedAt: `2026-09-1${i + 1}T00:00:00.000Z`,
+    }));
+    const s = summariseDeliveries(rows, "17841457996874250", "instagram", 3);
+    assert.match(s, /AT THE CAP, so older rows for this account may fall outside it/);
+  });
+
+  test("a sample under the cap does not warn about truncation", () => {
+    const s = summariseDeliveries([messengerDelivery], "17841457996874250", "instagram", CAP);
+    assert.doesNotMatch(s, /AT THE CAP/);
+  });
+
+  test("a matching delivery reports the most recent and labels the counts payload-level", () => {
+    const s = summariseDeliveries([messengerDelivery], "408893845643871", "page", CAP);
+    assert.match(s, /1 delivery\(ies\) in the sample name 408893845643871/);
     assert.match(s, /2026-09-11T13:01:12\.168Z/);
-    assert.match(s, /1 event\(s\), 1 stored/);
-    assert.doesNotMatch(s, /DROPPED/);
+    assert.match(s, /payload-level counts: 1 event\(s\), 1 stored/);
   });
 
-  test("delivered but nothing kept is called out as dropped, not as silence", () => {
+  test("nothing stored lists all four causes and never calls it dropped", () => {
     const s = summariseDeliveries(
       [{ ...messengerDelivery, eventCount: 3, storedCount: 0 }],
       "408893845643871",
-      "page"
+      "page",
+      CAP
     );
-    assert.match(s, /DROPPED/);
+    assert.match(s, /nothing was stored from these payloads/);
+    assert.match(s, /duplicate redelivery \(correct\)/);
+    assert.match(s, /a failed write \(a fault\)/);
+    assert.doesNotMatch(s, /DROPPED/);
   });
 
-  test("the right account under the wrong webhook object is a warning", () => {
+  test("a payload naming several accounts says the counts are not this account's alone", () => {
+    const s = summariseDeliveries(
+      [{ ...messengerDelivery, ids: ["408893845643871", "419538711242175"] }],
+      "408893845643871",
+      "page",
+      CAP
+    );
+    assert.match(s, /named more than one account, so the counts are not this account's alone/);
+  });
+
+  test("a single-account payload carries no multi-account caveat", () => {
+    const s = summariseDeliveries([messengerDelivery], "408893845643871", "page", CAP);
+    assert.doesNotMatch(s, /more than one account/);
+  });
+
+  test("the right account under an unexpected webhook object is noted, not alarmed", () => {
     const s = summariseDeliveries(
       [{ ...messengerDelivery, ids: ["17841457996874250"] }],
       "17841457996874250",
-      "instagram"
+      "instagram",
+      CAP
     );
-    assert.match(s, /WARNING: arrived under object page, expected instagram/);
-  });
-
-  test("deliveries for another account under the same object do not count as this one's", () => {
-    const s = summariseDeliveries(
-      [{ ...messengerDelivery, object: "instagram", ids: ["17841469421956644"] }],
-      "17841457996874250",
-      "instagram"
-    );
-    assert.match(s, /NOTHING for 17841457996874250/);
-    assert.match(s, /do arrive, but none has named this account/);
+    assert.match(s, /NOTE: arrived under object page, expected instagram/);
   });
 });

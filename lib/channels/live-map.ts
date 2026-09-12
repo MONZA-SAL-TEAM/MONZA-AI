@@ -505,15 +505,34 @@ export interface DeliveryRecord {
 }
 
 /**
- * The cheapest and most decisive question in the whole diagnosis, and the one
- * that needs no token, no app secret and no call to Meta: has Meta EVER posted
- * a webhook naming this account?
+ * The cheapest question in the whole diagnosis, and the one that needs no
+ * token, no app secret and no call to Meta: is there a recorded delivery
+ * naming this account?
  *
- * It splits the two failures that look identical from the outside and have
- * nothing in common. Nothing delivered means the fault is upstream — the
- * subscription, the permission, the account's own settings — and no amount of
- * reading our own code will find it. Delivered but not stored means the fault
- * is ours and the payload shape is recorded above.
+ * ── What this CANNOT establish ──────────────────────────────────────────────
+ * It cannot say Meta never sent anything, and the wording below never claims
+ * it. Four things leave no row:
+ *
+ *   - a delivery that failed signature verification (answered 403 before any
+ *     write) — which is also the shape of a WRONG app secret, so absence here
+ *     is consistent with a secret problem rather than ruling one out
+ *   - a payload that threw while being parsed (answered 200, logged only)
+ *   - a failed insert: recordDelivery is best-effort and swallows its errors,
+ *     because diagnostics must never fail a delivery
+ *   - anything older than the inspected sample, which is capped and spans ALL
+ *     accounts, so a quiet account's older rows can be pushed out by a busy one
+ *
+ * So the honest report is "no matching delivery in the inspected sample", with
+ * the sample's bounds stated, and never "Meta sent nothing".
+ *
+ * ── What the counters CANNOT establish ──────────────────────────────────────
+ * `event_count` and `stored_count` describe the ENTIRE payload, which may carry
+ * entries for several accounts of the same app. They are not per-account and
+ * are not per-brand. And `stored 0` has at least four causes that need opposite
+ * fixes — a duplicate redelivery (the idempotent no-op, which is CORRECT), an
+ * echo or receipt (correctly ignored), an account this app may not speak for
+ * (correctly refused), and a failed write (a real fault) — which the row does
+ * not distinguish, because duplicates are not recorded separately.
  *
  * `expectedObject` matters because one endpoint serves both: an app can be
  * subscribed to `page` and receive Messenger DMs for years while `instagram`
@@ -522,38 +541,56 @@ export interface DeliveryRecord {
 export function summariseDeliveries(
   rows: readonly DeliveryRecord[],
   externalId: string,
-  expectedObject: string
+  expectedObject: string,
+  sampleLimit: number
 ): string {
+  /** Never "Meta sent nothing" — see the four ways a delivery leaves no row. */
+  const caveat =
+    "A delivery that failed signature verification, failed to parse, or failed to log leaves no row, " +
+    "so absence here is not evidence that Meta sent nothing.";
+
   if (rows.length === 0) {
-    return "Meta has never posted a webhook to this endpoint — not for this account, not for any.";
+    return `No delivery rows are recorded at all. ${caveat}`;
   }
 
-  const mine = rows.filter((r) => r.ids.includes(externalId));
-  const sameObject = rows.filter((r) => r.object === expectedObject);
+  const times = rows.map((r) => r.receivedAt).filter((t) => t !== "");
+  const newest = times.length > 0 ? times.reduce((a, b) => (a > b ? a : b)) : "unknown";
+  const oldest = times.length > 0 ? times.reduce((a, b) => (a < b ? a : b)) : "unknown";
   const objects = [...new Set(rows.map((r) => r.object ?? "unnamed"))].sort();
-  const total = `${rows.length} delivery(ies) recorded in total, object(s): ${objects.join(", ")}`;
+  const truncated = rows.length >= sampleLimit;
+  const sample =
+    `Inspected sample: ${rows.length} row(s) across ALL accounts, ${oldest} to ${newest},` +
+    ` object(s) ${objects.join(", ")}, cap ${sampleLimit}` +
+    (truncated ? " — AT THE CAP, so older rows for this account may fall outside it" : "");
 
+  const mine = rows.filter((r) => r.ids.includes(externalId));
   if (mine.length === 0) {
-    const other =
-      sameObject.length === 0
-        ? `Meta has never sent a "${expectedObject}" delivery at all, so that subscription is the place to look`
-        : `"${expectedObject}" deliveries do arrive, but none has named this account`;
-    return `NOTHING for ${externalId}. ${other}. ${total}.`;
+    const other = rows.some((r) => r.object === expectedObject)
+      ? `"${expectedObject}" deliveries do appear in the sample, but none names this account`
+      : `no "${expectedObject}" delivery appears in the sample at all, which points at that subscription`;
+    return `No matching delivery recorded in the inspected sample for ${externalId}: ${other}. ${sample}. ${caveat}`;
   }
 
   const last = mine.reduce((a, b) => (a.receivedAt > b.receivedAt ? a : b));
+  // Payload-level, NOT per-account: one delivery can carry entries for several
+  // accounts of the same app, and these counters cover the whole payload.
   const events = mine.reduce((n, r) => n + r.eventCount, 0);
   const stored = mine.reduce((n, r) => n + r.storedCount, 0);
-  const wrongObject = mine.some((r) => r.object !== expectedObject)
-    ? ` · WARNING: arrived under object ${[...new Set(mine.map((r) => r.object ?? "unnamed"))].join(", ")}, expected ${expectedObject}`
+  const multiAccount = mine.some((r) => r.ids.length > 1)
+    ? " (at least one of these payloads named more than one account, so the counts are not this account's alone)"
     : "";
-  const dropped =
+  const wrongObject = mine.some((r) => r.object !== expectedObject)
+    ? ` · NOTE: arrived under object ${[...new Set(mine.map((r) => r.object ?? "unnamed"))].join(", ")}, expected ${expectedObject}`
+    : "";
+  const nothingStored =
     events > 0 && stored === 0
-      ? " · every event was DROPPED: delivered and understood, but nothing was kept — an echo, a receipt, or an account this app may not speak for"
+      ? " · nothing was stored from these payloads, which can mean a duplicate redelivery (correct), an echo or receipt (correct)," +
+        " an account this app may not speak for (correct), or a failed write (a fault) — the row does not distinguish them"
       : "";
 
   return (
-    `${mine.length} delivery(ies) named ${externalId}, most recently ${last.receivedAt}` +
-    ` · ${events} event(s), ${stored} stored${dropped}${wrongObject} · ${total}.`
+    `${mine.length} delivery(ies) in the sample name ${externalId}, most recently ${last.receivedAt}` +
+    ` · payload-level counts: ${events} event(s), ${stored} stored${multiAccount}` +
+    `${nothingStored}${wrongObject} · ${sample}.`
   );
 }
