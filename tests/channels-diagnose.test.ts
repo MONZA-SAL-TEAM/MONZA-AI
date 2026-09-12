@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import {
   instagramApiFlavour,
   metaErrorDetail,
+  safeCallbackUrl,
   summariseAppSubscriptions,
   summariseDebugToken,
   summariseDeliveries,
@@ -378,5 +379,49 @@ describe("summariseInstagramIdentity", () => {
   test("a missing ig_id is stated rather than left blank", () => {
     const s = summariseInstagramIdentity("17841457996874250", "17841457996874250", null, null);
     assert.match(s, /ig_id not returned/);
+  });
+});
+
+/**
+ * A webhook callback is a place people put secrets — a token in a query string
+ * is a known pattern — and this output is rendered to staff and pasted into
+ * chat. So query and fragment go unconditionally, and the removal is STATED:
+ * a silent strip would have someone compare this against the dashboard, see a
+ * shorter string, and hunt a configuration difference that does not exist.
+ */
+describe("safeCallbackUrl", () => {
+  test("a plain URL is shown whole and unannotated", () => {
+    const s = safeCallbackUrl("https://monza-ai.vercel.app/api/channels/meta");
+    assert.equal(s, "https://monza-ai.vercel.app/api/channels/meta");
+  });
+
+  test("a query string is removed and the removal is announced", () => {
+    const s = safeCallbackUrl("https://monza-ai.vercel.app/api/channels/meta?token=SECRETVALUE&x=1");
+    assert.doesNotMatch(s, /SECRETVALUE/);
+    assert.doesNotMatch(s, /token=/);
+    assert.match(s, /\[query\/fragment hidden\]/);
+    assert.match(s, /^https:\/\/monza-ai\.vercel\.app\/api\/channels\/meta /);
+  });
+
+  test("a fragment is removed too", () => {
+    const s = safeCallbackUrl("https://x.test/hook#access_token=SECRETVALUE");
+    assert.doesNotMatch(s, /SECRETVALUE/);
+    assert.match(s, /hidden/);
+  });
+
+  test("a missing or non-string callback says so rather than printing undefined", () => {
+    assert.equal(safeCallbackUrl(undefined), "no callback");
+    assert.equal(safeCallbackUrl(null), "no callback");
+    assert.equal(safeCallbackUrl(42), "no callback");
+    assert.equal(safeCallbackUrl(""), "no callback");
+  });
+
+  test("the subscription summary carries no query string through", () => {
+    const s = summariseAppSubscriptions(
+      { data: [{ object: "instagram", active: true, callback_url: "https://x.test/hook?verify=SECRETVALUE", fields: [{ name: "messages" }] }] },
+      ["instagram"]
+    );
+    assert.doesNotMatch(s, /SECRETVALUE/);
+    assert.match(s, /hidden/);
   });
 });

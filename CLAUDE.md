@@ -376,6 +376,47 @@ rule has a scar, the scar is named — a rule without its reason gets argued awa
     throw away. Do not "fix" this. The consequence is real and intended: read
     receipts, reactions and our own outbound sends are invisible to this product.
 
+47. **What the diagnosis reports, and the four claims it is now forbidden from
+    making.** `diagnoseAccount` returns `{ steps, truncated }` where every step
+    carries a **four-state** `status`, never a boolean:
+
+    | status | means |
+    |---|---|
+    | `pass` | asked, and the answer was good |
+    | `fail` | asked, and the answer was bad — a fault to fix |
+    | `skipped` | deliberately not asked (no key, no app secret, budget spent) |
+    | `unknown` | asked and got no usable answer, or the question cannot be settled from here |
+
+    A boolean collapsed `fail` and `unknown` into one value, and those need
+    opposite next actions. Specifically forbidden, each asserted in
+    `tests/channels-diagnose-run.test.ts`:
+
+    - **No matching delivery row is `unknown`, never `fail`.** Four things leave
+      no row (rule 36), so absence is not evidence Meta sent nothing.
+    - **An unreadable delivery record is `unknown`, never an empty one.**
+    - **A missing token or app secret is `skipped`, never `fail`** — we did not
+      ask, so there is nothing to conclude.
+    - **A working Messenger delivery is never cited as proving the Instagram
+      path.** Rule 33 lists exactly what that one row proves and what it does
+      not; `instagram.ts` is a separate code path that has still never run in
+      production, and the subscription, permission and account settings are all
+      separately verified.
+
+    Two further contracts: a **shared 45 s budget** governs the whole run, so one
+    slow Instagram listing cannot burn the route's timeout and discard every
+    completed check — work already done is returned and `truncated` says the
+    rest was not attempted. And **callback URLs are redacted before display**
+    (`safeCallbackUrl`): query and fragment go unconditionally, because a webhook
+    callback is a place people put tokens and this output is read by staff and
+    pasted into chat. The redaction is stated in the output, never silent.
+48. **`pageInfo` asks Meta for `instagram_business_account{id,ig_id,username}`
+    and FALLS BACK to the plain field on any failure.** That read is on the
+    INBOX's hot path, not only the diagnosis: `accountContext()` refuses to read
+    an Instagram account whose linked id it cannot confirm, so a Meta version or
+    permission that rejects the sub-field syntax would take the Instagram inbox
+    down to gain the diagnosis a second id. The fallback is the plain question
+    the code asked before that field was added. Never remove it.
+
 ### Operational notes
 
 - Business Manager demands SMS 2FA to Samer's phone on portfolio switch, so asset
@@ -433,7 +474,7 @@ and that is the honest field to read.
 
 ## What the code enforces today, and what it does not
 
-**Enforced and tested** (538 tests): raw-body timing-safe signature check before
+**Enforced and tested** (557 tests): raw-body timing-safe signature check before
 parsing; missing secret refuses; 403 only for bad signatures; routing by account
 id; username never trusted (Instagram does not even send it); payload
 timestamps; echoes/receipts/reactions dropped; customer text carried verbatim;

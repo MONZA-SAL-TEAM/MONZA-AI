@@ -384,6 +384,25 @@ export function metaErrorDetail(payload: unknown): string | null {
  * switcher is unreliable; this is the same fact without clicking. The callback
  * is our own public URL; nothing secret is in the answer.
  */
+/**
+ * A callback URL, safe to show a staff member.
+ *
+ * Our own callback carries no secret today, but a webhook callback is a place
+ * people PUT secrets — a token in a query string is a known pattern, and this
+ * output is rendered to staff and pasted into chat. So the query and fragment
+ * are removed unconditionally rather than inspected for anything that "looks
+ * like" a secret, and their removal is STATED: a silent strip would let someone
+ * compare this against the dashboard, see a shorter string, and go hunting for
+ * a configuration difference that does not exist.
+ */
+export function safeCallbackUrl(raw: unknown): string {
+  const url = str(raw);
+  if (!url) return "no callback";
+  const cut = url.search(/[?#]/);
+  if (cut === -1) return url;
+  return `${url.slice(0, cut)} [query/fragment hidden]`;
+}
+
 export function summariseAppSubscriptions(payload: unknown, objects: readonly string[]): string {
   if (!Array.isArray(obj(payload)?.data)) return "Meta returned no subscription list.";
   const rows = list(payload).map(obj).filter((r): r is Record<string, unknown> => r !== null);
@@ -394,7 +413,7 @@ export function summariseAppSubscriptions(payload: unknown, objects: readonly st
       const fields = (Array.isArray(row.fields) ? row.fields : [])
         .map((f) => str(obj(f)?.name) ?? str(f))
         .filter((f): f is string => f !== null);
-      const url = (str(row.callback_url) ?? "no callback").replace(/[?#].*/, "");
+      const url = safeCallbackUrl(row.callback_url);
       return `${name}: ${row.active === true ? "active" : "NOT active"}, ${url}, fields ${fields.join(", ") || "none"}`;
     })
     .join(" · ");
