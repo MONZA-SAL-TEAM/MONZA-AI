@@ -27,6 +27,23 @@ export function mediaLabel(kind: AttachmentKind, filename?: string): string {
       return "📍 Location";
     case "contact":
       return "👤 Contact";
+    case "share":
+      return "🔗 Shared post";
+  }
+}
+
+/**
+ * Meta's own picture hosts. Only these are drawn as a picture in the page: a
+ * link a customer shares can point anywhere, and loading it would tell that
+ * site who is reading the inbox. Anything else is shown as a link to click.
+ */
+export function isMetaCdn(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" && /(^|\.)(fbsbx\.com|fbcdn\.net|cdninstagram\.com)$/.test(u.hostname);
+  } catch {
+    return false;
   }
 }
 

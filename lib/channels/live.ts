@@ -133,6 +133,29 @@ type ListAttempt = (typeof LIST_ATTEMPTS)[number];
 /** Messages shown per thread, fullest first. Instagram only details the latest 20. */
 const THREAD_LIMITS = [20, 8] as const;
 
+/**
+ * An opened thread also asks what each message CARRIES — photos, videos, voice
+ * notes, files, shared posts, stories (Samer, 2026-09-15: a shared post read
+ * "open the app to see it"). Passed through to the screen, never stored (the
+ * 2026-09-10 rule for Instagram and Facebook holds).
+ *
+ * Per channel, because each refuses the other's field names (`story` is
+ * Instagram's, `sticker` Messenger's). Explicit attachment fields first, then
+ * the bare edge; if Meta refuses both, the thread is read exactly as before —
+ * words only — so asking for more can never cost the thread itself.
+ */
+function richMessageFields(channel: string, explicit: boolean): string {
+  const attachments = explicit ? "attachments{id,mime_type,name,size,image_data,video_data,file_url}" : "attachments";
+  return channel === "instagram"
+    ? `${MESSAGE_FIELDS},${attachments},shares,story`
+    : `${MESSAGE_FIELDS},${attachments},shares,sticker`;
+}
+
+/** Which richer ask last worked per account and route, so a refused one is not
+ *  repeated on every 15-second refresh. Memory only, a few minutes. */
+const richFieldsWorks = new Map<string, { level: number; until: number }>();
+const RICH_FIELDS_MEMORY_MS = 10 * 60_000;
+
 type GraphResult =
   | { ok: true; json: unknown }
   /** meta: Meta's own code/subcode/message, for the staff-only diagnosis. */
@@ -830,14 +853,38 @@ async function openThread(threadId: unknown, now: Date): Promise<OpenThread> {
   if (!route.ok) return { ok: false, status: 503, problem: route.problem };
 
   let r: GraphResult = { ok: false, problem: "Nothing was asked.", retryLighter: false };
-  for (const limit of THREAD_LIMITS) {
+
+  // First what the messages carry, then — if Meta refuses — words only, as before.
+  const rich = [richMessageFields(account.channel, true), richMessageFields(account.channel, false)];
+  const memoryKey = `${account.id}:${route.via}`;
+  const remembered = richFieldsWorks.get(memoryKey);
+  for (let level = remembered && remembered.until > Date.now() ? remembered.level : 0; level < rich.length; level++) {
     r = await route.get(
       ids.metaConversationId,
-      { fields: `participants,messages.limit(${limit}){${MESSAGE_FIELDS}}` },
+      { fields: `participants,messages.limit(${THREAD_LIMITS[0]}){${rich[level]}}` },
       route.token,
       THREAD_TIMEOUT_MS
     );
-    if (r.ok || !r.retryLighter) break;
+    if (r.ok) {
+      richFieldsWorks.set(memoryKey, { level, until: Date.now() + RICH_FIELDS_MEMORY_MS });
+      break;
+    }
+    if (r.retryLighter) break; // too slow or too much: straight to the lighter asks
+  }
+  if (!r.ok) {
+    if (!r.retryLighter) {
+      console.warn(`[channels/thread] ${account.id}: Meta refused the attachment fields; reading words only`);
+      richFieldsWorks.set(memoryKey, { level: rich.length, until: Date.now() + RICH_FIELDS_MEMORY_MS });
+    }
+    for (const limit of THREAD_LIMITS) {
+      r = await route.get(
+        ids.metaConversationId,
+        { fields: `participants,messages.limit(${limit}){${MESSAGE_FIELDS}}` },
+        route.token,
+        THREAD_TIMEOUT_MS
+      );
+      if (r.ok || !r.retryLighter) break;
+    }
   }
   if (!r.ok) return { ok: false, status: 502, problem: r.problem };
 

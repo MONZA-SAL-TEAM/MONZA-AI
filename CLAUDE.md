@@ -780,7 +780,20 @@ WhatsApp" flow again** — that is the step that locked the phone out on
   VoyahLebanon, app_id `912301501380919`); app `912301501380919` (now
   **Published**) has its WhatsApp webhook on `/api/channels/meta` with exactly
   `messages` + `smb_message_echoes`, and is the ONE app in the WABA's
-  `subscribed_apps`. Files additionally need `010_whatsapp_media.sql` applied.
+  `subscribed_apps`. `010_whatsapp_media.sql` applied 2026-09-15 (migration
+  `whatsapp_media`): bucket private, 100 MB; the project's ONLY storage policy
+  is `wasales anon read`, scoped to `wasales-media`. The 60 WhatsApp files
+  received before that day have no media id and cannot be recovered here.
+- **Instagram and Facebook attachments (2026-09-15, Samer: a shared post read
+  "open the app to see it").** An opened thread also asks Meta for
+  `attachments`, `shares` and `story` (Instagram) / `sticker` (Messenger) —
+  per channel, because each refuses the other's names — and falls back to
+  words only if Meta refuses (remembered 10 minutes per account). Meta's
+  links are passed through to the screen and NEVER stored (the 2026-09-10
+  rule holds); only https links survive, and only Meta's own hosts
+  (`isMetaCdn`) are drawn as pictures — any other shared link is a card to
+  click, so a customer's link cannot see who reads the inbox. The list's
+  previews still ask for words only.
 
 ## General
 

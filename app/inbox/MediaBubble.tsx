@@ -12,7 +12,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { InboxAttachment } from "@/lib/inbox/types";
-import { formatBytes, formatClock, mapsLink, mediaLabel } from "@/lib/inbox/media";
+import { formatBytes, formatClock, isMetaCdn, mapsLink, mediaLabel } from "@/lib/inbox/media";
 import "./media.css";
 
 const NOT_READY: Readonly<Record<Exclude<InboxAttachment["state"], "ready">, string>> = {
@@ -114,6 +114,39 @@ function VoicePlayer({ url, voice }: { url: string; voice: boolean }) {
   );
 }
 
+/** A shared post, reel or story: its picture when Meta hosts one, else a link. */
+function Share({ a, onOpenImage }: { a: InboxAttachment; onOpenImage: (url: string) => void }) {
+  const [broken, setBroken] = useState(false);
+  const url = a.url ?? "";
+  const label = a.label ?? "Shared post";
+  if (isMetaCdn(url) && !broken) {
+    return (
+      <div className="ibx-att-share">
+        <button type="button" className="ibx-att-img" aria-label="Open the shared post" onClick={() => onOpenImage(url)}>
+          {/* eslint-disable-next-line @next/next/no-img-element -- Meta's own short-lived link */}
+          <img src={url} alt={label} loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(true)} />
+        </button>
+        <span className="ibx-att-share-label">🔗 {label}</span>
+      </div>
+    );
+  }
+  let host = "";
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    host = "";
+  }
+  return (
+    <a className="ibx-att-card" href={url} target="_blank" rel="noreferrer noopener">
+      <span className="ibx-att-card-icon" aria-hidden="true">🔗</span>
+      <span className="ibx-att-card-body">
+        <span className="ibx-att-card-title">{label}</span>
+        <span className="ibx-att-card-sub">{host ? `Open · ${host}` : "Open"}</span>
+      </span>
+    </a>
+  );
+}
+
 export function Attachments({
   items,
   onOpenImage,
@@ -174,7 +207,7 @@ export function Attachments({
                 onClick={() => onOpenImage(a.url!)}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element -- a short-lived private link */}
-                <img src={a.url} alt={a.kind === "sticker" ? "Sticker" : "Photo"} loading="lazy" />
+                <img src={a.url} alt={a.kind === "sticker" ? "Sticker" : "Photo"} loading="lazy" referrerPolicy="no-referrer" />
               </button>
             );
           case "video":
@@ -182,6 +215,8 @@ export function Attachments({
           case "voice":
           case "audio":
             return <VoicePlayer key={i} url={a.url} voice={a.kind === "voice"} />;
+          case "share":
+            return <Share key={i} a={a} onOpenImage={onOpenImage} />;
           default:
             return (
               <a key={i} className="ibx-att-file" href={a.url} download={a.filename ?? true} target="_blank" rel="noreferrer">

@@ -35,7 +35,7 @@ import Link from "next/link";
 import DraftDock from "./DraftDock";
 import MediaComposer from "./MediaComposer";
 import { Attachments, Lightbox, Ticks } from "./MediaBubble";
-import { carryUrls, previewText, waWebChatLink, withoutLinks } from "@/lib/inbox/media";
+import { carryUrls, isMetaCdn, previewText, waWebChatLink, withoutLinks } from "@/lib/inbox/media";
 import type { Conversation, InboxMessage } from "@/lib/inbox/types";
 import {
   CHANNEL_LABEL,
@@ -772,7 +772,12 @@ export default function InboxClient(props: Props) {
     () =>
       messages.flatMap((m) =>
         (m.attachments ?? [])
-          .filter((a) => (a.kind === "image" || a.kind === "sticker") && a.state === "ready" && a.url)
+          .filter(
+            (a) =>
+              (a.kind === "image" || a.kind === "sticker" || (a.kind === "share" && isMetaCdn(a.url))) &&
+              a.state === "ready" &&
+              a.url
+          )
           .map((a) => a.url as string)
       ),
     [messages]

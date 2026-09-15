@@ -99,6 +99,10 @@ a.ibx-att-card:hover { background: color-mix(in srgb, currentColor 14%, transpar
   animation: ibx-pulse 1s ease-in-out infinite;
 }
 
+/* A shared Instagram / Facebook post. */
+.ibx-att-share { display: flex; flex-direction: column; gap: 5px; }
+.ibx-att-share-label { padding: 0 6px; font-size: 12px; font-weight: 700; opacity: .85; }
+
 /* Voice notes. */
 .ibx-voice {
   display: flex;

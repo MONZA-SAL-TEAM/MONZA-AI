@@ -17,7 +17,7 @@
  */
 
 import type { ChannelKey } from "@/lib/domain/types";
-import type { Conversation, InboxMessage } from "@/lib/inbox/types";
+import type { Conversation, InboxAttachment, InboxMessage } from "@/lib/inbox/types";
 
 /** What the live layer needs to know about a connected account. */
 export interface LiveAccount {
@@ -223,8 +223,80 @@ export function peerOf(conversation: unknown, selfIds: readonly string[]): Peer 
   return null;
 }
 
-/** Shown for a message that is only a photo, video, sticker or file. */
+/** Shown for a message whose content Meta did not describe. */
 export const NO_TEXT = "Photo, video or attachment — open the app to see it.";
+
+/** How long the screen treats one of Meta's picture links as fresh (lib/inbox/media.ts carryUrls). */
+const META_LINK_FRESH_MS = 55 * 60_000;
+
+/** Meta's `{ data: [...] }` edge, or a bare array — the rows either way. */
+function edgeRows(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  const data = obj(value)?.data;
+  return Array.isArray(data) ? data : [];
+}
+
+function httpsUrl(value: unknown): string | null {
+  const s = str(value);
+  if (!s) return null;
+  try {
+    const u = new URL(s);
+    return u.protocol === "https:" ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What an Instagram or Facebook message carries, as Meta describes it when a
+ * thread is opened: photos, videos, voice notes, files, stickers, shared posts
+ * and reels (`shares`), story mentions and replies (`story`). Meta's links,
+ * passed through to the screen and NEVER stored (Samer, 2026-09-10). Only
+ * https links are kept — a customer's shared link can be anything.
+ */
+export function metaAttachmentsOf(message: unknown, nowMs: number = Date.now()): InboxAttachment[] {
+  const m = obj(message);
+  if (!m) return [];
+  const urlExpiresAt = new Date(nowMs + META_LINK_FRESH_MS).toISOString();
+  const out: InboxAttachment[] = [];
+  const ready = (kind: InboxAttachment["kind"], url: string, extra: Partial<InboxAttachment> = {}): InboxAttachment => {
+    const a: InboxAttachment = { kind, state: "ready", url, urlExpiresAt };
+    for (const [k, v] of Object.entries(extra)) if (v !== undefined) (a as unknown as Record<string, unknown>)[k] = v;
+    return a;
+  };
+
+  for (const raw of edgeRows(m.attachments)) {
+    const a = obj(raw);
+    if (!a) continue;
+    const mime = str(a.mime_type) ?? undefined;
+    const imageData = obj(a.image_data);
+    const image = httpsUrl(imageData?.url) ?? httpsUrl(imageData?.preview_url);
+    const video = httpsUrl(obj(a.video_data)?.url);
+    const audio = httpsUrl(obj(a.audio_data)?.url);
+    const file = httpsUrl(a.file_url);
+    const sound = audio ?? (mime?.startsWith("audio/") ? (video ?? file) : null);
+    if (sound) out.push(ready("audio", sound, { mime }));
+    else if (video) out.push(ready("video", video, { mime }));
+    else if (image) out.push(ready(imageData?.render_as_sticker === true ? "sticker" : "image", image, { mime }));
+    else if (file) out.push(ready("file", file, { mime, filename: str(a.name) ?? undefined }));
+  }
+
+  for (const raw of edgeRows(m.shares)) {
+    const s = obj(raw);
+    const link = httpsUrl(s?.link);
+    if (link) out.push(ready("share", link, { label: str(s?.name) ?? str(s?.description) ?? undefined }));
+  }
+
+  const story = obj(m.story);
+  const mention = obj(story?.mention);
+  const storyLink = httpsUrl(mention?.link) ?? httpsUrl(obj(story?.reply_to)?.link);
+  if (storyLink) out.push(ready("share", storyLink, { label: mention ? "Mentioned you in their story" : "Replied to your story" }));
+
+  const sticker = httpsUrl(m.sticker);
+  if (sticker) out.push(ready("sticker", sticker));
+
+  return out;
+}
 
 function mapMessage(
   raw: unknown,
@@ -238,14 +310,18 @@ function mapMessage(
   if (!id || !at || !from) return null;
 
   const ours = selfIds.includes(from);
+  const attachments = metaAttachmentsOf(m);
+  const words = str(m?.message);
   return {
     id,
     conversationId: threadId,
     direction: ours ? "out" : "in",
     author: ours ? "staff" : "customer",
-    text: str(m?.message) ?? NO_TEXT,
+    // With nothing described, say so plainly rather than show an empty bubble.
+    text: words ?? (attachments.length > 0 ? "" : NO_TEXT),
     at,
     status: ours ? "sent" : "received",
+    ...(attachments.length > 0 ? { attachments } : {}),
   };
 }
 

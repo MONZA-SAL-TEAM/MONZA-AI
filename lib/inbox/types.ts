@@ -57,7 +57,9 @@ export type AttachmentKind =
   | "file"
   | "sticker"
   | "location"
-  | "contact";
+  | "contact"
+  /** A post, reel or story shared in an Instagram or Facebook chat. */
+  | "share";
 
 /**
  * A photo, video, voice note, file, location or contact card in a message.
