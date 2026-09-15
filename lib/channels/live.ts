@@ -67,6 +67,7 @@ import { messengerAdapter } from "@/lib/channels/messenger";
 import { replyWindow, windowExplanation, type ReplyWindow } from "@/lib/channels/types";
 import type { ChannelKey } from "@/lib/domain/types";
 import type { Conversation, InboxMessage } from "@/lib/inbox/types";
+import type { SendTarget } from "@/lib/wasales/executor";
 import {
   accountLabel,
   decodeThreadId,
@@ -1627,3 +1628,57 @@ export async function sendOnThread(
 
 /** How long Meta has to fetch a file staff send on Instagram or Facebook. */
 const META_FILE_LINK_SECONDS = 10 * 60;
+
+export type SuggestionTarget =
+  | { kind: "ok"; target: SendTarget; account: StoredAccount; conversationId: string }
+  | Exclude<SendOutcome, { kind: "sent" }>;
+
+/**
+ * Where a sales suggestion that a PERSON approved goes (lib/wasales/
+ * suggestion-server.ts) — through the same gates as a typed reply, in the same
+ * order: the 24-hour window, then the send switch, then the key. The
+ * recipient is read from the conversation — ours for WhatsApp, Meta's for
+ * Instagram and Facebook — never taken from the browser, and a thread read
+ * through Instagram login is answered through it too (rule 49).
+ */
+export async function suggestionTarget(threadId: unknown, live: boolean): Promise<SuggestionTarget> {
+  const wa = await whatsappAccountOf(threadId);
+  if (wa) {
+    const r = await readWhatsAppMessages(wa.account.id, wa.id, 1);
+    if (!r.ok) return { kind: "refused", status: 502, problem: "Could not read this WhatsApp conversation." };
+    if (!r.value || r.value.peerExternalId === "") {
+      return { kind: "refused", status: 404, problem: "That conversation was not found." };
+    }
+    const window = replyWindow(r.value.lastInboundAt, new Date());
+    if (!window.open) return { kind: "window_closed", explanation: windowExplanation(window, "whatsapp") };
+    if (!live) return { kind: "switched_off" };
+    const token = channelToken(wa.account.tokenEnv);
+    if (!token) {
+      return { kind: "refused", status: 503, problem: "The WhatsApp sending key has not been added yet, so nothing was sent." };
+    }
+    return {
+      kind: "ok",
+      target: { channel: "whatsapp", phoneNumberId: wa.account.externalId, to: r.value.peerExternalId, token },
+      account: wa.account,
+      conversationId: wa.id,
+    };
+  }
+
+  const t = await openThread(threadId, new Date());
+  if (!t.ok) return { kind: "refused", status: t.status, problem: t.problem };
+  if (!t.peer) {
+    return { kind: "refused", status: 409, problem: "Could not tell who the customer is in this conversation." };
+  }
+  if (!t.window.open) {
+    return { kind: "window_closed", explanation: windowExplanation(t.window, t.account.channel as ChannelKey) };
+  }
+  if (!live) return { kind: "switched_off" };
+  const channel = t.account.channel === "instagram" ? "instagram" : "facebook";
+  const host = channel === "instagram" && t.via === "instagram-login" ? IG_GRAPH : GRAPH;
+  return {
+    kind: "ok",
+    target: { channel, host, recipientId: t.peer.id, token: t.token },
+    account: t.account,
+    conversationId: decodeThreadId(threadId)?.metaConversationId ?? "",
+  };
+}

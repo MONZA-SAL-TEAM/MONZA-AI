@@ -219,8 +219,13 @@ export interface SendContext {
    * trigger an outbound one without a person.
    */
   liveSending: boolean;
-  /** The channel adapter can send files. False today on every channel. */
+  /** The channel adapter can send files. */
   attachmentsSupported: boolean;
+  /**
+   * A file too big for the channel but in the shared library goes as a link
+   * in the sentence (templates.ts), so its size does not block the plan.
+   */
+  linkOversize?: boolean;
 }
 
 export interface ActionVerdict {
@@ -260,12 +265,17 @@ export function applySendPolicy(
   const verdicts: ActionVerdict[] = actions.map((action) => {
     const reasons: string[] = [];
     if (action.type === "SEND_BROCHURE" || action.type === "SEND_COLOUR_VIDEO") {
-      if (!ctx.attachmentsSupported) {
-        reasons.push("The channel adapter cannot send files yet.");
-      }
       const kind = action.type === "SEND_BROCHURE" ? "document" : "video";
       const fit = mediaFitsChannel(action.asset, kind, ctx.channel);
-      if (fit) reasons.push(fit);
+      // Too big for the channel but in the library: it goes as a link instead.
+      const asLink = fit !== null && ctx.linkOversize === true && Boolean(action.asset.url);
+      if (!ctx.attachmentsSupported && !asLink) {
+        reasons.push("The channel adapter cannot send files yet.");
+      }
+      if (fit && !asLink) reasons.push(fit);
+      if (!action.asset.url) {
+        reasons.push("That file is only in the sales folder — upload it to the shared library on /sales first.");
+      }
     }
     if (action.type === "SEND_FACT") {
       const model = modelByCode(knowledge, action.model);

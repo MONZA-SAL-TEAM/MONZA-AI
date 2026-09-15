@@ -386,7 +386,7 @@ export async function readWhatsAppMessages(
 
   const msgs = await sb
     .from("channel_messages")
-    .select("id, direction, author, body, attachments, status, staff_name, sent_at, external_message_id, error")
+    .select("id, direction, author, body, attachments, status, staff_name, sent_at, external_message_id, error, automation_id")
     .eq("conversation_id", conversationId)
     .eq("account_id", accountId)
     .order("sent_at", { ascending: false })
@@ -418,6 +418,8 @@ export async function recordWhatsAppSent(input: {
   staffName: string;
   /** The file that went with it, already kept in our bucket. */
   attachment?: StoredAttachment;
+  /** Sent from a sales suggestion ("sales-suggestion:…") — still a person's send. */
+  automationId?: string;
 }): Promise<boolean> {
   const sb = client();
   if (!sb) return false;

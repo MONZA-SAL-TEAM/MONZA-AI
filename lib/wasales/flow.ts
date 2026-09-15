@@ -62,7 +62,12 @@ export function runTurn(
   const decision = decide(input, state, deps);
   const brand = salesBrandOf(input.brand);
   const plan = brand
-    ? renderPlan(decision.actions, { channel: send.channel, brand, knowledge: deps.knowledge })
+    ? renderPlan(decision.actions, {
+        channel: send.channel,
+        brand,
+        knowledge: deps.knowledge,
+        linkOversize: send.linkOversize,
+      })
     : [];
   const policy = applySendPolicy(decision.actions, send, deps.knowledge);
   return {

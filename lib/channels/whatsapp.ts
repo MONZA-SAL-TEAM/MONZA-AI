@@ -455,6 +455,8 @@ export interface WhatsAppMessageRow {
   sent_at: string;
   external_message_id?: string | null;
   error?: string | null;
+  /** Set on a message sent from a sales suggestion ("sales-suggestion:…"). */
+  automation_id?: string | null;
 }
 
 /** Shown for a message whose only content cannot be shown here. */
@@ -556,6 +558,7 @@ export function mapWhatsAppMessage(
     at,
     status,
     ...(out ? { staffName: row.staff_name ?? WHATSAPP_STAFF_NAME } : {}),
+    ...(out && row.automation_id ? { automationId: row.automation_id } : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
     ...(status === "failed" && row.error ? { error: row.error } : {}),
   };
@@ -732,6 +735,86 @@ export async function sendWhatsAppMedia(
   return postWhatsAppMessage(input.phoneNumberId, input.to, { type: input.kind, [input.kind]: part }, token, fetchFn);
 }
 
+/**
+ * A brochure or video sent by its public address (the sales library's), for a
+ * sales suggestion a person chose to send. WhatsApp fetches the file itself;
+ * nothing is uploaded from here. Only an https address is ever sent.
+ */
+export async function sendWhatsAppLink(
+  input: {
+    phoneNumberId: string;
+    to: string;
+    kind: "document" | "video";
+    link: string;
+    filename?: string;
+    caption?: string;
+  },
+  token: string,
+  fetchFn: typeof fetch = fetch
+): Promise<WhatsAppSendResult> {
+  if (!/^https:\/\/\S+$/.test(input.link)) {
+    return { ok: false, problem: "That file's address is not a secure web link.", windowClosed: false };
+  }
+  const part: Record<string, unknown> = { link: input.link };
+  if (input.kind === "document" && input.filename) part.filename = input.filename.slice(0, 240);
+  if (input.caption) part.caption = input.caption.slice(0, WHATSAPP_MAX_CAPTION);
+  return postWhatsAppMessage(input.phoneNumberId, input.to, { type: input.kind, [input.kind]: part }, token, fetchFn);
+}
+
+/** WhatsApp's limits for tappable choices. */
+export const WHATSAPP_MAX_BUTTONS = 3;
+export const WHATSAPP_MAX_LIST_ROWS = 10;
+export const WHATSAPP_BUTTON_TITLE = 20;
+export const WHATSAPP_ROW_TITLE = 24;
+export const WHATSAPP_MAX_INTERACTIVE_BODY = 1024;
+
+/**
+ * A question with tappable answers: up to three reply buttons, or a list of up
+ * to ten rows. Each answer carries its payload as the id ("MODEL:COURAGE"); a
+ * tap comes back as a message the engine reads. Anything over WhatsApp's
+ * limits is refused here rather than by Meta after it looked sent.
+ */
+export async function sendWhatsAppChoices(
+  input: {
+    phoneNumberId: string;
+    to: string;
+    body: string;
+    style: "buttons" | "list";
+    choices: readonly { id: string; title: string }[];
+  },
+  token: string,
+  fetchFn: typeof fetch = fetch
+): Promise<WhatsAppSendResult> {
+  const max = input.style === "buttons" ? WHATSAPP_MAX_BUTTONS : WHATSAPP_MAX_LIST_ROWS;
+  const titleMax = input.style === "buttons" ? WHATSAPP_BUTTON_TITLE : WHATSAPP_ROW_TITLE;
+  const body = input.body.trim();
+  if (
+    input.choices.length === 0 ||
+    input.choices.length > max ||
+    input.choices.some((c) => c.title.trim() === "" || c.title.length > titleMax || c.id.length > 200) ||
+    body === "" ||
+    body.length > WHATSAPP_MAX_INTERACTIVE_BODY
+  ) {
+    return { ok: false, problem: "Those choices do not fit WhatsApp's buttons or list.", windowClosed: false };
+  }
+  const interactive =
+    input.style === "buttons"
+      ? {
+          type: "button",
+          body: { text: body },
+          action: { buttons: input.choices.map((c) => ({ type: "reply", reply: { id: c.id, title: c.title } })) },
+        }
+      : {
+          type: "list",
+          body: { text: body },
+          action: {
+            button: "Choose",
+            sections: [{ title: "Options", rows: input.choices.map((c) => ({ id: c.id, title: c.title })) }],
+          },
+        };
+  return postWhatsAppMessage(input.phoneNumberId, input.to, { type: "interactive", interactive }, token, fetchFn);
+}
+
 /** The stored row for a reply sent from MONZA AI — WhatsApp sends no echo for it. */
 export function whatsappSentRow(input: {
   conversationId: string;
@@ -742,6 +825,8 @@ export function whatsappSentRow(input: {
   at: string;
   staffName: string;
   attachment?: StoredAttachment;
+  /** A message sent from a sales suggestion: "sales-suggestion:…". Still a person's send. */
+  automationId?: string;
 }): Record<string, unknown> {
   return {
     conversation_id: input.conversationId,
@@ -755,6 +840,7 @@ export function whatsappSentRow(input: {
     status: "sent",
     staff_name: input.staffName,
     sent_at: input.at,
+    ...(input.automationId ? { automation_id: input.automationId } : {}),
   };
 }
 

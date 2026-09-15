@@ -844,6 +844,8 @@ export default function WaSalesClient() {
       colourId: string | null;
       name: string;
       size: number;
+      /** Where the file can be fetched from — what a channel would send. */
+      url?: string;
     }[]
   >([]);
 
@@ -870,13 +872,14 @@ export default function WaSalesClient() {
           }
         }
         setUploads(
-          files.map(({ id, carId, kind, colourId, name, size }) => ({
+          files.map(({ id, carId, kind, colourId, name, size, url }) => ({
             id,
             carId,
             kind,
             colourId: colourId ?? null,
             name,
             size,
+            url,
           }))
         );
         setUploadsLoaded(true);
@@ -1096,6 +1099,7 @@ export default function WaSalesClient() {
         colourId: u.colourId,
         name: u.name,
         size: u.size,
+        url: u.url,
       })),
     [uploads]
   );

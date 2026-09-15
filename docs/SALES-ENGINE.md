@@ -5,9 +5,10 @@ customer's message on Instagram, Messenger or WhatsApp and decides, with no AI
 anywhere on the path, what Monza **would** send: the model's brochure, approved
 facts, colour choices, a colour's video, or the contact number.
 
-**Nothing is sent.** The engine is called only by the simulator on `/sales`.
-The send policy blocks every action while CLAUDE.md rule 24 stands, and no
-channel adapter can send a file yet. See [Blockers to live use](#blockers-to-live-use).
+**It never sends by itself.** Since 2026-09-15 the inbox shows its suggested
+reply for each open chat and a person presses Send — see
+[Suggestions in the inbox](#suggestions-in-the-inbox). The `/sales` simulator
+runs the same engine.
 
 ---
 
@@ -163,12 +164,54 @@ so the PASSION and the PASSION L can never share material.
 
 The plan goes out whole or not at all.
 
+## Suggestions in the inbox
+
+Samer's decisions (2026-09-15): **suggest only, never automatic**; all three
+channels; **quiet for the rest of the chat** once a person writes their own
+reply; small MP4 copies of the colour videos.
+
+1. Staff open a chat. `SalesSuggestion.tsx` asks `GET /api/sales/suggestion`,
+   which reads the chat the way the inbox does (`readThreadForStaff`: live
+   from Meta for Instagram and Facebook, from our store for WhatsApp), lists
+   the shared sales library (`library-server.ts`), and runs the engine over
+   the customer's messages since our last reply (`suggest.ts`).
+2. The card shows the exact sentences, the files (name, size), the choices,
+   what is missing, and anything that blocks sending. Send this · Copy text ·
+   Dismiss.
+3. **Send this** (`POST /api/sales/suggestion/send`) works the suggestion out
+   again from the chat as it is now, refuses if it changed, claims it, and
+   sends it part by part through the same gates as a typed reply, stopping at
+   the first failure. WhatsApp copies are recorded with `automation_id`
+   `sales-suggestion:…`.
+4. The engine's next state and the Meta ids of what went are saved in
+   `sales_suggestion_state` (migration 011). An outgoing message that is
+   neither of ours was written by a person: suggestions stop for that chat
+   until "Suggest again".
+
+| Part | WhatsApp | Messenger | Instagram |
+|---|---|---|---|
+| Brochure | `document.link` + filename, ≤100 MB | `attachment` file by URL, ≤25 MB | same as Messenger |
+| Colour video | `video.link`, MP4 ≤16 MB | `attachment` video by URL, ≤25 MB | same |
+| Choices | ≤3 reply buttons · ≤10 list rows · else numbered | ≤13 quick replies | ≤13 quick replies |
+
+A file over the channel's limit goes as a link inside the sentence. A button
+tap comes back as its title ("Voyah Courage", "Black"), which the engine
+reads like typed text.
+
 ## Persistence
 
-`database/migrations/008_conversation_sales_state.sql` has one JSON state per
-conversation. It uses a composite FK to `channel_conversations(id, brand)`,
-cascades on delete, checks the version and the size, and has RLS on with no
-policies. It is **not applied**. The customer's words are never stored in it.
+`database/migrations/011_sales_suggestion_state.sql` keeps one row per chat,
+keyed by the account and the conversation's reference on it (Meta's
+conversation id, or our WhatsApp conversation id):
+- engine state
+- the Meta ids of suggestion sends
+- `resumed_at`
+- an optimistic `rev`
+
+It has a composite FK to `channel_accounts(id, brand)`, version, size and
+id-count checks, and RLS on with no policies. It is **not applied**. The
+customer's words are never stored in it. It replaces the unapplied 008 design
+for automatic replies, which Samer did not choose.
 
 ## Missing business content
 
@@ -201,9 +244,10 @@ From the readiness report (the simulator's "Content readiness" panel, and
   referral activates a model yet.
 - **The WhatsApp number is treated as MONZA SAL** in the simulator. Confirm.
 
-## Blockers to live use
+## Before any AUTOMATIC reply (not chosen — Samer, 2026-09-15)
 
-Passing tests is not permission to send. Before any automated reply:
+Suggestions are sent by a person, so none of this applies to them. If
+replies without a person are ever wanted, all of this comes first:
 
 1. **Rule 24 must be lifted by Samer**, explicitly and in writing.
 2. **No adapter sends files or choices.** `OutboundMessage` is

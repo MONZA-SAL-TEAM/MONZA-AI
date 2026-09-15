@@ -856,9 +856,28 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   signals, so a vague real customer is never filtered out.
 - The sales context expires after `SALES_CONTEXT_TTL_HOURS` (default 72) —
   separate from Meta's 24-hour window.
-- **Not wired to the webhook.** Only the `/sales` simulator calls `runTurn()`;
-  the send policy blocks everything while rule 24 stands and no adapter sends
-  files. Migration 008 (per-conversation state) is written and NOT applied.
+- **Suggest only — a person always sends (Samer, 2026-09-15).** Nothing calls
+  the engine from the webhook. In the inbox, `app/inbox/SalesSuggestion.tsx`
+  shows the engine's suggested reply for the open chat (`GET
+  /api/sales/suggestion`, worked out from the chat as read live). "Send this"
+  (`POST /api/sales/suggestion/send`) works it out AGAIN server-side, refuses
+  if the chat changed, claims it (optimistic `rev`, so two people cannot send
+  it twice), then sends part by part through the same gates as a typed reply
+  (`suggestionTarget` in live.ts: window → `CHANNELS_SEND_MODE` → key),
+  stopping at the first failure (`lib/wasales/executor.ts`).
+- **Files go by the sales library's public address** — WhatsApp
+  `document`/`video` `link`, Messenger/Instagram `attachment.payload.url` — and
+  a file over the channel's limit goes as a link in the sentence. Choices are
+  WhatsApp reply buttons / list or Messenger/Instagram quick replies; each
+  carries its payload (`MODEL:X`, `COLOUR:X:Y`).
+- **Quiet for the rest of the chat once a person writes their own reply.**
+  Suggestion sends are recognised by the Meta message ids saved when they went
+  and, on WhatsApp, by `automation_id` `sales-suggestion:…`; any other
+  outgoing message hands the chat to people. "Suggest again" forgives the
+  replies written until then.
+- **Memory:** `database/migrations/011_sales_suggestion_state.sql` — engine
+  state and our own sent ids per chat, never words. NOT applied until Samer
+  says so: suggestions still show without it, but cannot be sent.
 
 ## General
 

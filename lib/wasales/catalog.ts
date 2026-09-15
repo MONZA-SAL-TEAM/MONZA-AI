@@ -209,25 +209,37 @@ export interface LibraryFile {
   colourId: string | null;
   name: string;
   size: number;
+  /** The library's public address — what a channel fetches when it is sent. */
+  url?: string | null;
+  /**
+   * A small copy made for sending (scripts/sales-video-prep.mjs: MP4, 15 MB
+   * at most, so every channel takes it). Preferred over the original.
+   */
+  sendCopy?: boolean;
 }
 
 /**
  * What the shared LIBRARY holds — the truth about what could actually be
  * sent. A video filed under no colour is ignored, because it can never be
- * offered; the first brochure listed is the car's brochure.
+ * offered; the first brochure listed is the car's brochure. Where a colour
+ * has small send copies, only those are offered: the original may be too big
+ * for any channel.
  */
 export function libraryMedia(files: readonly LibraryFile[]): ModelMediaLookup {
   return (carId) => {
     let brochure: MediaRef | null = null;
-    const videosByColour: Record<string, MediaRef[]> = {};
+    const originals: Record<string, MediaRef[]> = {};
+    const copies: Record<string, MediaRef[]> = {};
     for (const f of files) {
       if (f.carId !== carId) continue;
+      const ref: MediaRef = { name: f.name, bytes: f.size, ...(f.url ? { url: f.url } : {}) };
       if (f.kind === "brochure") {
-        brochure ??= { name: f.name, bytes: f.size };
+        brochure ??= ref;
       } else if (f.colourId) {
-        (videosByColour[f.colourId] ??= []).push({ name: f.name, bytes: f.size });
+        ((f.sendCopy ? copies : originals)[f.colourId] ??= []).push(ref);
       }
     }
+    const videosByColour: Record<string, MediaRef[]> = { ...originals, ...copies };
     return { brochure, videosByColour };
   };
 }

@@ -6,3 +6,5 @@ next-env.d.ts
 !.env.example
 *.log
 tsconfig.tsbuildinfo
+# Small MP4 copies made by scripts/sales-video-prep.mjs before upload
+.sales-video-send/

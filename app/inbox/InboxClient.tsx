@@ -33,6 +33,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import DraftDock from "./DraftDock";
+import SalesSuggestion from "./SalesSuggestion";
 import MediaComposer from "./MediaComposer";
 import { Attachments, LinkEmbeds, Lightbox, Ticks } from "./MediaBubble";
 import { carryUrls, isMetaCdn, previewText, waWebChatLink, withoutLinks } from "@/lib/inbox/media";
@@ -1672,6 +1673,23 @@ export default function InboxClient(props: Props) {
               )}
 
               <div className="ibx-compose-wrap">
+                {/* The Search Engine's suggested reply — shown, never sent
+                    until a person presses Send (app/inbox/SalesSuggestion). */}
+                {live && (
+                  <SalesSuggestion
+                    threadId={open.id}
+                    refreshKey={messages[messages.length - 1]?.id ?? ""}
+                    onSent={() => {
+                      setSendNote("Sent.");
+                      scrolledFor.current = null;
+                      reloadThread.current?.();
+                    }}
+                    onUseText={(text) => {
+                      setComposerText(text);
+                      composerRef.current?.focus();
+                    }}
+                  />
+                )}
                 {/* Suggested drafts read the example threads only; on a live
                     thread they would draft from the wrong conversation. */}
                 {!live && (

@@ -27,6 +27,7 @@ import type { EngineAction, FallbackReason } from "@/lib/wasales/actions";
 import { colourPayload, modelPayload, type FactIntent, type GlobalIntent } from "@/lib/wasales/intent";
 import {
   CHANNEL_LIMITS,
+  mediaFitsChannel,
   modelByCode,
   type ModelCode,
   type SalesBrand,
@@ -46,12 +47,35 @@ export type ChoiceStyle = "quick_replies" | "buttons" | "list" | "numbered";
 
 export type OutboundPart =
   | { kind: "text"; text: string; choices: Choice[]; style: ChoiceStyle | null }
-  | { kind: "file"; fileKind: "document" | "video"; name: string; bytes: number | null };
+  | {
+      kind: "file";
+      fileKind: "document" | "video";
+      name: string;
+      bytes: number | null;
+      /** Where the channel fetches it; null when it is not in the shared library. */
+      url: string | null;
+    };
 
 export interface RenderContext {
   channel: SalesChannel;
   brand: SalesBrand;
   knowledge: SalesKnowledge;
+  /**
+   * A file too big for the channel, but in the shared library, goes as a
+   * tap-to-open link in the sentence instead of as an attachment (the Passion
+   * brochure is 71.6 MB; Messenger and Instagram take 25 MB).
+   */
+  linkOversize?: boolean;
+}
+
+/** The address to put in the sentence, when the file must go as a link. */
+function linkInstead(
+  asset: { name: string; bytes: number | null; url?: string | null },
+  kind: "document" | "video",
+  ctx: RenderContext
+): string | null {
+  if (!ctx.linkOversize || !asset.url) return null;
+  return mediaFitsChannel(asset, kind, ctx.channel) === null ? null : asset.url;
 }
 
 /* ── The words ───────────────────────────────────────────────────────────── */
@@ -134,10 +158,22 @@ export function renderPlan(actions: readonly EngineAction[], ctx: RenderContext)
   const parts: OutboundPart[] = [];
   for (const a of actions) {
     switch (a.type) {
-      case "SEND_BROCHURE":
+      case "SEND_BROCHURE": {
+        const link = linkInstead(a.asset, "document", ctx);
+        if (link) {
+          parts.push(say(`Here is the ${nameOf(k, a.model)} brochure: ${link}`));
+          break;
+        }
         parts.push(say(`Here is the ${nameOf(k, a.model)} brochure.`));
-        parts.push({ kind: "file", fileKind: "document", name: a.asset.name, bytes: a.asset.bytes });
+        parts.push({
+          kind: "file",
+          fileKind: "document",
+          name: a.asset.name,
+          bytes: a.asset.bytes,
+          url: a.asset.url ?? null,
+        });
         break;
+      }
       case "SEND_FACT":
         parts.push(say(`${FACT_LABEL[a.fact]} of the ${nameOf(k, a.model)}: ${a.value}.`));
         break;
@@ -151,8 +187,19 @@ export function renderPlan(actions: readonly EngineAction[], ctx: RenderContext)
           : a.chosenForThem
             ? `Here is the ${car} in ${a.colourName} — a favourite of ours.`
             : `Here is the ${car} in ${a.colourName}.`;
+        const link = linkInstead(a.asset, "video", ctx);
+        if (link) {
+          parts.push(say(`${text.replace(/\.$/, "")}: ${link}`));
+          break;
+        }
         parts.push(say(text));
-        parts.push({ kind: "file", fileKind: "video", name: a.asset.name, bytes: a.asset.bytes });
+        parts.push({
+          kind: "file",
+          fileKind: "video",
+          name: a.asset.name,
+          bytes: a.asset.bytes,
+          url: a.asset.url ?? null,
+        });
         break;
       }
       case "COLOUR_NOT_AVAILABLE":

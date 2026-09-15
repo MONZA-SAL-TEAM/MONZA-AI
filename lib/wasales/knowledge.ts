@@ -272,6 +272,12 @@ export interface MediaRef {
   readonly name: string;
   /** null when the source cannot say — which blocks sending it. */
   readonly bytes: number | null;
+  /**
+   * The shared library's public address, which a channel fetches when the
+   * file is sent. Absent for a file that is only in the sales folder: it
+   * cannot be sent until somebody uploads it.
+   */
+  readonly url?: string | null;
 }
 
 /** What has actually been uploaded for one catalogue car. */
