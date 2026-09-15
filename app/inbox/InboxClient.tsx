@@ -1437,7 +1437,13 @@ export default function InboxClient(props: Props) {
                                   </span>
                                 )}
                                 <span className="ibx-row-acct">
-                                  {acct ? `${CHANNEL_LABEL[c.channel]} · ${acct.handle}` : CHANNEL_LABEL[c.channel]}
+                                  {c.channel === "whatsapp"
+                                    ? c.peerPhone && c.peerPhone !== c.customerName
+                                      ? `${CHANNEL_LABEL[c.channel]} · ${c.peerPhone}`
+                                      : CHANNEL_LABEL[c.channel]
+                                    : acct
+                                      ? `${CHANNEL_LABEL[c.channel]} · ${acct.handle}`
+                                      : CHANNEL_LABEL[c.channel]}
                                 </span>
                                 {unread && <span className="ibx-unread-dot" aria-label="Unread" />}
                               </span>
@@ -1547,13 +1553,18 @@ export default function InboxClient(props: Props) {
                         {brandLabel(openBrand)}
                       </span>
                     )}
-                    <span>
+                    {/* WhatsApp: the CUSTOMER's number, never ours (Samer, 2026-09-15) —
+                        there is one business number, so ours tells staff nothing. */}
+                    <span className={open.channel === "whatsapp" ? "ibx-conv-num" : undefined}>
                       {CHANNEL_LABEL[open.channel]}
-                      {openAccount ? ` · to ${openAccount.handle}` : ""}
+                      {open.channel === "whatsapp"
+                        ? open.peerPhone && open.peerPhone !== open.customerName
+                          ? ` · ${open.peerPhone}`
+                          : ""
+                        : openAccount
+                          ? ` · to ${openAccount.handle}`
+                          : ""}
                     </span>
-                    {open.channel === "whatsapp" && open.peerPhone && open.peerPhone !== open.customerName && (
-                      <span className="ibx-conv-num">{open.peerPhone}</span>
-                    )}
                     {openProfile?.username && openProfile.name && <span>@{openProfile.username}</span>}
                     {openProfile?.followers != null && <span>{count(openProfile.followers)} followers</span>}
                     {openProfile?.followsYou && <span className="ibx-follows">Follows you</span>}
