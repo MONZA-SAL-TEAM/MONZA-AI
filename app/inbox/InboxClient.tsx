@@ -1,76 +1,87 @@
 "use client";
 
 /**
- * The unified inbox screen.
+ * THE INBOX — rebuilt from scratch 2026-09-14.
  *
- * Two columns: the conversation list (its filters sit above it as a chip
- * strip) and the thread with its customer context beside it. On a phone the
- * thread takes over the screen and a back button returns to the list.
+ * Samer: "fully redesign the inbox … very very more filtered and modern …
+ * more comfort and ordered, not messy", "every time it is loading 2000 chats
+ * on every reload", "filter for time, from/to date", "the username show and
+ * the notification", and MHERO's Instagram "separated from VOYAH".
  *
- * WhatsApp, Instagram and Facebook are rendered by the SAME components. The
- * channel is a chip on a row, not a different code path.
+ * ── Loading: once, then only what is new ─────────────────────────────────
+ * Conversations already read are saved in this browser (lib/inbox/cache.ts)
+ * and on screen the instant the page opens. Meta is then asked for page one of
+ * every account, and further pages ONLY until a conversation we already hold
+ * comes back unchanged (reachedKnown) — a reload costs one page per account,
+ * not two thousand conversations. History is paged in once, in the
+ * background; its cursor is saved after every page, so a reload resumes it.
  *
- * ── LIVE ────────────────────────────────────────────────────────────────────
- * With accounts connected, the list is read from Meta by the server and
- * refreshed every minute, and an open thread is fetched from Meta and
- * refreshed every 15 seconds. Nothing is kept: the only copy of a conversation
- * is on Instagram and Facebook, where it always was (Samer, 2026-09-10).
- * Replies go out through Meta. While sending is switched off, pressing Send
- * says so rather than showing a tick the customer never earned.
+ * ── Brands are separate ──────────────────────────────────────────────────
+ * VOYAH, MHERO and MONZA SAL are tabs. Which brand a conversation belongs to
+ * is the brand of the ACCOUNT it arrived at (rule 1), never its text.
  *
- * ── DEMO ────────────────────────────────────────────────────────────────────
- * Example threads, and nothing sends: the composer offers only a prefilled
- * WhatsApp link a person taps themselves.
+ * ── Unread and alerts ────────────────────────────────────────────────────
+ * Meta's list says nothing about what we have read, so "unread" is kept per
+ * person: the customer wrote after this person last opened it. The first
+ * visit sets a baseline, so history does not arrive as 2,000 unread. A new
+ * message found while the inbox is open shows a toast, and — if the person
+ * allowed it — a browser notification while the tab is in the background.
  *
- * All filtering, sorting, counting and searching comes from lib/inbox/filters,
- * so the badge on a filter and the list it opens can never disagree.
+ * Sending, the 24-hour window and the demo mode behave as before.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import DraftDock from "./DraftDock";
-import {
-  applyFilter,
-  countsByFilter,
-  searchConversations,
-  type Viewer,
-} from "@/lib/inbox/filters";
-import {
-  FILTER_LABEL,
-  INBOX_FILTERS,
-  STATUS_LABEL,
-  type Conversation,
-  type InboxFilter,
-  type InboxMessage,
-} from "@/lib/inbox/types";
+import type { Conversation, InboxMessage } from "@/lib/inbox/types";
 import {
   CHANNEL_LABEL,
   VEHICLE_STATUS_LABEL,
+  type ChannelKey,
   type Customer,
   type Installment,
   type Vehicle,
 } from "@/lib/domain/types";
-import { sortNewestFirst, type AccountStatus } from "@/lib/channels/live-map";
-import { firstName, longDate, messageTime, usd, waLink } from "@/lib/format";
+import { longDate, usd, waLink } from "@/lib/format";
+import { emptyMeta, openInboxCache, type AccountMeta, type InboxCache } from "@/lib/inbox/cache";
+import {
+  DATE_PRESETS,
+  EMPTY_VIEW,
+  SHOW_FILTERS,
+  SHOW_LABEL,
+  accountIdOf,
+  arrivals,
+  brandLabel,
+  brandOf,
+  count,
+  filterView,
+  groupByDay,
+  initialsOf,
+  isFiltered,
+  isUnread,
+  localClock,
+  localDay,
+  mergeConversations,
+  orderBrands,
+  presetRange,
+  reachedKnown,
+  type DatePreset,
+  type InboxAccount,
+  type ShowFilter,
+  type ViewFilter,
+} from "@/lib/inbox/sync";
 import "./inbox.css";
 
 interface Props {
-  today: string;
+  /** The CRM source is the demo one. */
   demo: boolean;
-  /**
-   * Whether any channel account is connected — a DIFFERENT fact from `demo`,
-   * which is about the source system. Real conversations must never be
-   * labelled as examples just because the CRM is still the demo one.
-   */
-  channelsConnected: boolean;
-  /** Conversations come live from Meta (and threads are fetched on open). */
+  /** At least one channel account is registered: conversations come from Meta. */
   live: boolean;
-  /** How each connected account's read went, so a failure is never shown as silence. */
-  accountStatuses: AccountStatus[];
+  accounts: InboxAccount[];
+  /** The signed-in person's id — their saved inbox lives under it. */
+  viewerKey: string;
   sourceLabel: string;
-  viewer: Viewer;
-  staff: { id: string; name: string }[];
+  /** Demo threads only; live ones come from Meta. */
   conversations: Conversation[];
   messages: InboxMessage[];
   customers: Customer[];
@@ -78,317 +89,709 @@ interface Props {
   vehicles: Vehicle[];
 }
 
-type MoreResponse =
-  | {
-      ok: true;
-      conversations: Conversation[];
-      next: string | null;
-      lite: boolean;
-      note?: string | null;
-    }
-  | { ok: false; message?: string };
-
-/** Where each account's list stands: Meta's cursor for its next page. */
-type Cursor = { next: string | null; lite: boolean };
-
-/** A ceiling on "Load all", so a cursor that never ends cannot loop forever. */
-const MAX_PAGES = 200;
+type PageResult =
+  | { ok: true; conversations: Conversation[]; next: string | null; lite: boolean; note: string | null }
+  | { ok: false; message: string };
 
 type ThreadResponse =
   | { ok: true; messages: InboxMessage[]; window: { open: boolean; text: string } }
   | { ok: false; message?: string };
 
-interface LiveThread {
+interface ThreadState {
   messages: InboxMessage[];
+  loading: boolean;
+  problem: string | null;
   windowOpen: boolean;
   windowText: string;
-  problem: string | null;
-  loading: boolean;
 }
 
-const EMPTY_THREAD: LiveThread = {
+const EMPTY_THREAD: ThreadState = {
   messages: [],
+  loading: true,
+  problem: null,
   windowOpen: false,
   windowText: "",
-  problem: null,
-  loading: true,
 };
 
-const THREAD_REFRESH_MS = 15_000;
-const LIST_REFRESH_MS = 60_000;
+type RunState = "waiting" | "checking" | "ok" | "history" | "paused" | "error";
+interface Run {
+  state: RunState;
+  note: string | null;
+}
 
-/** A small channel chip. One component, three channels — by design. */
-function ChannelChip({ channel }: { channel: Conversation["channel"] }) {
+type AlertsState = "unsupported" | "default" | "granted" | "denied";
+
+/** How often the newest conversations are checked while the inbox is open. */
+const CHECK_EVERY_MS = 60_000;
+const THREAD_REFRESH_MS = 15_000;
+/** Gentle on Meta: a short pause between pages. */
+const PAGE_PAUSE_MS = 300;
+/** A reload after a long absence still stops somewhere. */
+const MAX_CHECK_PAGES = 40;
+/** A ceiling on history, so a cursor that never ends cannot loop forever. */
+const MAX_HISTORY_PAGES = 400;
+/** Rows rendered at a time; more appear as the list scrolls. */
+const RENDER_STEP = 120;
+/** Read by the sidebar badge. */
+const UNREAD_KEY = "monza-ai:inbox-unread";
+
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function fetchPage(accountId: string, after: string, lite: boolean): Promise<PageResult> {
+  const qs = new URLSearchParams({ account: accountId, after, lite: lite ? "1" : "0" });
+  try {
+    const res = await fetch(`/api/channels/more?${qs.toString()}`, { cache: "no-store" });
+    const json = (await res.json().catch(() => null)) as {
+      ok?: boolean;
+      conversations?: Conversation[];
+      next?: string | null;
+      lite?: boolean;
+      note?: string | null;
+      message?: string;
+    } | null;
+    if (res.ok && json?.ok && Array.isArray(json.conversations)) {
+      return {
+        ok: true,
+        conversations: json.conversations,
+        next: json.next ?? null,
+        lite: json.lite === true,
+        note: json.note ?? null,
+      };
+    }
+    return {
+      ok: false,
+      message:
+        (typeof json?.message === "string" && json.message) ||
+        (res.status === 401 ? "Please sign in again." : "Meta did not send this account's conversations."),
+    };
+  } catch {
+    return { ok: false, message: "Could not reach Monza AI." };
+  }
+}
+
+function hasRowsFor(map: ReadonlyMap<string, Conversation>, accountId: string): boolean {
+  for (const c of map.values()) {
+    if ((c.accountId ?? accountIdOf(c.id)) === accountId) return true;
+  }
+  return false;
+}
+
+/* ── Icons (line, currentColor) ──────────────────────────────────────────── */
+
+function Icon({ d, size = 18 }: { d: string; size?: number }) {
   return (
-    <span className={`chan chan-${channel}`}>{CHANNEL_LABEL[channel]}</span>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d={d} />
+    </svg>
   );
 }
 
-export default function InboxClient({
-  today,
-  demo,
-  channelsConnected,
-  live,
-  accountStatuses,
-  sourceLabel,
-  viewer,
-  staff,
-  conversations,
-  messages,
-  customers,
-  openInstallments,
-  vehicles,
-}: Props) {
-  const router = useRouter();
-  const [filter, setFilter] = useState<InboxFilter>("all");
-  const [search, setSearch] = useState("");
-  // What the salesperson is about to send. A draft they accept lands here, so
-  // there is somewhere to edit it and fill in any [[slots]] before it goes.
-  const [composerText, setComposerText] = useState("");
-  const composerRef = useRef<HTMLTextAreaElement>(null);
-  // The thread body scrolls. A thread opens at its newest message, once per
-  // opening — the 15-second refresh must not yank somebody reading older ones.
+const I = {
+  search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35",
+  bell: "M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9 M13.73 21a2 2 0 0 1-3.46 0",
+  bellOff:
+    "M13.73 21a2 2 0 0 1-3.46 0 M18.63 13A17.9 17.9 0 0 1 18 8 M6.26 6.26A5.9 5.9 0 0 0 6 8c0 7-3 9-3 9h14 M18 8a6 6 0 0 0-9.33-5 M1 1l22 22",
+  check: "M20 6L9 17l-5-5",
+  back: "M15 18l-6-6 6-6",
+  send: "M22 2L11 13 M22 2l-7 20-4-9-9-4z",
+  info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 16v-4 M12 8h.01",
+  calendar: "M3 5h18v16H3z M16 3v4 M8 3v4 M3 11h18",
+  x: "M18 6L6 18 M6 6l12 12",
+  chat: "M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.8-.9L3 21l1.9-5.2A8.4 8.4 0 1 1 21 11.5z",
+  copy: "M9 9h11v11H9z M5 15H4V4h11v1",
+};
+
+/** The channel's mark, drawn small in the corner of an avatar. */
+function ChannelMark({ channel }: { channel: string }) {
+  const label = CHANNEL_LABEL[channel as ChannelKey] ?? channel;
+  return (
+    <span className={`ibx-chan ibx-chan-${channel}`} title={label} aria-label={label}>
+      {channel === "instagram" ? (
+        <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.6" aria-hidden="true">
+          <rect x="3" y="3" width="18" height="18" rx="5" />
+          <circle cx="12" cy="12" r="4" />
+        </svg>
+      ) : channel === "facebook" ? (
+        <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" aria-hidden="true">
+          <path d="M14 8h3V4h-3c-2.8 0-4.5 1.8-4.5 4.6V11H7v4h2.5v7h4v-7h3l.5-4h-3.5V9c0-.6.4-1 1-1z" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2.6" aria-hidden="true">
+          <path d="M20 11.5a8 8 0 0 1-11.8 7L4 20l1.5-4A8 8 0 1 1 20 11.5z" />
+        </svg>
+      )}
+    </span>
+  );
+}
+
+function Avatar({
+  name,
+  brand,
+  channel,
+  large = false,
+}: {
+  name: string;
+  brand: string | null;
+  channel: string;
+  large?: boolean;
+}) {
+  return (
+    <span className={`ibx-av${large ? " ibx-av-lg" : ""}`} data-brand={brand ?? "none"} aria-hidden="true">
+      <span className="ibx-av-txt">{initialsOf(name)}</span>
+      <ChannelMark channel={channel} />
+    </span>
+  );
+}
+
+/* ── The screen ──────────────────────────────────────────────────────────── */
+
+export default function InboxClient(props: Props) {
+  const { demo, live, accounts, viewerKey, sourceLabel, customers, openInstallments, vehicles } = props;
+
+  // Everything that reads the clock or the time zone renders after mount, so
+  // the server's HTML and the browser's first render always agree.
+  const [mounted, setMounted] = useState(false);
+
+  const [convMap, setConvMap] = useState<Map<string, Conversation>>(
+    () => new Map(props.conversations.map((c) => [c.id, c]))
+  );
+  const convRef = useRef(convMap);
+  const accountsRef = useRef(accounts);
+  accountsRef.current = accounts;
+
+  const [ready, setReady] = useState(!live);
+  const [baselineAt, setBaselineAt] = useState("");
+  const baselineRef = useRef("");
+  const [seen, setSeen] = useState<Record<string, string>>({});
+  const [metas, setMetas] = useState<Record<string, AccountMeta>>({});
+  const metasRef = useRef(metas);
+  const [runs, setRuns] = useState<Record<string, Run>>(() =>
+    Object.fromEntries(accounts.map((a) => [a.id, { state: "waiting", note: null }]))
+  );
+  const [checking, setChecking] = useState(false);
+  const [historyRunning, setHistoryRunning] = useState(false);
+  const [lastChecked, setLastChecked] = useState<string | null>(null);
+  const [cacheOk, setCacheOk] = useState(true);
+  const cacheRef = useRef<InboxCache | null>(null);
+  const checkingRef = useRef(false);
+  const historyRef = useRef(false);
+  const stopHistory = useRef(false);
+  const firstCheckDone = useRef(false);
+
+  const [view, setView] = useState<ViewFilter>(EMPTY_VIEW);
+  const [datesOpen, setDatesOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [renderCount, setRenderCount] = useState(RENDER_STEP);
+  const sentinelRef = useRef<HTMLLIElement>(null);
+
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [thread, setThread] = useState<ThreadState>(EMPTY_THREAD);
+  const reloadThread = useRef<(() => void) | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const scrolledFor = useRef<string | null>(null);
-  const [openId, setOpenId] = useState<string | null>(null);
 
-  const [liveThread, setLiveThread] = useState<LiveThread>(EMPTY_THREAD);
+  const [composerText, setComposerText] = useState("");
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const [sending, setSending] = useState(false);
   const [sendNote, setSendNote] = useState<string | null>(null);
 
-  // "Load more" / "Load all": pages beyond the first, per account. Held on
-  // this screen only — nothing is stored, and the next visit starts fresh.
-  const [extra, setExtra] = useState<Conversation[]>([]);
-  const [cursors, setCursors] = useState<Record<string, Cursor>>(() =>
-    Object.fromEntries(accountStatuses.map((s) => [s.id, { next: s.next, lite: s.lite }]))
-  );
-  const [loadingMore, setLoadingMore] = useState<"idle" | "one" | "all">("idle");
-  const [moreNote, setMoreNote] = useState<string | null>(null);
-  const stopAll = useRef(false);
-  // Load every conversation in the background (Samer, 2026-09-10: "make it
-  // so that all the chats show") — until Meta has no more, somebody presses
-  // Stop, or a page fails. Nothing is stored; each visit starts again.
-  const autoLoad = useRef(true);
+  const [alerts, setAlerts] = useState<AlertsState>("unsupported");
+  const alertsRef = useRef<AlertsState>("unsupported");
+  alertsRef.current = alerts;
+  const [toast, setToast] = useState<Conversation | null>(null);
 
-  // Accounts the page could not wait for (Instagram is slow): the browser
-  // fetches their first page itself, once per visit, so Facebook is never
-  // held up. Their note on screen then comes from here, not from the page.
-  const [firstLoads, setFirstLoads] = useState<
-    Record<string, { state: "loading" | "done" | "failed"; note: string | null }>
-  >({});
   useEffect(() => {
-    const waiting = accountStatuses.filter(
-      (s) => s.state === "deferred" && !(s.id in firstLoads)
-    );
-    if (waiting.length === 0) return;
-    setFirstLoads((prev) => {
-      const next = { ...prev };
-      for (const s of waiting) next[s.id] = { state: "loading", note: null };
-      return next;
-    });
-    for (const s of waiting) {
-      const qs = new URLSearchParams({ account: s.id, after: "", lite: "1" });
-      void fetch(`/api/channels/more?${qs.toString()}`, { cache: "no-store" })
-        .then(async (res) => ({
-          ok: res.ok,
-          json: (await res.json().catch(() => null)) as MoreResponse | null,
-        }))
-        .then(({ ok, json }) => {
-          if (ok && json && json.ok) {
-            setExtra((prev) => [...prev, ...json.conversations]);
-            setCursors((prev) => ({ ...prev, [s.id]: { next: json.next, lite: json.lite } }));
-            setFirstLoads((prev) => ({ ...prev, [s.id]: { state: "done", note: json.note ?? null } }));
-          } else {
-            const note =
-              (json && !json.ok && json.message) ||
-              "Meta did not send this account's conversations.";
-            setFirstLoads((prev) => ({ ...prev, [s.id]: { state: "failed", note } }));
-          }
-        })
-        .catch(() => {
-          setFirstLoads((prev) => ({
-            ...prev,
-            [s.id]: { state: "failed", note: "Could not reach Monza AI." },
-          }));
-        });
-    }
-  }, [accountStatuses, firstLoads]);
-
-  // The minute-by-minute refresh re-reads page one. Keep the cursors of
-  // accounts already paged; take cursors only for accounts new to the screen.
-  useEffect(() => {
-    setCursors((prev) => {
-      const missing = accountStatuses.filter((s) => !(s.id in prev));
-      if (missing.length === 0) return prev;
-      const next = { ...prev };
-      for (const s of missing) next[s.id] = { next: s.next, lite: s.lite };
-      return next;
-    });
-  }, [accountStatuses]);
-
-  const allConversations = useMemo(() => {
-    if (extra.length === 0) return conversations;
-    const seen = new Set<string>();
-    const merged: Conversation[] = [];
-    for (const c of [...conversations, ...extra]) {
-      if (seen.has(c.id)) continue;
-      seen.add(c.id);
-      merged.push(c);
-    }
-    return sortNewestFirst(merged);
-  }, [conversations, extra]);
-
-  const canLoadMore = live && Object.values(cursors).some((c) => c.next !== null);
-
-  const counts = useMemo(
-    () => countsByFilter(allConversations, viewer),
-    [allConversations, viewer]
-  );
-
-  const visible = useMemo(() => {
-    const filtered = applyFilter(allConversations, filter, viewer);
-    return searchConversations(filtered, search);
-  }, [allConversations, filter, viewer, search]);
-
-  const open = useMemo(
-    () => visible.find((c) => c.id === openId) ?? null,
-    [visible, openId]
-  );
-  const openThreadId = open?.id ?? null;
-
-  // Every account with something to say — including one that loaded but only
-  // partly (e.g. previews hidden because Meta sent a lighter list).
-  const problems = useMemo(
-    () =>
-      accountStatuses
-        .map((s) => {
-          if (s.state !== "deferred") return s;
-          const f = firstLoads[s.id];
-          const problem =
-            !f || f.state === "loading"
-              ? "Loading from Meta — Instagram is slow, this can take up to a minute."
-              : f.note;
-          return { ...s, problem };
-        })
-        .filter((s) => s.problem !== null),
-    [accountStatuses, firstLoads]
-  );
-  const allFailed =
-    live &&
-    accountStatuses.length > 0 &&
-    accountStatuses.every(
-      (s) =>
-        s.state !== "ok" &&
-        (s.state !== "deferred" || firstLoads[s.id]?.state === "failed")
-    );
-
-  // The list is re-read from Meta by the server every minute.
-  useEffect(() => {
-    if (!live) return;
-    const t = setInterval(() => router.refresh(), LIST_REFRESH_MS);
-    return () => clearInterval(t);
-  }, [live, router]);
-
-  const loadThread = useCallback(async (id: string, signal?: AbortSignal) => {
-    try {
-      const res = await fetch(`/api/channels/thread?id=${encodeURIComponent(id)}`, {
-        cache: "no-store",
-        signal,
-      });
-      const json = (await res.json().catch(() => null)) as ThreadResponse | null;
-      if (res.ok && json && json.ok) {
-        setLiveThread({
-          messages: json.messages,
-          windowOpen: json.window.open,
-          windowText: json.window.text,
-          problem: null,
-          loading: false,
-        });
-      } else {
-        // Keep what was already on screen; say what went wrong.
-        setLiveThread((prev) => ({
-          ...prev,
-          loading: false,
-          problem:
-            (json && !json.ok && json.message) ||
-            "Could not load this conversation from Meta.",
-        }));
-      }
-    } catch (e) {
-      if (e instanceof DOMException && e.name === "AbortError") return;
-      setLiveThread((prev) => ({
-        ...prev,
-        loading: false,
-        problem: "Could not reach Monza AI. Check the connection.",
-      }));
+    setMounted(true);
+    if (typeof window !== "undefined" && "Notification" in window) {
+      const p = Notification.permission;
+      setAlerts(p === "granted" ? "granted" : p === "denied" ? "denied" : "default");
     }
   }, []);
 
-  // An open live thread is fetched from Meta, then refreshed while it stays open.
+  const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
+
+  /* ── Saving and merging ─────────────────────────────────────────────── */
+
+  const setRun = useCallback((id: string, state: RunState, note: string | null) => {
+    setRuns((prev) => ({ ...prev, [id]: { state, note } }));
+  }, []);
+
+  const saveMeta = useCallback((id: string, patch: Partial<AccountMeta>): AccountMeta => {
+    const next: AccountMeta = { ...(metasRef.current[id] ?? emptyMeta(id)), ...patch, id };
+    metasRef.current = { ...metasRef.current, [id]: next };
+    setMetas(metasRef.current);
+    void cacheRef.current?.putMeta(next);
+    return next;
+  }, []);
+
+  const announce = useCallback((news: Conversation[]) => {
+    const first = news[0];
+    if (!first) return;
+    setToast(first);
+    if (alertsRef.current !== "granted" || document.visibilityState === "visible") return;
+    for (const c of news.slice(0, 3)) {
+      try {
+        const brand = brandLabel(brandOf(c, accountsRef.current));
+        const n = new Notification(`${c.customerName} · ${brand}`, {
+          body: c.lastMessage.text.slice(0, 140),
+          tag: c.id,
+        });
+        n.onclick = () => {
+          window.focus();
+          setOpenId(c.id);
+          n.close();
+        };
+      } catch {
+        // Some browsers refuse notifications outside a service worker; the toast still shows.
+      }
+    }
+  }, []);
+
+  const commit = useCallback(
+    (fresh: readonly Conversation[], notify: boolean) => {
+      if (fresh.length === 0) return;
+      const before = convRef.current;
+      const { merged, changed } = mergeConversations(before, fresh);
+      if (changed.length === 0) return;
+      if (notify) {
+        const news = arrivals(before, changed, baselineRef.current);
+        if (news.length > 0) announce(news);
+      }
+      convRef.current = merged;
+      setConvMap(merged);
+      void cacheRef.current?.putConversations(changed);
+    },
+    [announce]
+  );
+
+  const markSeen = useCallback((entries: [string, string][]) => {
+    if (entries.length === 0) return;
+    setSeen((prev) => {
+      let next: Record<string, string> | null = null;
+      for (const [id, at] of entries) {
+        if ((prev[id] ?? "") >= at) continue;
+        next ??= { ...prev };
+        next[id] = at;
+      }
+      return next ?? prev;
+    });
+    void cacheRef.current?.setSeen(entries);
+  }, []);
+
+  /* ── Checking for new conversations ─────────────────────────────────── */
+
+  /**
+   * Page one of every account, and more pages only until one we already hold
+   * comes back unchanged. An account seen for the first time takes one page;
+   * the rest of its past is the history run's job.
+   */
+  const checkNewest = useCallback(async () => {
+    if (checkingRef.current) return;
+    checkingRef.current = true;
+    setChecking(true);
+    try {
+      await Promise.all(
+        accountsRef.current.map(async (a) => {
+          const firstTime = !hasRowsFor(convRef.current, a.id);
+          const lite = metasRef.current[a.id]?.lite ?? false;
+          setRun(a.id, "checking", null);
+          let after = "";
+          let note: string | null = null;
+          for (let pages = 1; pages <= MAX_CHECK_PAGES; pages++) {
+            const page = await fetchPage(a.id, after, lite);
+            if (!page.ok) {
+              setRun(a.id, "error", page.message);
+              return;
+            }
+            note = page.note;
+            const known = reachedKnown(convRef.current, page.conversations);
+            commit(page.conversations, firstCheckDone.current);
+            const stamp = new Date().toISOString();
+            if (firstTime) {
+              saveMeta(a.id, {
+                backfillCursor: page.next,
+                complete: page.next === null,
+                lite: page.lite,
+                lastSyncAt: stamp,
+              });
+              break;
+            }
+            if (known || page.next === null || pages === MAX_CHECK_PAGES) {
+              saveMeta(a.id, { lite: page.lite, lastSyncAt: stamp });
+              break;
+            }
+            after = page.next;
+            await pause(PAGE_PAUSE_MS);
+          }
+          setRun(a.id, "ok", note);
+        })
+      );
+    } finally {
+      checkingRef.current = false;
+      firstCheckDone.current = true;
+      setChecking(false);
+      setLastChecked(new Date().toISOString());
+    }
+  }, [commit, saveMeta, setRun]);
+
+  /**
+   * The past, once. Each account continues from the cursor saved after its
+   * last page; when Meta says there is nothing older, it never runs again.
+   */
+  const runHistory = useCallback(async () => {
+    if (historyRef.current) return;
+    historyRef.current = true;
+    stopHistory.current = false;
+    setHistoryRunning(true);
+    try {
+      await Promise.all(
+        accountsRef.current.map(async (a) => {
+          let meta = metasRef.current[a.id];
+          if (!meta || meta.complete) return;
+          let after = meta.backfillCursor ?? "";
+          setRun(a.id, "history", null);
+          for (let i = 0; i < MAX_HISTORY_PAGES; i++) {
+            if (stopHistory.current) {
+              setRun(a.id, "paused", "Saving older conversations is paused.");
+              return;
+            }
+            const page = await fetchPage(a.id, after, meta.lite);
+            if (!page.ok) {
+              setRun(a.id, "paused", `Older conversations paused — ${page.message}`);
+              return;
+            }
+            commit(page.conversations, false);
+            meta = saveMeta(a.id, {
+              backfillCursor: page.next,
+              complete: page.next === null,
+              lite: page.lite,
+            });
+            if (page.next === null) break;
+            after = page.next;
+            await pause(PAGE_PAUSE_MS);
+          }
+          setRun(a.id, "ok", null);
+        })
+      );
+    } finally {
+      historyRef.current = false;
+      setHistoryRunning(false);
+    }
+  }, [commit, saveMeta, setRun]);
+
+  /** A paused history whose saved cursor Meta no longer accepts starts over from the top. */
+  const restartHistory = useCallback(() => {
+    for (const a of accountsRef.current) {
+      const m = metasRef.current[a.id];
+      if (m && !m.complete) saveMeta(a.id, { backfillCursor: null });
+    }
+    void runHistory();
+  }, [runHistory, saveMeta]);
+
+  // Open the saved copy, show it, then check Meta for anything newer.
   useEffect(() => {
-    if (!live || !openThreadId) return;
-    setLiveThread(EMPTY_THREAD);
-    setSendNote(null);
-    const ctrl = new AbortController();
-    void loadThread(openThreadId, ctrl.signal);
-    const t = setInterval(() => void loadThread(openThreadId, ctrl.signal), THREAD_REFRESH_MS);
+    if (!live) return;
+    let cancelled = false;
+    void (async () => {
+      const cache = await openInboxCache(viewerKey);
+      if (cancelled) return;
+      cacheRef.current = cache;
+      setCacheOk(cache !== null);
+      const snap = cache ? await cache.load() : null;
+      if (cancelled) return;
+
+      // Only accounts still registered: a removed account's saved rows stay hidden.
+      const known = new Set(accountsRef.current.map((a) => a.id));
+      const rows = (snap?.conversations ?? []).filter((c) =>
+        known.has(c.accountId ?? accountIdOf(c.id) ?? "")
+      );
+      const map = new Map(rows.map((c) => [c.id, c]));
+      convRef.current = map;
+      setConvMap(map);
+      metasRef.current = snap?.meta ?? {};
+      setMetas(metasRef.current);
+      setSeen(snap?.seen ?? {});
+      const base = snap?.baselineAt ?? new Date().toISOString();
+      if (!snap?.baselineAt) void cache?.setBaseline(base);
+      baselineRef.current = base;
+      setBaselineAt(base);
+      setReady(true);
+
+      await checkNewest();
+      if (!cancelled) void runHistory();
+    })();
     return () => {
+      cancelled = true;
+      stopHistory.current = true;
+    };
+    // The account list and the person do not change while the page is open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, viewerKey]);
+
+  // Keep checking while the inbox is open, and the moment it comes back into view.
+  useEffect(() => {
+    if (!live || !ready) return;
+    const t = setInterval(() => void checkNewest(), CHECK_EVERY_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void checkNewest();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [live, ready, checkNewest]);
+
+  /* ── What is on screen ──────────────────────────────────────────────── */
+
+  const all = useMemo(() => [...convMap.values()], [convMap]);
+  const today = mounted ? localDay(new Date().toISOString()) : "";
+
+  // Demo threads carry their own unread count; opening one still clears it,
+  // for this visit (nothing is saved in demo mode).
+  const unreadOf = useCallback(
+    (c: Conversation) =>
+      live
+        ? isUnread(c, seen[c.id], baselineAt)
+        : c.unreadCount > 0 && (seen[c.id] ?? "") < c.lastMessage.at,
+    [live, seen, baselineAt]
+  );
+
+  const brands = useMemo(() => orderBrands(accounts.map((a) => a.brand)), [accounts]);
+
+  const stats = useMemo(() => {
+    const byBrand = new Map<string, { total: number; unread: number }>();
+    const byAccount = new Map<string, number>();
+    let unread = 0;
+    for (const c of all) {
+      const b = brandOf(c, accounts) ?? "";
+      const s = byBrand.get(b) ?? { total: 0, unread: 0 };
+      s.total += 1;
+      const u = unreadOf(c);
+      if (u) {
+        s.unread += 1;
+        unread += 1;
+      }
+      byBrand.set(b, s);
+      const acct = c.accountId ?? accountIdOf(c.id) ?? "";
+      byAccount.set(acct, (byAccount.get(acct) ?? 0) + 1);
+    }
+    return { byBrand, byAccount, unread };
+  }, [all, accounts, unreadOf]);
+
+  const channels = useMemo(() => {
+    const present = new Set(all.map((c) => c.channel as string));
+    for (const a of accounts) present.add(a.channel);
+    return (["instagram", "facebook", "whatsapp"] as const).filter((ch) => present.has(ch));
+  }, [all, accounts]);
+
+  const visible = useMemo(
+    () =>
+      filterView(all, view, {
+        accounts,
+        seen,
+        baselineAt: live ? baselineAt : "",
+        dayOf: localDay,
+      }),
+    [all, view, accounts, seen, baselineAt, live]
+  );
+
+  useEffect(() => setRenderCount(RENDER_STEP), [view]);
+
+  const shown = useMemo(() => visible.slice(0, renderCount), [visible, renderCount]);
+  const groups = useMemo(
+    () => (mounted ? groupByDay(shown, (c) => c.lastMessage.at, localDay, today) : []),
+    [shown, mounted, today]
+  );
+
+  // More rows as the list scrolls — two thousand buttons at once is what made
+  // the old list heavy.
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) setRenderCount((n) => n + RENDER_STEP);
+      },
+      { rootMargin: "800px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [shown.length, visible.length]);
+
+  // Unread in the tab title and on the sidebar.
+  useEffect(() => {
+    if (!mounted || !ready) return;
+    document.title = stats.unread > 0 ? `(${stats.unread}) Inbox — Monza AI` : "Inbox — Monza AI";
+    if (!live) return;
+    try {
+      localStorage.setItem(UNREAD_KEY, String(stats.unread));
+    } catch {
+      // Storage refused: the badge simply does not update.
+    }
+    window.dispatchEvent(new CustomEvent("monza-inbox-unread", { detail: stats.unread }));
+  }, [stats.unread, mounted, ready, live]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 9_000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  /* ── The open conversation ──────────────────────────────────────────── */
+
+  const open = openId ? convMap.get(openId) ?? null : null;
+  const openBrand = open ? brandOf(open, accounts) : null;
+  const openAccount = open ? accountById.get(open.accountId ?? accountIdOf(open.id) ?? "") ?? null : null;
+
+  const openConversation = useCallback(
+    (c: Conversation) => {
+      setOpenId(c.id);
+      markSeen([[c.id, c.lastMessage.at]]);
+    },
+    [markSeen]
+  );
+
+  useEffect(() => {
+    if (!live || !openId) return;
+    const id = openId;
+    let alive = true;
+    setThread(EMPTY_THREAD);
+    setSendNote(null);
+
+    // The saved copy of this thread first, then Meta.
+    void cacheRef.current?.getThread(id).then((saved) => {
+      if (alive && saved && saved.length > 0) {
+        setThread((t) => (t.messages.length > 0 ? t : { ...t, messages: saved }));
+      }
+    });
+
+    const ctrl = new AbortController();
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/channels/thread?id=${encodeURIComponent(id)}`, {
+          cache: "no-store",
+          signal: ctrl.signal,
+        });
+        const json = (await res.json().catch(() => null)) as ThreadResponse | null;
+        if (!alive) return;
+        if (res.ok && json && json.ok) {
+          setThread({
+            messages: json.messages,
+            loading: false,
+            problem: null,
+            windowOpen: json.window.open,
+            windowText: json.window.text,
+          });
+          void cacheRef.current?.putThread(id, json.messages);
+          // The thread is newer news than the list row: bring the row up to date.
+          const last = json.messages[json.messages.length - 1];
+          const row = convRef.current.get(id);
+          if (last && row && last.at >= row.lastMessage.at) {
+            commit(
+              [
+                {
+                  ...row,
+                  status: last.direction === "out" ? "waiting_reply" : "open",
+                  lastMessage: {
+                    text: last.text,
+                    at: last.at,
+                    direction: last.direction,
+                    author: last.author,
+                  },
+                },
+              ],
+              false
+            );
+            markSeen([[id, last.at]]);
+          }
+        } else {
+          setThread((t) => ({
+            ...t,
+            loading: false,
+            problem: (json && !json.ok && json.message) || "Could not load this conversation from Meta.",
+          }));
+        }
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        if (alive) {
+          setThread((t) => ({
+            ...t,
+            loading: false,
+            problem: "Could not reach Monza AI. Check the connection.",
+          }));
+        }
+      }
+    };
+    reloadThread.current = () => void load();
+    void load();
+    const t = setInterval(() => void load(), THREAD_REFRESH_MS);
+    return () => {
+      alive = false;
       ctrl.abort();
       clearInterval(t);
+      reloadThread.current = null;
     };
-  }, [live, openThreadId, loadThread]);
+  }, [live, openId, commit, markSeen]);
 
-  const thread = useMemo(() => {
+  const messages = useMemo(() => {
     if (!open) return [];
-    return live ? liveThread.messages : messages.filter((m) => m.conversationId === open.id);
-  }, [live, liveThread.messages, messages, open]);
+    return live ? thread.messages : props.messages.filter((m) => m.conversationId === open.id);
+  }, [live, thread.messages, props.messages, open]);
 
+  const messageGroups = useMemo(
+    () => (mounted ? groupByDay(messages, (m) => m.at, localDay, today) : []),
+    [messages, mounted, today]
+  );
+
+  // A thread opens at its newest message, once per opening — the refresh must
+  // not yank somebody reading older ones.
   useEffect(() => {
-    if (!openThreadId) {
-      scrolledFor.current = null; // reopening a thread starts at its newest again
+    if (!openId) {
+      scrolledFor.current = null;
       return;
     }
-    // Only once the messages on screen are THIS thread's: on a switch, the
-    // previous thread's messages are still rendered for a moment.
-    if (thread.length === 0 || thread[thread.length - 1].conversationId !== openThreadId) return;
-    if (scrolledFor.current === openThreadId) return;
+    if (messages.length === 0 || messages[messages.length - 1].conversationId !== openId) return;
+    if (scrolledFor.current === openId) return;
     const el = bodyRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-    scrolledFor.current = openThreadId;
-  }, [openThreadId, thread]);
+    scrolledFor.current = openId;
+  }, [openId, messages]);
 
-  /**
-   * The message a draft would answer: the last one, if it came from the
-   * customer. Null when we spoke last, which is a follow-up rather than a
-   * reply.
-   */
-  const anchorMessageId = useMemo(() => {
-    const last = thread[thread.length - 1];
-    return last && last.direction === "in" ? last.id : null;
-  }, [thread]);
-
-  // Switching conversations must never carry one customer's half-written reply
-  // into another's thread.
+  // One customer's half-written reply never travels to another's thread.
   useEffect(() => {
     setComposerText("");
+    if (composerRef.current) composerRef.current.style.height = "";
   }, [openId]);
 
+  const anchorMessageId = useMemo(() => {
+    const last = messages[messages.length - 1];
+    return last && last.direction === "in" ? last.id : null;
+  }, [messages]);
+
   const customer = useMemo(
-    () => (open ? customers.find((c) => c.id === open.customerId) ?? null : null),
+    () => (open && open.customerId ? customers.find((c) => c.id === open.customerId) ?? null : null),
     [customers, open]
   );
-
   const customerInstallments = useMemo(
-    () =>
-      open
-        ? openInstallments.filter((i) => i.customerId === open.customerId)
-        : [],
+    () => (open && open.customerId ? openInstallments.filter((i) => i.customerId === open.customerId) : []),
     [openInstallments, open]
   );
-
   const customerVehicles = useMemo(
-    () => (open ? vehicles.filter((v) => v.customerId === open.customerId) : []),
+    () => (open && open.customerId ? vehicles.filter((v) => v.customerId === open.customerId) : []),
     [vehicles, open]
   );
 
@@ -404,15 +807,13 @@ export default function InboxClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversationId: open.id, text }),
       });
-      const json = (await res.json().catch(() => null)) as {
-        delivered?: boolean;
-        message?: string;
-      } | null;
+      const json = (await res.json().catch(() => null)) as { delivered?: boolean; message?: string } | null;
       if (res.ok && json?.delivered) {
         setComposerText("");
+        if (composerRef.current) composerRef.current.style.height = "";
         setSendNote("Sent.");
         scrolledFor.current = null; // show the reply that just went out
-        void loadThread(open.id);
+        reloadThread.current?.();
       } else {
         // Not sent: the text stays in the box so nothing is lost.
         setSendNote(json?.message ?? "It was not sent.");
@@ -424,459 +825,744 @@ export default function InboxClient({
     }
   }
 
-  // Keep going whenever there is more to load and nothing is loading: at
-  // start, and again when a slow account's first page arrives with a cursor.
-  useEffect(() => {
-    if (!live || !autoLoad.current || loadingMore !== "idle" || !canLoadMore) return;
-    const t = setTimeout(() => void loadMore(true), 400);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadMore reads the latest cursors itself
-  }, [live, canLoadMore, loadingMore, cursors]);
+  /* ── Actions ────────────────────────────────────────────────────────── */
 
-  /**
-   * One page from every account that has more — or, for "Load all", page
-   * after page until Meta has nothing left or Stop is pressed. A failure
-   * stops the run and keeps the cursor, so pressing again retries.
-   */
-  async function loadMore(all: boolean) {
-    if (loadingMore !== "idle") return;
-    setLoadingMore(all ? "all" : "one");
-    setMoreNote(null);
-    stopAll.current = false;
-    let current: Record<string, Cursor> = { ...cursors };
-    let added = 0;
-    let failed: string | null = null;
-    try {
-      for (let page = 0; page < MAX_PAGES; page++) {
-        const pending = Object.entries(current).filter(([, c]) => c.next !== null);
-        if (pending.length === 0) break;
-        const results = await Promise.all(
-          pending.map(async ([id, c]) => {
-            const qs = new URLSearchParams({
-              account: id,
-              after: c.next ?? "",
-              lite: c.lite ? "1" : "0",
-            });
-            const res = await fetch(`/api/channels/more?${qs.toString()}`, { cache: "no-store" });
-            const json = (await res.json().catch(() => null)) as MoreResponse | null;
-            return { id, ok: res.ok && !!json && json.ok, json };
-          })
-        );
-        const fresh: Conversation[] = [];
-        for (const { id, ok, json } of results) {
-          if (ok && json && json.ok) {
-            fresh.push(...json.conversations);
-            current = { ...current, [id]: { next: json.next, lite: json.lite } };
-          } else {
-            failed = (json && !json.ok && json.message) || "Meta did not send the next page.";
-          }
-        }
-        added += fresh.length;
-        setExtra((prev) => [...prev, ...fresh]);
-        setCursors(current);
-        if (failed) autoLoad.current = false; // no retry loop against a failing account
-        if (failed || !all || stopAll.current) break;
-        setMoreNote(`Loading older conversations — ${added} more so far…`);
-        // Gentle on Meta: one round of pages at a time, with a short pause.
-        await new Promise((r) => setTimeout(r, 250));
-      }
-      const remaining = Object.values(current).some((c) => c.next !== null);
-      setMoreNote(
-        failed
-          ? `Loaded ${added} more, then stopped: ${failed}`
-          : !remaining
-            ? `Loaded ${added} more. That is every conversation Meta has.`
-            : `Loaded ${added} more.`
-      );
-    } catch {
-      setMoreNote("Could not reach Monza AI — press again to retry.");
-    } finally {
-      setLoadingMore("idle");
-    }
+  function markAllRead() {
+    markSeen(all.filter((c) => unreadOf(c)).map((c) => [c.id, c.lastMessage.at]));
   }
 
+  async function enableAlerts() {
+    if (!("Notification" in window)) return;
+    const p = await Notification.requestPermission();
+    setAlerts(p === "granted" ? "granted" : p === "denied" ? "denied" : "default");
+  }
+
+  async function clearSaved() {
+    if (!window.confirm("Remove the conversations saved on this computer? They will load again from Meta.")) {
+      return;
+    }
+    stopHistory.current = true;
+    await cacheRef.current?.clear();
+    try {
+      localStorage.removeItem(UNREAD_KEY);
+    } catch {
+      // nothing to remove
+    }
+    window.location.reload();
+  }
+
+  function setDates(from: string, to: string) {
+    setView((v) => ({ ...v, from, to }));
+  }
+
+  /* ── Status line ────────────────────────────────────────────────────── */
+
+  const troubled = accounts.filter((a) => runs[a.id]?.state === "error");
+  const pausedHistory = accounts.filter((a) => runs[a.id]?.state === "paused");
+  const historyLeft = accounts.some((a) => metas[a.id] && !metas[a.id].complete);
+
+  const statusState = !live
+    ? "demo"
+    : !ready
+      ? "busy"
+      : troubled.length > 0
+        ? "warn"
+        : checking || historyRunning
+          ? "busy"
+          : "ok";
+
+  const statusText = !live
+    ? "Example conversations"
+    : !ready
+      ? "Opening saved conversations…"
+      : checking
+        ? "Checking for new messages…"
+        : historyRunning
+          ? `Saving older conversations · ${count(all.length)} saved`
+          : troubled.length > 0
+            ? `${troubled.length} account${troubled.length === 1 ? "" : "s"} need attention`
+            : `Up to date · ${count(all.length)} saved${lastChecked ? ` · ${localClock(lastChecked)}` : ""}`;
+
+  const dateActive = view.from !== "" || view.to !== "";
+  const dateText = dateActive
+    ? view.from && view.to
+      ? view.from === view.to
+        ? longDate(view.from)
+        : `${longDate(view.from)} – ${longDate(view.to)}`
+      : view.from
+        ? `From ${longDate(view.from)}`
+        : `Until ${longDate(view.to)}`
+    : "Any date";
+
+  /* ── Render ─────────────────────────────────────────────────────────── */
+
   return (
-    <main className="inbox" data-thread-open={open !== null}>
-      {/* ── Conversation list, with its filters above it ──────────────── */}
-      <section className="inbox-list" aria-label="Conversations">
-        <div className="inbox-list-head">
-          <div className="row-between">
-            <h1 className="h2">Inbox</h1>
-            <span className="cap">
-              {visible.length} of {allConversations.length}
-              {canLoadMore ? "+" : ""}
-            </span>
-          </div>
-          <input
-            className="inbox-search"
-            type="search"
-            placeholder="Search name, brand or message"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            aria-label="Search conversations"
-          />
-          <nav className="inbox-filters" aria-label="Filters">
-            {INBOX_FILTERS.map((f) => (
+    <div className="ibx" data-open={open !== null}>
+      {/* ── The list ─────────────────────────────────────────────────── */}
+      <section className="ibx-list" aria-label="Conversations">
+        <header className="ibx-head">
+          <div className="ibx-title-row">
+            <div className="ibx-title-block">
+              <h1 className="ibx-title">Inbox</h1>
               <button
-                key={f}
                 type="button"
-                className="inbox-filter"
-                aria-pressed={filter === f}
-                onClick={() => {
-                  setFilter(f);
-                  setOpenId(null);
-                }}
+                className="ibx-sync"
+                data-state={statusState}
+                aria-expanded={statusOpen}
+                onClick={() => setStatusOpen((v) => !v)}
+                disabled={!live}
               >
-                <span>{FILTER_LABEL[f]}</span>
-                <span className="inbox-count">{counts[f]}</span>
+                <span className="ibx-sync-dot" aria-hidden="true" />
+                <span className="ibx-sync-text">{statusText}</span>
+              </button>
+            </div>
+            <div className="ibx-head-actions">
+              {stats.unread > 0 && (
+                <button
+                  type="button"
+                  className="ibx-icon-btn"
+                  title="Mark everything as read"
+                  aria-label="Mark everything as read"
+                  onClick={markAllRead}
+                >
+                  <Icon d={I.check} />
+                </button>
+              )}
+              {live && alerts !== "unsupported" && (
+                <button
+                  type="button"
+                  className="ibx-icon-btn"
+                  data-on={alerts === "granted"}
+                  title={
+                    alerts === "granted"
+                      ? "Alerts are on while the inbox is open"
+                      : alerts === "denied"
+                        ? "Alerts are blocked in this browser's settings"
+                        : "Turn on alerts for new messages"
+                  }
+                  aria-label="New-message alerts"
+                  disabled={alerts !== "default"}
+                  onClick={() => void enableAlerts()}
+                >
+                  <Icon d={alerts === "denied" ? I.bellOff : I.bell} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {statusOpen && live && (
+            <div className="ibx-status" role="region" aria-label="Sync details">
+              <ul className="ibx-status-list">
+                {accounts.map((a) => {
+                  const r = runs[a.id];
+                  const m = metas[a.id];
+                  const n = stats.byAccount.get(a.id) ?? 0;
+                  const history = m?.complete
+                    ? "all history saved"
+                    : r?.state === "history"
+                      ? "saving older…"
+                      : r?.state === "paused"
+                        ? "older paused"
+                        : "older not saved yet";
+                  return (
+                    <li key={a.id} className="ibx-status-row" data-state={r?.state ?? "waiting"}>
+                      <span className="ibx-status-name">
+                        <span className="ibx-dot" data-brand={a.brand} aria-hidden="true" />
+                        {a.label}
+                      </span>
+                      <span className="ibx-status-detail">
+                        {count(n)} saved · {history}
+                      </span>
+                      {r?.note && <span className="ibx-status-note">{r.note}</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="ibx-status-actions">
+                <button type="button" className="ibx-btn" disabled={checking} onClick={() => void checkNewest()}>
+                  {checking ? "Checking…" : "Check now"}
+                </button>
+                {historyRunning ? (
+                  <button type="button" className="ibx-btn" onClick={() => (stopHistory.current = true)}>
+                    Pause older
+                  </button>
+                ) : (
+                  historyLeft && (
+                    <button type="button" className="ibx-btn" onClick={() => void runHistory()}>
+                      Continue older
+                    </button>
+                  )
+                )}
+                {pausedHistory.length > 0 && !historyRunning && (
+                  <button type="button" className="ibx-btn" onClick={restartHistory}>
+                    Restart older from the top
+                  </button>
+                )}
+                {cacheOk && (
+                  <button type="button" className="ibx-btn ibx-btn-danger" onClick={() => void clearSaved()}>
+                    Clear saved chats
+                  </button>
+                )}
+              </div>
+              <p className="ibx-status-foot">
+                {cacheOk
+                  ? "Saved in this browser, for you only. Monza AI's servers keep no copy."
+                  : "This browser is not allowing saved data (a private window?), so conversations load from Meta on every visit."}
+              </p>
+            </div>
+          )}
+
+          {brands.length > 0 && (
+            <nav className="ibx-brands" aria-label="Brand">
+              {["all", ...brands].map((b) => {
+                const s =
+                  b === "all"
+                    ? { total: all.length, unread: stats.unread }
+                    : stats.byBrand.get(b) ?? { total: 0, unread: 0 };
+                return (
+                  <button
+                    key={b}
+                    type="button"
+                    className="ibx-brand"
+                    data-brand={b}
+                    aria-pressed={view.brand === b}
+                    onClick={() => setView((v) => ({ ...v, brand: b }))}
+                  >
+                    {b !== "all" && <span className="ibx-dot" data-brand={b} aria-hidden="true" />}
+                    <span className="ibx-brand-name">{b === "all" ? "All" : brandLabel(b)}</span>
+                    {s.unread > 0 ? (
+                      <span className="ibx-badge" aria-label={`${s.unread} unread`}>
+                        {s.unread > 99 ? "99+" : s.unread}
+                      </span>
+                    ) : (
+                      <span className="ibx-brand-count">{count(s.total)}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+          )}
+
+          <label className="ibx-search">
+            <Icon d={I.search} size={16} />
+            <input
+              type="search"
+              placeholder="Search a name, @username or message"
+              value={view.search}
+              onChange={(e) => setView((v) => ({ ...v, search: e.target.value }))}
+              aria-label="Search conversations"
+            />
+          </label>
+
+          <div className="ibx-chips" role="group" aria-label="Filters">
+            {SHOW_FILTERS.map((s: ShowFilter) => (
+              <button
+                key={s}
+                type="button"
+                className="ibx-chip"
+                aria-pressed={view.show === s}
+                onClick={() => setView((v) => ({ ...v, show: s }))}
+              >
+                {SHOW_LABEL[s]}
               </button>
             ))}
-          </nav>
-        </div>
+            {channels.length > 1 && <span className="ibx-chip-sep" aria-hidden="true" />}
+            {channels.length > 1 &&
+              channels.map((ch) => (
+                <button
+                  key={ch}
+                  type="button"
+                  className="ibx-chip"
+                  data-channel={ch}
+                  aria-pressed={view.channel === ch}
+                  onClick={() => setView((v) => ({ ...v, channel: v.channel === ch ? "all" : ch }))}
+                >
+                  {CHANNEL_LABEL[ch]}
+                </button>
+              ))}
+            <button
+              type="button"
+              className="ibx-chip ibx-chip-date"
+              aria-pressed={dateActive}
+              aria-expanded={datesOpen}
+              onClick={() => setDatesOpen((v) => !v)}
+            >
+              <Icon d={I.calendar} size={14} />
+              {dateText}
+            </button>
+          </div>
 
-        {!channelsConnected ? (
-          <p className="inbox-note">
-            Example conversations — no channel is connected yet. Customer
-            details come from {sourceLabel.toLowerCase()}.
-          </p>
-        ) : (
-          <div className="inbox-note">
-            <p>
-              Live from Instagram and Facebook. Monza AI shows these
-              conversations and keeps no copy of them.
-              {demo && ` Customer details beside them come from ${sourceLabel.toLowerCase()}.`}
+          {datesOpen && (
+            <div className="ibx-dates" role="group" aria-label="Last message between">
+              <div className="ibx-date-fields">
+                <label>
+                  <span>From</span>
+                  <input type="date" value={view.from} max={view.to || undefined} onChange={(e) => setDates(e.target.value, view.to)} />
+                </label>
+                <label>
+                  <span>To</span>
+                  <input type="date" value={view.to} min={view.from || undefined} onChange={(e) => setDates(view.from, e.target.value)} />
+                </label>
+              </div>
+              <div className="ibx-date-presets">
+                {DATE_PRESETS.map((p) => {
+                  const r = presetRange(p.id as DatePreset, today);
+                  const on = view.from === r.from && view.to === r.to;
+                  return (
+                    <button key={p.id} type="button" className="ibx-chip" aria-pressed={on} onClick={() => setDates(r.from, r.to)}>
+                      {p.label}
+                    </button>
+                  );
+                })}
+                <button type="button" className="ibx-chip" aria-pressed={!dateActive} onClick={() => setDates("", "")}>
+                  Any date
+                </button>
+              </div>
+              <p className="ibx-dates-note">
+                By the date of the latest message.
+                {historyRunning || historyLeft ? " Older conversations are still being saved, so earlier dates may fill in." : ""}
+              </p>
+            </div>
+          )}
+
+          <div className="ibx-summary">
+            <span>
+              {count(visible.length)} conversation{visible.length === 1 ? "" : "s"}
+              {isFiltered(view) ? ` of ${count(all.length)}` : ""}
+            </span>
+            {isFiltered(view) && (
+              <button type="button" className="ibx-link" onClick={() => setView(EMPTY_VIEW)}>
+                Clear filters
+              </button>
+            )}
+          </div>
+
+          {!live && (
+            <p className="ibx-demo-note">
+              Example conversations — no channel is connected yet. Customer details come from{" "}
+              {sourceLabel.toLowerCase()}.
             </p>
-            {problems.length > 0 && (
-              <ul style={{ margin: "0.4rem 0 0 1rem" }}>
-                {problems.map((s) => (
-                  <li key={s.id}>
-                    <strong>{s.label}:</strong> {s.problem}
-                  </li>
-                ))}
+          )}
+        </header>
+
+        <div className="ibx-scroll">
+          {!mounted || !ready ? (
+            <ul className="ibx-skeleton" aria-label="Loading">
+              {Array.from({ length: 8 }, (_, i) => (
+                <li key={i}>
+                  <span className="ibx-sk-av" />
+                  <span className="ibx-sk-lines">
+                    <span />
+                    <span />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : visible.length === 0 ? (
+            <div className="ibx-list-empty">
+              <p className="ibx-list-empty-title">
+                {all.length === 0
+                  ? checking
+                    ? "Fetching your conversations…"
+                    : troubled.length > 0
+                      ? "Could not load conversations from Meta"
+                      : "No conversations yet"
+                  : "Nothing matches"}
+              </p>
+              <p className="ibx-list-empty-text">
+                {all.length === 0
+                  ? troubled.length > 0
+                    ? "Open the status line above to see what each account said."
+                    : "New messages appear here as they arrive."
+                  : historyRunning
+                    ? "Older conversations are still being saved — this may change."
+                    : "Try another brand, filter or date."}
+              </p>
+            </div>
+          ) : (
+            <ol className="ibx-days">
+              {groups.map((g) => (
+                <li key={g.day} className="ibx-day">
+                  <h2 className="ibx-day-label">{g.label}</h2>
+                  <ul className="ibx-rows">
+                    {g.items.map((c) => {
+                      const brand = brandOf(c, accounts);
+                      const acct = accountById.get(c.accountId ?? accountIdOf(c.id) ?? "");
+                      const unread = unreadOf(c);
+                      return (
+                        <li key={c.id}>
+                          <button
+                            type="button"
+                            className="ibx-row"
+                            data-unread={unread}
+                            aria-current={openId === c.id ? "true" : undefined}
+                            onClick={() => openConversation(c)}
+                          >
+                            <Avatar name={c.customerName} brand={brand} channel={c.channel} />
+                            <span className="ibx-row-main">
+                              <span className="ibx-row-top">
+                                <span className="ibx-row-name">{c.customerName}</span>
+                                <time className="ibx-row-time" dateTime={c.lastMessage.at}>
+                                  {localClock(c.lastMessage.at)}
+                                </time>
+                              </span>
+                              <span className="ibx-row-preview">
+                                {c.lastMessage.direction === "out" && c.lastMessage.text !== "" && (
+                                  <span className="ibx-you">
+                                    {c.lastMessage.author === "automation" ? "Auto: " : "You: "}
+                                  </span>
+                                )}
+                                {c.lastMessage.text || "Open to read the latest message"}
+                              </span>
+                              <span className="ibx-row-meta">
+                                {brand && (
+                                  <span className="ibx-tag" data-brand={brand}>
+                                    {brandLabel(brand)}
+                                  </span>
+                                )}
+                                <span className="ibx-row-acct">
+                                  {acct ? `${CHANNEL_LABEL[c.channel]} · ${acct.handle}` : CHANNEL_LABEL[c.channel]}
+                                </span>
+                                {unread && <span className="ibx-unread-dot" aria-label="Unread" />}
+                              </span>
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </li>
+              ))}
+              {shown.length < visible.length && (
+                <li ref={sentinelRef} className="ibx-more">
+                  Showing {count(shown.length)} of {count(visible.length)}…
+                </li>
+              )}
+            </ol>
+          )}
+        </div>
+      </section>
+
+      {/* ── The conversation ─────────────────────────────────────────── */}
+      <section className="ibx-thread" aria-label="Conversation">
+        {!open ? (
+          <div className="ibx-welcome">
+            <div className="ibx-welcome-mark" aria-hidden="true">
+              <Icon d={I.chat} size={28} />
+            </div>
+            <h2 className="ibx-welcome-title">Pick a conversation</h2>
+            <p className="ibx-welcome-text">
+              {!ready
+                ? "Opening your saved conversations…"
+                : stats.unread > 0
+                  ? `${count(stats.unread)} unread across every brand.`
+                  : "You are all caught up."}
+            </p>
+            {brands.length > 0 && ready && (
+              <ul className="ibx-welcome-brands">
+                {brands.map((b) => {
+                  const s = stats.byBrand.get(b) ?? { total: 0, unread: 0 };
+                  return (
+                    <li key={b}>
+                      <button
+                        type="button"
+                        className="ibx-welcome-brand"
+                        data-brand={b}
+                        onClick={() => setView((v) => ({ ...v, brand: b, show: s.unread > 0 ? "unread" : "all" }))}
+                      >
+                        <span className="ibx-dot" data-brand={b} aria-hidden="true" />
+                        <span className="ibx-welcome-brand-name">{brandLabel(b)}</span>
+                        <span className="ibx-welcome-brand-num">{count(s.total)} chats</span>
+                        {s.unread > 0 && <span className="ibx-badge">{s.unread}</span>}
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
-        )}
-
-        <ul className="inbox-threads">
-          {visible.map((c) => (
-            <li key={c.id}>
-              <button
-                type="button"
-                className="thread-row"
-                aria-current={open?.id === c.id ? "true" : undefined}
-                onClick={() => setOpenId(c.id)}
-              >
-                <div className="row-between">
-                  <span className="thread-name truncate">{c.customerName}</span>
-                  <span className="cap">{messageTime(c.lastMessage.at, today)}</span>
-                </div>
-                <div className="thread-preview truncate">
-                  {c.lastMessage.direction === "out" && (
-                    <span className="thread-you">
-                      {c.lastMessage.author === "automation" ? "Auto: " : "You: "}
-                    </span>
-                  )}
-                  {c.lastMessage.text}
-                </div>
-                <div className="row thread-meta">
-                  <ChannelChip channel={c.channel} />
-                  {live && (
-                    <span className="tag truncate">
-                      {c.channelAddress.split(" → ")[1] ?? ""}
-                    </span>
-                  )}
-                  {c.unreadCount > 0 && (
-                    <span className="tag urgent">{c.unreadCount} unread</span>
-                  )}
-                  {!live &&
-                    (c.assignedToName ? (
-                      <span className="tag mine">{c.assignedToName}</span>
-                    ) : (
-                      <span className="tag">Unassigned</span>
-                    ))}
-                  {c.hasAutomatedMessage && <span className="tag">Automated</span>}
-                </div>
-              </button>
-            </li>
-          ))}
-          {visible.length === 0 && (
-            <li className="inbox-empty">
-              {search
-                ? canLoadMore
-                  ? "No match yet — still going through older conversations…"
-                  : "Nothing matches that search."
-                : allFailed
-                  ? "Could not load conversations from Meta — see the note above."
-                  : "Nothing in this filter right now."}
-            </li>
-          )}
-          {(canLoadMore || moreNote) && (
-            <li style={{ padding: "10px 6px" }}>
-              {canLoadMore && (
-                <div className="row">
-                  <button
-                    type="button"
-                    className="btn"
-                    disabled={loadingMore !== "idle"}
-                    onClick={() => void loadMore(false)}
-                  >
-                    {loadingMore === "one" ? "Loading…" : "Load more"}
-                  </button>
-                  {loadingMore === "all" ? (
-                    <button
-                      type="button"
-                      className="btn quiet"
-                      onClick={() => {
-                        stopAll.current = true;
-                        autoLoad.current = false;
-                      }}
-                    >
-                      Stop
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn quiet"
-                      disabled={loadingMore !== "idle"}
-                      onClick={() => {
-                        autoLoad.current = true;
-                        void loadMore(true);
-                      }}
-                    >
-                      Load all
-                    </button>
-                  )}
-                </div>
-              )}
-              {moreNote && (
-                <p className="cap" role="status">
-                  {moreNote}
-                </p>
-              )}
-            </li>
-          )}
-        </ul>
-      </section>
-
-      {/* ── Thread + context ────────────────────────────────────────────── */}
-      <section className="inbox-thread" aria-label="Conversation">
-        {!open ? (
-          <div className="inbox-placeholder">
-            <p className="lede">Choose a conversation to read it.</p>
-          </div>
         ) : (
-          <>
-            <header className="thread-head">
-              <button
-                type="button"
-                className="btn quiet thread-back"
-                onClick={() => setOpenId(null)}
-              >
-                ← Back
-              </button>
-              <div className="grow">
-                <div className="row">
-                  <h2 className="h2 truncate">{open.customerName}</h2>
-                  <ChannelChip channel={open.channel} />
+          <div className="ibx-conv-grid" data-details={detailsOpen}>
+            <div className="ibx-conv">
+              <header className="ibx-conv-head">
+                <button
+                  type="button"
+                  className="ibx-icon-btn ibx-back"
+                  aria-label="Back to conversations"
+                  onClick={() => setOpenId(null)}
+                >
+                  <Icon d={I.back} />
+                </button>
+                <Avatar name={open.customerName} brand={openBrand} channel={open.channel} large />
+                <div className="ibx-conv-who">
+                  <h2 className="ibx-conv-name">{open.customerName}</h2>
+                  <p className="ibx-conv-sub">
+                    {openBrand && (
+                      <span className="ibx-tag" data-brand={openBrand}>
+                        {brandLabel(openBrand)}
+                      </span>
+                    )}
+                    <span>
+                      {CHANNEL_LABEL[open.channel]}
+                      {openAccount ? ` · to ${openAccount.handle}` : ""}
+                    </span>
+                  </p>
                 </div>
-                <p className="cap truncate">
-                  {open.channelAddress} · {STATUS_LABEL[open.status]}
-                  {!live &&
-                    (open.assignedToName ? ` · ${open.assignedToName}` : " · Unassigned")}
+                {live && open.channel !== "whatsapp" && (
+                  <span
+                    className="ibx-window"
+                    data-open={thread.windowOpen}
+                    data-loading={thread.loading && thread.messages.length === 0}
+                    title={thread.windowText}
+                  >
+                    {thread.loading && thread.messages.length === 0
+                      ? "Checking…"
+                      : thread.windowOpen
+                        ? "Reply window open"
+                        : "Reply window closed"}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="ibx-icon-btn"
+                  aria-pressed={detailsOpen}
+                  aria-label="Customer details"
+                  title="Customer details"
+                  onClick={() => setDetailsOpen((v) => !v)}
+                >
+                  <Icon d={I.info} />
+                </button>
+              </header>
+
+              <div className="ibx-conv-body" ref={bodyRef}>
+                {live && thread.loading && messages.length === 0 && (
+                  <p className="ibx-conv-note">Loading the conversation from Meta…</p>
+                )}
+                {live && thread.problem && <p className="ibx-conv-note is-urgent">{thread.problem}</p>}
+                {messageGroups.map((g) => (
+                  <section key={g.day} className="ibx-msg-day" aria-label={g.label}>
+                    <div className="ibx-msg-sep">
+                      <span>{g.label}</span>
+                    </div>
+                    {g.items.map((m) => (
+                      <div key={m.id} className={`ibx-bubble ibx-bubble-${m.direction}`} data-author={m.author}>
+                        <p className="ibx-bubble-text">{m.text}</p>
+                        <p className="ibx-bubble-meta">
+                          {m.author === "automation"
+                            ? `Automatic · ${m.automationId ?? ""}`
+                            : m.author === "staff"
+                              ? m.staffName ?? "Monza"
+                              : open.customerName}
+                          {" · "}
+                          {localClock(m.at)}
+                          {m.direction === "out" && m.status !== "sent" ? ` · ${m.status}` : ""}
+                        </p>
+                      </div>
+                    ))}
+                  </section>
+                ))}
+                {live && messages.length >= 20 && (
+                  <p className="ibx-conv-foot">Meta shares the latest 20 messages of a conversation.</p>
+                )}
+              </div>
+
+              <div className="ibx-compose-wrap">
+                {/* Suggested drafts read the example threads only; on a live
+                    thread they would draft from the wrong conversation. */}
+                {!live && (
+                  <DraftDock
+                    conversationId={open.id}
+                    anchorMessageId={anchorMessageId}
+                    onUse={(text) => {
+                      setComposerText(text);
+                      composerRef.current?.focus();
+                    }}
+                  />
+                )}
+                <div className="ibx-compose">
+                  <textarea
+                    ref={composerRef}
+                    className="ibx-composer"
+                    rows={1}
+                    placeholder="Write a reply…"
+                    value={composerText}
+                    onChange={(e) => {
+                      setComposerText(e.target.value);
+                      e.target.style.height = "auto";
+                      e.target.style.height = `${Math.min(e.target.scrollHeight, 180)}px`;
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && live && open.channel !== "whatsapp") {
+                        e.preventDefault();
+                        void sendReply();
+                      }
+                    }}
+                    aria-label="Your reply"
+                  />
+                  <div className="ibx-compose-actions">
+                    <button
+                      type="button"
+                      className="ibx-icon-btn"
+                      title="Copy the reply"
+                      aria-label="Copy the reply"
+                      disabled={composerText === ""}
+                      onClick={() => void navigator.clipboard?.writeText(composerText)}
+                    >
+                      <Icon d={I.copy} size={16} />
+                    </button>
+                    {open.channel === "whatsapp" ? (
+                      <a
+                        className="ibx-send"
+                        href={waLink(open.channelAddress, composerText)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open in WhatsApp
+                      </a>
+                    ) : live ? (
+                      <button
+                        type="button"
+                        className="ibx-send"
+                        disabled={sending || composerText.trim() === "" || !thread.windowOpen}
+                        onClick={() => void sendReply()}
+                      >
+                        <Icon d={I.send} size={16} />
+                        {sending ? "Sending…" : "Send"}
+                      </button>
+                    ) : (
+                      <span className="ibx-send" aria-disabled="true">
+                        Not connected
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <p className="ibx-compose-note" role="status">
+                  {open.channel === "whatsapp"
+                    ? "Nothing is sent from Monza AI — opening WhatsApp fills this in and you tap send."
+                    : live
+                      ? sendNote ?? (thread.loading ? "Checking the conversation…" : `${thread.windowText} Ctrl+Enter sends.`)
+                      : `${CHANNEL_LABEL[open.channel]} replies are not connected yet.`}
                 </p>
               </div>
-              {open.customerId && (
-                <Link className="btn" href={`/customers?open=${open.customerId}`}>
-                  Customer
-                </Link>
-              )}
-            </header>
+            </div>
 
-            <div className="thread-body" ref={bodyRef}>
-              <ol className="bubbles">
-                {live && liveThread.loading && thread.length === 0 && (
-                  <li className="cap">Loading from Meta…</li>
-                )}
-                {live && liveThread.problem && (
-                  <li className="cap is-urgent">{liveThread.problem}</li>
-                )}
-                {thread.map((m) => (
-                  <li
-                    key={m.id}
-                    className={`bubble bubble-${m.direction}`}
-                    data-author={m.author}
+            {detailsOpen && (
+              <aside className="ibx-details" aria-label="Customer details">
+                <div className="ibx-details-head">
+                  <h3>Details</h3>
+                  <button
+                    type="button"
+                    className="ibx-icon-btn"
+                    aria-label="Close details"
+                    onClick={() => setDetailsOpen(false)}
                   >
-                    <p className="bubble-text">{m.text}</p>
-                    <p className="bubble-meta">
-                      {m.author === "automation"
-                        ? `Sent automatically · ${m.automationId}`
-                        : m.author === "staff"
-                          ? `${m.staffName ?? "Monza"}`
-                          : firstName(open.customerName)}
-                      {" · "}
-                      {messageTime(m.at, today)}
-                      {m.direction === "out" && ` · ${m.status}`}
-                    </p>
-                  </li>
-                ))}
-              </ol>
+                    <Icon d={I.x} size={16} />
+                  </button>
+                </div>
 
-              {/* Context from the SOURCE systems, never owned here. */}
-              <aside className="thread-context" aria-label="Customer context">
-                <h3 className="eyebrow">Context</h3>
+                <div className="ibx-card">
+                  <p className="ibx-card-title">Conversation</p>
+                  <dl className="ibx-facts">
+                    <dt>Name</dt>
+                    <dd>{open.customerName}</dd>
+                    <dt>Brand</dt>
+                    <dd>{openBrand ? brandLabel(openBrand) : "—"}</dd>
+                    <dt>Wrote to</dt>
+                    <dd>{openAccount ? openAccount.label : CHANNEL_LABEL[open.channel]}</dd>
+                    <dt>Last message</dt>
+                    <dd>{mounted ? `${longDate(localDay(open.lastMessage.at))}, ${localClock(open.lastMessage.at)}` : ""}</dd>
+                  </dl>
+                </div>
 
                 {!customer && live && (
-                  <div className="ctx-card">
-                    <p className="cap">
-                      Not linked to a Monza customer yet. Instagram and Facebook
-                      do not share phone numbers, so this person is matched once
-                      they give one.
+                  <div className="ibx-card">
+                    <p className="ibx-card-title">Not linked to a customer yet</p>
+                    <p className="ibx-card-text">
+                      Instagram and Facebook do not share phone numbers, so this person is matched once they give one.
                     </p>
                   </div>
                 )}
 
                 {customer && (
-                  <div className="ctx-card">
-                    <p className="ctx-title">Reachable on</p>
-                    <ul className="ctx-list">
+                  <div className="ibx-card">
+                    <p className="ibx-card-title">{customer.name}</p>
+                    <ul className="ibx-card-list">
                       {customer.handles.map((h) => (
                         <li key={`${h.channel}-${h.address}`}>
                           {CHANNEL_LABEL[h.channel]} · {h.address}
                         </li>
                       ))}
                     </ul>
-                    <p className="cap">
+                    <p className="ibx-card-text">
                       First contact {customer.firstContact} · {customer.origin}
                     </p>
+                    <Link className="ibx-link" href={`/customers?open=${customer.id}`}>
+                      Open customer
+                    </Link>
                   </div>
                 )}
 
                 {customerVehicles.map((v) => (
-                  <div className="ctx-card" key={v.id}>
-                    <p className="ctx-title">{v.label}</p>
-                    <p className="cap">
+                  <div className="ibx-card" key={v.id}>
+                    <p className="ibx-card-title">{v.label}</p>
+                    <p className="ibx-card-text">
                       {v.plate ? `${v.plate} · ` : ""}
                       {VEHICLE_STATUS_LABEL[v.status]}
                       {v.awaitingPart ? ` — ${v.awaitingPart}` : ""}
                     </p>
-                    {v.jobReference && <p className="cap">Job {v.jobReference}</p>}
+                    {v.jobReference && <p className="ibx-card-text">Job {v.jobReference}</p>}
                   </div>
                 ))}
 
                 {customerInstallments.length > 0 && (
-                  <div className="ctx-card">
-                    <p className="ctx-title">Outstanding installments</p>
-                    <ul className="ctx-list">
+                  <div className="ibx-card">
+                    <p className="ibx-card-title">Outstanding installments</p>
+                    <ul className="ibx-card-list">
                       {customerInstallments.map((i) => (
-                        <li key={i.id}>
-                          <span className={i.status === "overdue" ? "is-urgent" : ""}>
-                            #{i.number} of {i.totalCount} · {usd(i.amountUsd)} ·{" "}
-                            {longDate(i.dueDate)}
-                          </span>
+                        <li key={i.id} className={i.status === "overdue" ? "is-urgent" : ""}>
+                          #{i.number} of {i.totalCount} · {usd(i.amountUsd)} · {longDate(i.dueDate)}
                         </li>
                       ))}
                     </ul>
-                    <p className="cap">
-                      Reported by the source system — Monza AI does not keep a
-                      balance of its own.
+                    <p className="ibx-card-text">
+                      Reported by the source system — Monza AI keeps no balance of its own.
                     </p>
                   </div>
                 )}
 
-                {customerInstallments.length === 0 && customer && (
-                  <div className="ctx-card">
-                    <p className="ctx-title">Installments</p>
-                    <p className="cap">Nothing outstanding.</p>
-                  </div>
+                {demo && (
+                  <p className="ibx-card-text">Customer details come from {sourceLabel.toLowerCase()}.</p>
                 )}
               </aside>
-            </div>
-
-            {/* The dock and the composer are ONE footer. On a phone that footer
-                is sticky, so a draft is always within thumb reach. */}
-            <div className="thread-foot">
-              {/* Suggested drafts read the example threads only; on a live
-                  thread they would draft from the wrong conversation. */}
-              {!live && (
-                <DraftDock
-                  conversationId={open.id}
-                  anchorMessageId={anchorMessageId}
-                  onUse={(text) => {
-                    setComposerText(text);
-                    composerRef.current?.focus();
-                  }}
-                />
-              )}
-
-              <footer className="thread-compose">
-                <textarea
-                  ref={composerRef}
-                  className="composer"
-                  rows={2}
-                  placeholder={live ? "Write a reply…" : "Write a reply, or use a suggested draft…"}
-                  value={composerText}
-                  onChange={(e) => setComposerText(e.target.value)}
-                  aria-label="Your reply"
-                />
-                <div className="row">
-                  {open.channel === "whatsapp" ? (
-                    <a
-                      className="btn primary"
-                      href={waLink(open.channelAddress, composerText)}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Open in WhatsApp
-                    </a>
-                  ) : live ? (
-                    <button
-                      type="button"
-                      className="btn primary"
-                      disabled={
-                        sending || composerText.trim() === "" || !liveThread.windowOpen
-                      }
-                      onClick={() => void sendReply()}
-                    >
-                      {sending ? "Sending…" : "Send"}
-                    </button>
-                  ) : (
-                    <span className="btn" aria-disabled="true">
-                      {CHANNEL_LABEL[open.channel]} replies are not connected yet
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    className="btn"
-                    disabled={composerText === ""}
-                    onClick={() => {
-                      void navigator.clipboard?.writeText(composerText);
-                    }}
-                  >
-                    Copy
-                  </button>
-                  {!live && (
-                    <Link className="btn quiet" href="/integrations">
-                      Connect a channel
-                    </Link>
-                  )}
-                </div>
-                <p className="cap" role="status">
-                  {live && open.channel !== "whatsapp"
-                    ? (sendNote ??
-                      (liveThread.loading ? "Checking the conversation…" : liveThread.windowText))
-                    : "Nothing is sent from Monza AI — opening WhatsApp fills this in and you tap send."}
-                </p>
-              </footer>
-            </div>
-          </>
+            )}
+          </div>
         )}
       </section>
 
-      {/* Assignment is a Monza AI concept, so the staff list is ours too. */}
-      <p className="visually-hidden">
-        Team: {staff.map((s) => s.name).join(", ")}
-      </p>
-    </main>
+      {toast && (
+        <div className="ibx-toast" role="status">
+          <Avatar name={toast.customerName} brand={brandOf(toast, accounts)} channel={toast.channel} />
+          <div className="ibx-toast-main">
+            <p className="ibx-toast-title">
+              {toast.customerName} · {brandLabel(brandOf(toast, accounts))}
+            </p>
+            <p className="ibx-toast-text">{toast.lastMessage.text}</p>
+          </div>
+          <button
+            type="button"
+            className="ibx-btn"
+            onClick={() => {
+              openConversation(toast);
+              setToast(null);
+            }}
+          >
+            Open
+          </button>
+          <button type="button" className="ibx-icon-btn" aria-label="Dismiss" onClick={() => setToast(null)}>
+            <Icon d={I.x} size={16} />
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

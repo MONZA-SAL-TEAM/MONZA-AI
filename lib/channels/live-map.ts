@@ -300,6 +300,9 @@ export function mapConversations(
         author: last?.author ?? "customer",
       },
       hasAutomatedMessage: false,
+      // The brand comes from the account it arrived at, never the text (rule 1).
+      accountId: account.id,
+      brand: account.brand,
     });
   }
 

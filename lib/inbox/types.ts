@@ -92,6 +92,13 @@ export interface Conversation {
   };
   /** True when anything in this thread was sent by an automation. */
   hasAutomatedMessage: boolean;
+  /**
+   * Live threads only: OUR account it arrived at ("ig-mhero") and that
+   * account's brand. The brand is decided by the account (rule 1), never by
+   * the text, and is what the inbox's brand tabs filter on.
+   */
+  accountId?: string;
+  brand?: string;
 }
 
 /* ── Filters ─────────────────────────────────────────────────────────────── */

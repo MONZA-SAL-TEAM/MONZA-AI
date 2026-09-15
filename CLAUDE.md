@@ -667,6 +667,33 @@ and tested:
 - Customer text is data: routed, stored as a quotation for `/car-care`, never
   interpreted.
 
+## The inbox's saved copy (2026-09-14)
+
+Samer: "every time it is loading 2000 chats on every reload … one time load …
+saved". The inbox (`app/inbox/InboxClient.tsx`) now keeps what it has read in
+the STAFF MEMBER'S BROWSER (IndexedDB, `lib/inbox/cache.ts`, one database per
+signed-in staff id) and asks Meta only for what is newer; the rules are pure
+and tested in `lib/inbox/sync.ts`.
+
+- **Where the copy lives:** the browser only. MONZA AI's servers still keep no
+  copy of message text (Samer's 2026-09-10 rule, `live-map.ts`). "Clear saved
+  chats" on the inbox deletes it.
+- **The stop rule:** Meta lists newest-activity first, so a reload asks page
+  one of each account and stops at the first conversation already saved,
+  unchanged (`reachedKnown`). History is paged ONCE in the background; each
+  account's cursor is saved after every page, so a reload resumes it.
+- **The page no longer reads Meta while rendering** — it used to wait up to 10 s
+  per account. `readInbox()` is unused by the page now.
+- **Brands are tabs.** A conversation's brand is its ACCOUNT's brand
+  (`Conversation.brand`, set in `mapConversations`) — never read from the text
+  (rule 1). MHERO's Instagram reads through `META_IG_LOGIN_TOKEN_MHERO`
+  (rule 49); verified in production 2026-09-14: the key's user_id is
+  `17841469421956644` and Meta listed conversations in ~1.7 s.
+- **Unread is per person, in their browser**, from a baseline set on the first
+  visit (otherwise history arrives as 2,000 unread). Alerts: an in-page toast,
+  plus a browser notification while the tab is in the background if allowed.
+  Nothing rings when the inbox is closed — there is no push service.
+
 ## General
 
 - `npm run verify` = typecheck + tests + build. Run it before pushing.

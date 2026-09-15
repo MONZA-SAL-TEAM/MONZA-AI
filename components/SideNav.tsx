@@ -75,10 +75,53 @@ function Brand() {
   );
 }
 
+/** Unread count the inbox leaves in this browser (see app/inbox/InboxClient.tsx). */
+const UNREAD_KEY = "monza-ai:inbox-unread";
+
+const BADGE_STYLE = {
+  marginLeft: "auto",
+  minWidth: 20,
+  height: 20,
+  padding: "0 6px",
+  display: "inline-grid",
+  placeItems: "center",
+  borderRadius: 999,
+  background: "var(--urgent)",
+  color: "var(--bg)",
+  fontSize: 11,
+  fontWeight: 700,
+  fontVariantNumeric: "tabular-nums",
+} as const;
+
 export default function SideNav() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
+  // The inbox's unread count, as last seen in this browser. Updated live while
+  // the inbox is open, and from the saved value on every other screen.
+  const [unread, setUnread] = useState(0);
+
+  useEffect(() => {
+    const read = () => {
+      try {
+        const n = Number.parseInt(localStorage.getItem(UNREAD_KEY) ?? "0", 10);
+        setUnread(Number.isFinite(n) && n > 0 ? n : 0);
+      } catch {
+        setUnread(0);
+      }
+    };
+    const onCount = (e: Event) => {
+      const n = (e as CustomEvent<unknown>).detail;
+      setUnread(typeof n === "number" && n > 0 ? n : 0);
+    };
+    read();
+    window.addEventListener("storage", read);
+    window.addEventListener("monza-inbox-unread", onCount);
+    return () => {
+      window.removeEventListener("storage", read);
+      window.removeEventListener("monza-inbox-unread", onCount);
+    };
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -145,6 +188,11 @@ export default function SideNav() {
                   >
                     <Icon d={ICONS[item.icon] ?? ICONS.chat} />
                     <span>{item.label}</span>
+                    {item.icon === "inbox" && unread > 0 && (
+                      <span style={BADGE_STYLE} aria-label={`${unread} unread`}>
+                        {unread > 99 ? "99+" : unread}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
