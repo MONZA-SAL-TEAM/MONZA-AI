@@ -19,11 +19,10 @@
  *     in local mode they live in IndexedDB in this browser. NOTHING fake is
  *     ever shown: cards, readiness, the simulator verdict and the reply
  *     preview count ONLY real uploads, and a car with none says so.
- *   - The simulator runs the REAL flow (lib/wasales/flow.ts advance()) with the
- *     same conversation state a webhook handler will thread through, so what
- *     appears here IS production behaviour rather than a description of it. It
- *     is a conversation, not a verdict: ask the colour, take the answer, show
- *     what would go out.
+ *   - The simulator (./EngineSimulator.tsx) runs the REAL Search Engine
+ *     runner (lib/wasales/flow.ts runTurn) with the same conversation state a
+ *     webhook handler would thread through, so what appears here IS
+ *     production behaviour rather than a description of it.
  *   - Two sources of "what is sendable", never blended: the FOLDER listing
  *     (what the import found on disk) and UPLOADS (what is really in the
  *     shared bucket). The screen says which is in use every single time — a
@@ -34,16 +33,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import Link from "next/link";
-import type { WaAsset, WaCar, WaSource } from "@/lib/wasales/matcher";
+import type { WaAsset, WaCar } from "@/lib/wasales/matcher";
 import type { WaColour } from "@/lib/wasales/colours";
-import {
-  INITIAL_STATE,
-  advance,
-  type CarMedia,
-  type SalesAction,
-  type SalesState,
-} from "@/lib/wasales/flow";
-import { SAMPLE_MESSAGES } from "@/lib/wasales/catalog-data";
+import type { LibraryFile } from "@/lib/wasales/catalog";
+import EngineSimulator from "./EngineSimulator";
 import type { MediaKind } from "@/lib/wasales/media-store";
 import {
   deleteColour,
@@ -78,23 +71,6 @@ const MEDIA_CHECKING = SHARED
   ? "Checking the shared files…"
   : "Checking this browser's saved files…";
 const LOGIN_HREF = "/login?next=" + encodeURIComponent("/sales");
-
-const SOURCE_LABEL: Record<WaSource, string> = {
-  facebook: "Facebook post",
-  instagram: "Instagram post",
-  website: "Website",
-  direct: "Direct",
-};
-
-/** The guard rails, restated in plain words for the always-visible list. */
-const RULES = [
-  "Sends only when the master Auto-send switch is on.",
-  "Sends only to a NEW number — anyone with an existing conversation gets your team, not the robot.",
-  "Sends only on the FIRST message of the conversation.",
-  "Sends only when the message clearly names ONE car — typos and wrong spelling still count (“pasion l” finds the Passion L).",
-  "Two cars mentioned, a bare “hi”, or no car at all — nothing sends; the chat is handed to your team.",
-  "A car missing a video or its brochure never auto-sends.",
-];
 
 /* ------------------------------------------------- defensive api parsing --- */
 
@@ -802,13 +778,6 @@ interface CarFormState {
   aliases: string; // comma-separated in the box
 }
 
-/** One line of the simulated conversation. */
-interface SimTurn {
-  from: "customer" | "monza";
-  text?: string;
-  action?: SalesAction;
-}
-
 const EMPTY_FORM: CarFormState = {
   name: "",
   oneLiner: "",
@@ -827,14 +796,6 @@ function formFromCar(car: WaCar): CarFormState {
 
 type Screen = "loading" | "login" | "error" | "notReady" | "ready";
 
-/** The simulator inputs of the last Run — the decision derives from this. */
-interface SimRun {
-  text: string;
-  isNewNumber: boolean;
-  isFirstMessage: boolean;
-  source: WaSource;
-}
-
 export default function WaSalesClient() {
   const [screen, setScreen] = useState<Screen>("loading");
   const [demo, setDemo] = useState(false);
@@ -848,15 +809,6 @@ export default function WaSalesClient() {
   /** The master switch. Takes real effect only once WhatsApp is connected. */
   const [autoSend, setAutoSend] = useState(true);
 
-  /* simulator inputs */
-  const [simText, setSimText] = useState("");
-  const [simNew, setSimNew] = useState(true);
-  const [simFirst, setSimFirst] = useState(true);
-  const [simSource, setSimSource] = useState<WaSource>("facebook");
-  /** The conversation so far, and where the flow has got to in it. */
-  const [simTurns, setSimTurns] = useState<SimTurn[]>([]);
-  const [simState, setSimState] = useState<SalesState>(INITIAL_STATE);
-
   /** Which colours the import found on disk, per car. */
   const [folderVideoCounts, setFolderVideoCounts] = useState<
     Record<string, Record<string, number>>
@@ -865,18 +817,6 @@ export default function WaSalesClient() {
   const [warnings, setWarnings] = useState<string[]>([]);
   /** True once the real sales folder has been imported. */
   const [imported, setImported] = useState(false);
-  /**
-   * Preview using the sales-folder listing instead of the shared library.
-   *
-   * OFF by default, because the library is the truth about what could be sent
-   * and it is no longer empty. It defaulted ON back when uploads carried no
-   * colour and the library branch could only ever answer "nothing to send" —
-   * that limitation is gone.
-   *
-   * The toggle stays because the difference is worth being able to see: it is
-   * how you spot material that exists in the folder and was never uploaded.
-   */
-  const [previewFromFolder, setPreviewFromFolder] = useState(false);
 
   /* add / edit dialog */
   const [dlgCarId, setDlgCarId] = useState<string | null>(null); // "new" = add
@@ -907,6 +847,10 @@ export default function WaSalesClient() {
     }[]
   >([]);
 
+  /** False until the store first answers — an empty list before then means
+   *  "not loaded yet", not "nothing uploaded". */
+  const [uploadsLoaded, setUploadsLoaded] = useState(false);
+
   useEffect(() => {
     let alive = true;
     const loadUploads = () => {
@@ -935,6 +879,7 @@ export default function WaSalesClient() {
             size,
           }))
         );
+        setUploadsLoaded(true);
       });
     };
     loadUploads();
@@ -981,8 +926,6 @@ export default function WaSalesClient() {
             : {}
         );
         setAddedIds([]);
-        setSimTurns([]);
-        setSimState(INITIAL_STATE);
         setDlgCarId(null);
         setMediaCarId(null);
         setScreen("ready");
@@ -1089,6 +1032,48 @@ export default function WaSalesClient() {
     return map;
   }, [carsForBrain]);
 
+  /**
+   * What the shared library is missing RIGHT NOW, per switched-on car.
+   *
+   * This replaced the import-time warnings, which described the sales folder
+   * as it was when imported and kept reporting gaps (Mhero 1 / Black, Voyah
+   * Passion / Black) long after videos had been uploaded straight to the
+   * library. Checked against the library itself, a gap disappears the moment
+   * its upload lands.
+   */
+  const liveIssues = useMemo(() => {
+    const out: string[] = [];
+    for (const car of carsWithLibrary) {
+      if (!car.enabled) continue;
+      const counts = libraryVideoCounts[car.id] ?? {};
+      const hasBrochure = (uploadsByCar[car.id] ?? []).some(
+        (u) => u.kind === "brochure"
+      );
+      const withVideo = car.colours.filter((c) => (counts[c.id] ?? 0) > 0);
+      if (!hasBrochure && withVideo.length === 0) {
+        out.push(
+          `${car.name}: no brochure and no video uploaded — customers asking about it go straight to your team.`
+        );
+        continue;
+      }
+      if (!hasBrochure) {
+        out.push(`${car.name}: no brochure uploaded — customers are not offered one.`);
+      }
+      if (withVideo.length === 0) {
+        out.push(
+          `${car.name}: no video uploaded — customers get the brochure, then your team follows up.`
+        );
+        continue;
+      }
+      for (const colour of car.colours) {
+        if ((counts[colour.id] ?? 0) === 0) {
+          out.push(`${car.name} / ${colour.name}: no video uploaded — this colour is not offered.`);
+        }
+      }
+    }
+    return out;
+  }, [carsWithLibrary, libraryVideoCounts, uploadsByCar]);
+
   const readyCount = useMemo(
     () =>
       carsForBrain.filter(
@@ -1098,119 +1083,21 @@ export default function WaSalesClient() {
   );
 
   /**
-   * What the flow may treat as sendable.
-   *
-   * TWO SOURCES, never mixed silently:
-   *
-   *   the FOLDER   what the sales-folder import found on disk. Lets you see the
-   *                real conversation today, but those files are not in the
-   *                shared bucket, so nothing could actually go out.
-   *   UPLOADS      what is really in the bucket. This is the truth about what
-   *                could be sent — and it is empty until somebody uploads.
-   *
-   * The screen says which one is in use every time it shows a result. Blending
-   * them would produce a preview that promises a video nobody can send.
+   * The shared library's files, as the Search Engine reads them — what could
+   * really be sent. The simulator can switch to the sales-folder listing to
+   * spot material that exists on disk and was never uploaded; it says which
+   * one it is counting every time.
    */
-  const mediaLookup = useCallback(
-    (carId: string): CarMedia => {
-      const car = carsWithLibrary.find((c) => c.id === carId);
-      if (!car) return { hasBrochure: false, videosByColour: {} };
-
-      if (previewFromFolder) {
-        return {
-          hasBrochure: car.brochure !== null,
-          videosByColour: folderVideoCounts[carId] ?? {},
-        };
-      }
-
-      // Every uploaded video sits in a colour's folder, so it counts toward
-      // that colour. (It did not always: videos used to be stored per car and
-      // kind only, and an upload could not be attributed to a colour at all,
-      // which is why this branch once reported none and the screen defaulted
-      // to the folder.)
-      const ups = uploadsByCar[carId] ?? [];
-      return {
-        hasBrochure: ups.some((u) => u.kind === "brochure"),
-        videosByColour: libraryVideoCounts[carId] ?? {},
-      };
-    },
-    [carsWithLibrary, previewFromFolder, folderVideoCounts, uploadsByCar, libraryVideoCounts]
-  );
-
-  /**
-   * Send one message into the simulator.
-   *
-   * This calls the SAME advance() a webhook handler will call, with the same
-   * state threaded through, so what appears here is production behaviour
-   * rather than a description of it.
-   */
-  const sendSim = useCallback(
-    (text: string) => {
-      const trimmed = text.trim();
-      if (trimmed === "") return;
-      const first = simTurns.length === 0;
-      const result = advance(
-        {
-          text: trimmed,
-          isNewNumber: simNew,
-          isFirstMessage: first ? simFirst : false,
-          source: simSource,
-          autoSendEnabled: autoSend,
-        },
-        simState,
-        cars,
-        mediaLookup
-      );
-      setSimTurns((prev) => [
-        ...prev,
-        { from: "customer", text: trimmed },
-        { from: "monza", action: result.action },
-      ]);
-      setSimState(result.next);
-      setSimText("");
-    },
-    [simTurns, simNew, simFirst, simSource, autoSend, simState, cars, mediaLookup]
-  );
-
-  const resetSim = useCallback(() => {
-    setSimTurns([]);
-    setSimState(INITIAL_STATE);
-    setSimText("");
-  }, []);
-
-  const runSim = useCallback(() => sendSim(simText), [sendSim, simText]);
-
-  /** A quick try starts a FRESH conversation — otherwise it would arrive as
-   *  the answer to whatever question is already on screen. */
-  const tryChip = useCallback(
-    (i: number) => {
-      const sample = SAMPLE_MESSAGES[i];
-      if (!sample) return;
-      setSimNew(sample.isNewNumber);
-      setSimFirst(sample.isFirstMessage);
-      setSimSource(sample.source);
-      setSimTurns([]);
-      setSimState(INITIAL_STATE);
-      const result = advance(
-        {
-          text: sample.text,
-          isNewNumber: sample.isNewNumber,
-          isFirstMessage: sample.isFirstMessage,
-          source: sample.source,
-          autoSendEnabled: autoSend,
-        },
-        INITIAL_STATE,
-        cars,
-        mediaLookup
-      );
-      setSimTurns([
-        { from: "customer", text: sample.text },
-        { from: "monza", action: result.action },
-      ]);
-      setSimState(result.next);
-      setSimText("");
-    },
-    [autoSend, cars, mediaLookup]
+  const libraryFiles = useMemo<LibraryFile[]>(
+    () =>
+      uploads.map((u) => ({
+        carId: u.carId,
+        kind: u.kind,
+        colourId: u.colourId,
+        name: u.name,
+        size: u.size,
+      })),
+    [uploads]
   );
 
   /* ----- catalog editing (this screen only) ----- */
@@ -1390,7 +1277,7 @@ export default function WaSalesClient() {
               <div>
                 <h1 className="h1">WhatsApp Sales Control</h1>
                 <p className="cap ws-sub">
-                  First-message auto-sender — catalog, guard rails and simulator.
+                  New-customer auto-reply — catalog, rules and simulator.
                 </p>
               </div>
             </div>
@@ -1431,11 +1318,12 @@ export default function WaSalesClient() {
             <div className="grow">
               <div className="ws-title-row">
                 <h1 className="h1">WhatsApp Sales Control</h1>
-                <span className="tag">WhatsApp: not connected — preview</span>
+                <span className="tag">Preview — nothing is sent</span>
               </div>
               <p className="cap ws-sub">
-                A new number&apos;s first message about one car gets that car&apos;s
-                videos and brochure — automatically, once connected.
+                The Customer Search &amp; Media Engine reads Instagram, Messenger
+                and WhatsApp enquiries alike: brochure first, approved facts,
+                colour videos — previewed here, never sent automatically.
               </p>
             </div>
           </div>
@@ -1462,36 +1350,53 @@ export default function WaSalesClient() {
         )}
 
         <div className="note">
-          Automatic sending starts when the WhatsApp Business number is
-          connected. Until then, every decision on this page is a preview —
-          nothing is ever sent from here.
+          Automatic sending is off on every channel. Every decision on this
+          page is a preview — nothing is ever sent from here.
         </div>
 
-        {/* What the folder import flagged. Shown HERE rather than left in a
-            terminal, because the person who can fix these is the one looking
-            at this page — and one of them (the same video under two models)
-            would send a customer the wrong car. */}
+        {/* LIVE: what the shared library is missing right now. Hidden until
+            the store has answered, or every car would flash "missing". */}
+        {uploadsLoaded &&
+          cars.length > 0 &&
+          (liveIssues.length > 0 ? (
+            <div className="note urgent ws-warnings" role="status">
+              <p className="ws-warnings-title">
+                {liveIssues.length === 1
+                  ? "One thing is missing from the shared library"
+                  : `${liveIssues.length} things are missing from the shared library`}
+              </p>
+              <ul className="ws-warning-list">
+                {liveIssues.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <div className="note ws-all-ready" role="status">
+              Every switched-on car has its brochure and a video for each
+              colour in the shared library.
+            </div>
+          ))}
+
+        {/* What the folder import flagged that the library cannot answer —
+            an oversized file, the same video under two models (which would
+            send a customer the wrong car). Gaps the library CAN answer are
+            in the live check above, never here. */}
         {warnings.length > 0 && (
           <div className="note urgent ws-warnings">
             <p className="ws-warnings-title">
               {warnings.length === 1
-                ? "One thing needs your attention in the sales folder"
-                : `${warnings.length} things need your attention in the sales folder`}
+                ? "One thing to fix in the sales folder"
+                : `${warnings.length} things to fix in the sales folder`}
             </p>
             <ul className="ws-warning-list">
               {warnings.map((w) => (
                 <li key={w}>{w}</li>
               ))}
             </ul>
-            {/* These describe the FOLDER as it was when it was imported. A gap
-                filled by uploading here is already fixed, and the colours on
-                each card show the live position — so this list can name a
-                colour the cards show as ready. Saying so beats letting the two
-                appear to contradict each other. */}
             <p className="cap ws-warnings-foot">
-              From the last sales-folder import. Anything you have since
-              uploaded here is already fixed — each card&rsquo;s colours show
-              what the shared library really holds.
+              From the last sales-folder import. Fix these in the folder, then
+              import it again.
             </p>
           </div>
         )}
@@ -1691,217 +1596,17 @@ export default function WaSalesClient() {
           </section>
 
           {/* ---------------------------------------------- the simulator --- */}
-          <aside className="ws-sim" aria-label="Message simulator">
-            <h2 className="eyebrow ws-col-title">Try an incoming message</h2>
-            <div className="card ws-sim-card">
-              <label className="ws-field">
-                <span className="ws-label">Customer message</span>
-                <textarea
-                  className="ws-sim-text"
-                  rows={3}
-                  value={simText}
-                  onChange={(e) => setSimText(e.target.value)}
-                  placeholder="hi can i get more information about the passion l"
-                  aria-label="The incoming customer message to test"
-                />
-              </label>
-
-              <div className="ws-sim-row">
-                <div className="ws-sim-toggle">
-                  <span className="ws-label">New number?</span>
-                  <Switch
-                    on={simNew}
-                    onFlip={() => setSimNew((v) => !v)}
-                    label="Is this a new phone number?"
-                  />
-                </div>
-                <div className="ws-sim-toggle">
-                  <span className="ws-label">First message?</span>
-                  <Switch
-                    on={simFirst}
-                    onFlip={() => setSimFirst((v) => !v)}
-                    label="Is this the conversation's first message?"
-                  />
-                </div>
-              </div>
-
-              <label className="ws-field">
-                <span className="ws-label">Came from</span>
-                <select
-                  value={simSource}
-                  onChange={(e) => setSimSource(e.target.value as WaSource)}
-                  aria-label="Where the message came from"
-                >
-                  {(Object.keys(SOURCE_LABEL) as WaSource[]).map((s) => (
-                    <option key={s} value={s}>
-                      {SOURCE_LABEL[s]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <div className="ws-run-row">
-                <button className="btn primary ws-run" onClick={runSim}>
-                  {simTurns.length === 0 ? "Run the brain" : "Send"}
-                </button>
-                {simTurns.length > 0 && (
-                  <button type="button" className="btn quiet" onClick={resetSim}>
-                    Start over
-                  </button>
-                )}
-              </div>
-
-              {/* Which files the flow is allowed to count. Never blended: a
-                  preview that promises a video nobody can send is worse than
-                  one that says nothing. */}
-              <div className="ws-preview-toggle">
-                <Switch
-                  on={previewFromFolder}
-                  onFlip={() => {
-                    setPreviewFromFolder((v) => !v);
-                    resetSim();
-                  }}
-                  label="Preview using the sales folder instead"
-                />
-                <p className="cap">
-                  {previewFromFolder
-                    ? "Counting what the sales folder import found on disk. Files that were never uploaded cannot actually go out — this is for spotting the gap, not for judging readiness."
-                    : "Counting what is really in the shared library — the truth about what could be sent."}
-                </p>
-              </div>
-
-              {simTurns.length > 0 && (
-                <ol className="ws-convo" aria-live="polite">
-                  {simTurns.map((turn, i) => {
-                    if (turn.from === "customer") {
-                      return (
-                        <li className="ws-turn ws-turn-customer" key={i}>
-                          <span className="ws-turn-who">Customer</span>
-                          <p className="ws-turn-text">{turn.text}</p>
-                        </li>
-                      );
-                    }
-                    const a = turn.action;
-                    if (!a) return null;
-                    const sends = a.kind === "send";
-                    return (
-                      <li
-                        className="ws-turn ws-turn-monza"
-                        data-send={sends}
-                        key={i}
-                      >
-                        <span className="ws-turn-who">
-                          {a.kind === "hold"
-                            ? "Nothing sent — handed to your team"
-                            : sends
-                              ? "Would send now"
-                              : "Would ask"}
-                        </span>
-                        <p className="ws-turn-text">
-                          {a.kind === "hold" ? a.reason : a.message}
-                        </p>
-
-                        {a.kind === "send" && (
-                          <>
-                            <div className="ws-assets">
-                              {/* Count from the SAME source the decision used,
-                                  or the panel contradicts the verdict above it
-                                  — a send with no video listed, because the
-                                  folder had none and the library did. */}
-                              {(() => {
-                                const n =
-                                  (previewFromFolder
-                                    ? folderVideoCounts[a.car.id]?.[a.colour.id]
-                                    : libraryVideoCounts[a.car.id]?.[a.colour.id]) ?? 0;
-                                if (n === 0) return null;
-                                return (
-                                  <span className="ws-file">
-                                    <PlayGlyph />
-                                    <span className="ws-file-label">
-                                      {a.colour.name} video
-                                    </span>
-                                    <span className="ws-file-name">
-                                      {n} file{n === 1 ? "" : "s"}
-                                    </span>
-                                  </span>
-                                );
-                              })()}
-                              {a.car.brochure && (
-                                <span className="ws-file" data-doc="true">
-                                  <DocGlyph />
-                                  <span className="ws-file-label">Catalogue</span>
-                                  <span className="ws-file-name">
-                                    {a.car.brochure.fileName}
-                                  </span>
-                                </span>
-                              )}
-                            </div>
-                            <p className="cap ws-result-cap">
-                              Preview only — nothing was sent. Sending starts when
-                              the WhatsApp Business number is connected.
-                            </p>
-                          </>
-                        )}
-
-                        {(a.kind === "ask_colour" || a.kind === "reask_colour") && (
-                          <div className="chip-row ws-colour-answers">
-                            {a.colours.map((c) => (
-                              <button
-                                key={c.id}
-                                type="button"
-                                className="chip"
-                                onClick={() => sendSim(c.name)}
-                              >
-                                {c.name}
-                              </button>
-                            ))}
-                            <button
-                              type="button"
-                              className="chip"
-                              onClick={() => sendSim("any")}
-                            >
-                              any
-                            </button>
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ol>
-              )}
-
-              <div className="ws-chips">
-                <span className="ws-label">Quick tries</span>
-                <div className="chip-row">
-                  {SAMPLE_MESSAGES.map((s, i) => (
-                    <button
-                      key={s.label}
-                      type="button"
-                      className="chip"
-                      onClick={() => tryChip(i)}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="card ws-rules">
-              <h3 className="eyebrow ws-rules-title">The rules</h3>
-              <ul className="ws-rules-list">
-                {RULES.map((r) => (
-                  <li key={r}>{r}</li>
-                ))}
-              </ul>
-            </div>
-          </aside>
+          <EngineSimulator
+            catalog={carsWithLibrary}
+            libraryFiles={libraryFiles}
+            autoSend={autoSend}
+          />
         </div>
 
         <p className="ws-foot">
-          The simulator runs the exact decision logic that will drive the live
-          auto-sender. It never claims a message was sent — because none is,
-          until the WhatsApp Business number is connected.
+          The simulator runs the exact engine, templates and send policy a
+          webhook would run. It never claims a message was sent — none is: live
+          sending stays off until you decide to turn it on.
         </p>
 
         {/* Car media dialog — the car's real uploads, nothing else. */}

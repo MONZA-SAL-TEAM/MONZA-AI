@@ -961,3 +961,151 @@
   margin: 8px 0 0;
   opacity: 0.85;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   The Search Engine simulator: what was understood, what would happen, and
+   why it cannot. Dense on purpose — it is a diagnostic surface — so the
+   detail folds away on every turn but the latest.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.ws-sim-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+}
+@media (max-width: 560px) {
+  .ws-sim-controls {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The situation switches: one per line, box then words, left-aligned. */
+.ws-sim-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ws-check {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 32px;
+  font-size: var(--t-sm);
+  text-align: left;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.ws-check input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.ws-eng-actions {
+  margin: 8px 0 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--t-xs);
+  color: var(--ink);
+}
+/* Internal lines — content gaps, staff flags — are never sent. */
+.ws-eng-actions li[data-internal="true"] {
+  color: var(--urgent);
+}
+
+.ws-eng-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--sunk);
+}
+.ws-eng-msg {
+  white-space: pre-line;
+}
+.ws-eng-style {
+  align-self: center;
+  color: var(--ink-3);
+}
+
+.ws-eng-details {
+  margin-top: 10px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 6px;
+}
+.ws-eng-details summary {
+  cursor: pointer;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  font-size: var(--t-xs);
+  font-weight: 650;
+  color: var(--ink-2);
+}
+.ws-eng-kv {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 6px 0 0;
+  font-size: var(--t-xs);
+}
+.ws-eng-kv dt {
+  color: var(--ink-3);
+  font-weight: 650;
+}
+.ws-eng-kv dd {
+  margin: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.ws-eng-kv ul {
+  margin: 0;
+  padding-left: 16px;
+}
+.ws-eng-blocked {
+  color: var(--urgent);
+}
+
+.ws-turn-monza[data-outcome="EXCLUDED"] {
+  border-left-color: var(--ink-3);
+}
+
+.ws-ready {
+  padding: 14px 16px;
+}
+.ws-ready summary {
+  cursor: pointer;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
+.ws-ready-problems {
+  margin-top: 8px;
+  color: var(--urgent);
+}
+.ws-ready-model {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 8px;
+  margin-top: 8px;
+  font-size: var(--t-xs);
+}
+.ws-ready-model h4 {
+  margin: 0 0 4px;
+  font-size: var(--t-sm);
+}
+.ws-ready-model p {
+  margin: 0;
+}
+.ws-ready-model ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  color: var(--ink-2);
+}

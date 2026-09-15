@@ -21,9 +21,14 @@
  * offered is always traceable to a specific commit.
  */
 
-import type { WaAsset, WaCar } from "@/lib/wasales/matcher";
+import { matchTokens, type WaAsset, type WaCar } from "@/lib/wasales/matcher";
 import type { WaColour } from "@/lib/wasales/colours";
-import { WASALES_CATALOG } from "@/lib/wasales/catalog-data";
+import type { MediaRef, ModelMedia, ModelMediaLookup } from "@/lib/wasales/knowledge";
+import {
+  COLOUR_WORDS,
+  CUSTOMER_WORDS,
+  WASALES_CATALOG,
+} from "@/lib/wasales/catalog-data";
 import {
   SALES_MANIFEST,
   type ManifestCar,
@@ -50,6 +55,34 @@ export function catalogueWarnings(): readonly string[] {
   return MANIFEST.warnings ?? [];
 }
 
+/**
+ * Import warnings the Sales screen now checks LIVE against the shared
+ * library: an empty colour folder, a car with no catalogue PDF, videos not
+ * sorted by colour. Repeating them from the import only goes stale. Two of
+ * the three were fixed by uploading straight to the library, and the screen
+ * went on saying "3 things need your attention" about problems already solved.
+ *
+ * The patterns match the exact sentences scripts/import-sales-folder.mjs
+ * writes; tests/sales-catalog.test.ts pins them to that file.
+ */
+export const SUPERSEDED_BY_LIVE_CHECK: readonly RegExp[] = [
+  /: folder is empty — cannot be offered\.$/,
+  /: no catalogue PDF — it can never auto-send\.$/,
+  /: videos are not in colour folders — treated as one option with no colour choice\.$/,
+];
+
+/**
+ * Warnings about the FOLDER that the library cannot answer: a file over the
+ * size limit, the same video filed under two cars, a file named after a
+ * different model. These stay on screen until the folder is fixed and
+ * re-imported.
+ */
+export function folderWarnings(): readonly string[] {
+  return catalogueWarnings().filter(
+    (w) => !SUPERSEDED_BY_LIVE_CHECK.some((pattern) => pattern.test(w))
+  );
+}
+
 /* ── Mapping ─────────────────────────────────────────────────────────────── */
 
 function toAsset(file: ManifestFile, label: string): WaAsset {
@@ -57,10 +90,37 @@ function toAsset(file: ManifestFile, label: string): WaAsset {
 }
 
 function toColour(c: ManifestColour): WaColour {
-  // The colour's own name is always an alias; the importer may add more, and a
-  // person can add the way customers really ask ("noir", "abyad") later.
-  const aliases = new Set<string>([c.name.toLowerCase(), ...(c.aliases ?? [])]);
+  // The colour's own name is always an alias; the importer may add more, and
+  // COLOUR_WORDS adds the way customers really ask ("noir", "abyad", "اسود").
+  const aliases = new Set<string>([
+    c.name.toLowerCase(),
+    ...(c.aliases ?? []),
+    ...(COLOUR_WORDS[c.id] ?? []),
+  ]);
   return { id: c.id, name: c.name, aliases: [...aliases] };
+}
+
+/**
+ * The import's aliases plus CUSTOMER_WORDS, de-duplicated by how the matcher
+ * reads them.
+ *
+ * An alias containing a bare "i" is dropped. The importer used to write
+ * "mhero i" (the catalogue's roman numeral), and that turned "the mhero i saw
+ * on instagram" into the Mhero 1. A lone "i" is the pronoun far more often
+ * than the numeral; "mhero 1" and "917" cover the real question.
+ */
+function aliasesFor(m: ManifestCar): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const alias of [...m.aliases, ...(CUSTOMER_WORDS[m.id] ?? [])]) {
+    const tokens = matchTokens(alias);
+    if (tokens.length === 0 || tokens.includes("i")) continue;
+    const key = tokens.join(" ");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(alias);
+  }
+  return out;
 }
 
 function toCar(m: ManifestCar): WaCar {
@@ -75,7 +135,7 @@ function toCar(m: ManifestCar): WaCar {
     id: m.id,
     name: m.name,
     enabled: true,
-    aliases: m.aliases,
+    aliases: aliasesFor(m),
     // Every video across every colour — what the media screen lists.
     videos: m.colours.flatMap((c) =>
       c.videos.map((v) => toAsset(v, `${m.name} — ${c.name}`))
@@ -117,4 +177,57 @@ export function mediaIndexFor(car: WaCar): Record<string, number> {
 export function hasNoColourChoice(carId: string): boolean {
   const found = MANIFEST.cars.find((c) => c.id === carId);
   return Boolean(found?.colours.some((c) => c.noColourChoice));
+}
+
+/* ── Media, in the shape the Search Engine reads ─────────────────────────── */
+
+/**
+ * What the sales FOLDER held for a car at import time. That is what was on
+ * somebody's disk, not what can be sent — so the simulator uses it only when
+ * asked to preview "as if everything in the folder were uploaded".
+ */
+export function folderMedia(carId: string): ModelMedia {
+  const found = MANIFEST.cars.find((c) => c.id === carId);
+  if (!found) return { brochure: null, videosByColour: {} };
+  const videosByColour: Record<string, MediaRef[]> = {};
+  for (const colour of found.colours) {
+    videosByColour[colour.id] = colour.videos.map((v) => ({ name: v.fileName, bytes: v.bytes }));
+  }
+  return {
+    brochure: found.brochure
+      ? { name: found.brochure.fileName, bytes: found.brochure.bytes }
+      : null,
+    videosByColour,
+  };
+}
+
+/** One uploaded file, as the shared media library lists it. */
+export interface LibraryFile {
+  carId: string;
+  kind: "video" | "brochure";
+  /** Which colour a video shows; null for a brochure. */
+  colourId: string | null;
+  name: string;
+  size: number;
+}
+
+/**
+ * What the shared LIBRARY holds — the truth about what could actually be
+ * sent. A video filed under no colour is ignored, because it can never be
+ * offered; the first brochure listed is the car's brochure.
+ */
+export function libraryMedia(files: readonly LibraryFile[]): ModelMediaLookup {
+  return (carId) => {
+    let brochure: MediaRef | null = null;
+    const videosByColour: Record<string, MediaRef[]> = {};
+    for (const f of files) {
+      if (f.carId !== carId) continue;
+      if (f.kind === "brochure") {
+        brochure ??= { name: f.name, bytes: f.size };
+      } else if (f.colourId) {
+        (videosByColour[f.colourId] ??= []).push({ name: f.name, bytes: f.size });
+      }
+    }
+    return { brochure, videosByColour };
+  };
 }

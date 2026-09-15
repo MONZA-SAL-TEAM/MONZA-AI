@@ -829,6 +829,37 @@ WhatsApp" flow again** — that is the step that locked the phone out on
   database or the browser's saved copy (picture links expire in days); list
   pictures are fetched only for rows scrolled into view, a dozen at a time.
 
+## The sales Search Engine (`lib/wasales/`)
+
+Added 2026-09-14. Reads Instagram, Messenger and WhatsApp enquiries and decides
+what the product WOULD send. Full notes, including what is missing and what
+blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
+
+- **Not an AI.** `intent.ts` (a closed vocabulary, English / Arabic / Arabizi)
+  → `engine.ts` `decide()` (structured, ordered actions — never prose) →
+  `templates.ts` (fixed sentences) → `actions.ts` send policy.
+- **Brand is the receiving account's**, never the text's (rule 1). Another
+  brand's model gets the contact number, never its material. MONZA SAL
+  accounts sell both marques.
+- **Brochure first on every model activation**; never re-sent within one
+  activation unless the customer asks for the brochure.
+- **A fact is sent only when approved.** Missing, unapproved, empty or zero →
+  "For more information, please call 70 70 85 85." plus a CONTENT_GAP. The
+  shipped knowledge approves NO fact; the values present are Monza's own video
+  captions, recorded unapproved. **Never fill a fact from memory or the
+  internet** — a person approves each one.
+- Price, installments, test drives, discounts, trade-ins, service, parts and
+  complaints get the contact number.
+- The knowledge is deep-frozen: customer text cannot change it (rule 26).
+- Excluded outright: echoes, receipts, reactions, system events, fake
+  Meta-support scams, vendor pitches, internal tests — each on two independent
+  signals, so a vague real customer is never filtered out.
+- The sales context expires after `SALES_CONTEXT_TTL_HOURS` (default 72) —
+  separate from Meta's 24-hour window.
+- **Not wired to the webhook.** Only the `/sales` simulator calls `runTurn()`;
+  the send policy blocks everything while rule 24 stands and no adapter sends
+  files. Migration 008 (per-conversation state) is written and NOT applied.
+
 ## General
 
 - `npm run verify` = typecheck + tests + build. Run it before pushing.

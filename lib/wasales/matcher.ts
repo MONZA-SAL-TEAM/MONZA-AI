@@ -72,6 +72,8 @@ export interface ModelMatch {
   matchedText?: string;
   /** When 2+ cars matched: their names, for the reason sentence. */
   contenders?: string[];
+  /** When 2+ cars matched: their ids, so the flow can ask "which one?". */
+  contenderIds?: string[];
 }
 
 export interface IncomingInput {
@@ -95,18 +97,144 @@ export interface Decision {
 
 /* ------------------------------------------------------------ normalize --- */
 
+/** Arabic letters that customers write interchangeably for the same word. */
+const ARABIC_FOLD: Readonly<Record<string, string>> = {
+  "ة": "ه", // taa marbuta: "سيارة" and "سياره" are one word
+  "ى": "ي", // alef maksura
+  "ی": "ي", // Persian yeh, arrives from some keyboards
+  "ک": "ك", // Persian kaf
+  "ـ": "", // tatweel, pure decoration: "مرحبـــا"
+};
+
+/** Arabic-Indic and extended Arabic-Indic digits: "٣١٨" is "318". */
+function westernDigit(ch: string): string {
+  const code = ch.charCodeAt(0);
+  return String.fromCharCode(48 + (code >= 0x06f0 ? code - 0x06f0 : code - 0x0660));
+}
+
 /**
- * Lowercase, strip punctuation/emoji/symbols, collapse whitespace. Everything
- * that is not a latin letter, digit or space becomes a space, so "Pasion-L!!"
- * and "pasion l 😍" both normalize to "pasion l". Deterministic and total:
- * any input string comes out as a clean lowercase token stream.
+ * Lowercase, strip punctuation/emoji/symbols, collapse whitespace — WITHOUT
+ * throwing away any script. "Pasion-L!!" and "pasion l 😍" both normalize to
+ * "pasion l", and "سعر الكوراج؟" to "سعر الكوراج".
+ *
+ * Unicode-aware, in this order:
+ *   1. NFKD, then every combining mark removed: "café" → "cafe", fullwidth
+ *      letters → ASCII, and in Arabic the hamza and harakat fall away, which
+ *      unifies أ إ آ → ا, ؤ → و, ئ → ي exactly the way people type them.
+ *   2. Invisible format characters (ZWNJ, RLM, …) removed, never turned into
+ *      a space — they sit INSIDE words.
+ *   3. Arabic spelling variants folded (ة → ه, ى → ي) and Arabic-Indic digits
+ *      made western, so "٣١٨" and "318" are the same token.
+ *   4. Anything that is not a letter or digit in ANY script becomes a space.
+ *
+ * It used to keep only [a-z0-9], which turned every Arabic message into an
+ * empty string — 3% of real first messages, and every one of them unreadable.
+ * Arabizi ("se3er", "la2") survives either way: its digits are digits.
+ *
+ * Deterministic and total: any input string comes out as a clean token stream.
  */
 export function normalize(text: string): string {
   return text
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
+    .replace(/\p{Cf}+/gu, "")
     .toLowerCase()
-    .replace(/[^a-z0-9\s]+/g, " ")
+    .replace(/[ةىیکـ]/g, (ch) => ARABIC_FOLD[ch] ?? ch)
+    .replace(/[٠-٩۰-۹]/g, westernDigit)
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** True for a token written in Arabic script. */
+export function isArabicToken(token: string): boolean {
+  return /[؀-ۿ]/.test(token);
+}
+
+/**
+ * Arabic attaches "and", "the", "with the" to the front of a word: "والسعر",
+ * "بالاسود", "الكوراج". The forms of a message token worth comparing: itself,
+ * plus each attached prefix peeled off (longest first, and never down to a
+ * single letter). Latin tokens have exactly one form.
+ */
+const ARABIC_PREFIXES = ["وبال", "وال", "بال", "فال", "كال", "لل", "ال", "و"];
+
+export function wordForms(token: string): string[] {
+  if (!isArabicToken(token)) return [token];
+  const forms = [token];
+  for (const prefix of ARABIC_PREFIXES) {
+    if (token.startsWith(prefix) && token.length - prefix.length >= 2) {
+      const rest = token.slice(prefix.length);
+      if (!forms.includes(rest)) forms.push(rest);
+    }
+  }
+  return forms;
+}
+
+/** Does a message token equal a vocabulary word, allowing Arabic prefixes? */
+export function sameWord(vocabulary: string, token: string): boolean {
+  return vocabulary === token || wordForms(token).includes(vocabulary);
+}
+
+/**
+ * The tokens model matching works on: normalize(), then letters and digits
+ * split apart, so "mhero1" reads as "mhero 1" and "2nd" as "2 nd". Customers
+ * glue model numbers on as often as not, and an alias written "mhero 1" must
+ * still find them. Applied to aliases too, so both sides always agree.
+ *
+ * Kept separate from normalize() on purpose: colour and greeting matching
+ * include words like "3adi" that splitting would break.
+ */
+export function matchTokens(text: string): string[] {
+  return normalize(text)
+    .replace(/([a-z])([0-9])/g, "$1 $2")
+    .replace(/([0-9])([a-z])/g, "$1 $2")
+    .split(" ")
+    .filter((t) => t !== "");
+}
+
+/**
+ * Everyday phrases that contain a model's name without meaning the car.
+ *
+ * "free" is the reason this exists: it misfired once ("feel free to call me"
+ * auto-sent a car), yet "is the free available?" is exactly how customers ask
+ * for the Voyah Free. Rather than choose between the two, the words of these
+ * phrases are blanked before matching, so "free" can be a real alias and
+ * "feel free" still means nothing.
+ */
+const NOT_A_CAR_PHRASES = [
+  "feel free",
+  "for free",
+  "free of charge",
+  "free time",
+  "free delivery",
+  "free shipping",
+  "free trial",
+  "toll free",
+  "tax free",
+  "duty free",
+  "hands free",
+  "you free",
+  "u free",
+  "free to",
+  "free today",
+  "free tomorrow",
+  "free now",
+].map((p) => p.split(" "));
+
+/** Stands in for a blanked word; no alias token can ever equal or fuzz onto it. */
+const BLANK = "·";
+
+function blankOrdinaryPhrases(tokens: string[]): string[] {
+  const out = [...tokens];
+  for (const phrase of NOT_A_CAR_PHRASES) {
+    for (let start = 0; start + phrase.length <= tokens.length; start++) {
+      if (phrase.every((word, j) => tokens[start + j] === word)) {
+        for (let j = 0; j < phrase.length; j++) out[start + j] = BLANK;
+      }
+    }
+  }
+  return out;
 }
 
 /* -------------------------------------------------------- edit distance --- */
@@ -149,8 +277,12 @@ export function editDistance(a: string, b: string, max: number): number {
  *   - digits-only ("917") → 0. "911" must never fuzzy-match the 917.
  *   - up to 5 characters ("free", "dream") → 1 edit.
  *   - longer ("passion", "courage") → 2 edits.
+ *   - anything not Latin → 0. In Arabic script one letter apart is a
+ *     different word far more often than a typo: "كاراج" (garage) is one
+ *     edit from "كوراج" (Courage).
  */
 function fuzzyAllowance(token: string): number {
+  if (/[^a-z0-9]/.test(token)) return 0;
   if (token.length <= 2) return 0;
   if (/^[0-9]+$/.test(token)) return 0;
   return token.length <= 5 ? 1 : 2;
@@ -208,7 +340,7 @@ function sameSpan(a: number[], b: number[]): boolean {
  * corrected a spelling.
  */
 export function matchModel(text: string, catalog: readonly WaCar[]): ModelMatch {
-  const tokens = normalize(text).split(" ").filter((t) => t !== "");
+  const tokens = blankOrdinaryPhrases(matchTokens(text));
   if (tokens.length === 0) {
     return { decision: "hold", reason: HOLD_NO_CAR };
   }
@@ -222,7 +354,7 @@ export function matchModel(text: string, catalog: readonly WaCar[]): ModelMatch 
   for (const car of catalog) {
     const phrases: string[] = [];
     for (const p of [car.name, ...car.aliases]) {
-      const n = normalize(p);
+      const n = matchTokens(p).join(" ");
       if (n !== "" && !phrases.includes(n)) phrases.push(n);
     }
     let best: BestHit | null = null;
@@ -235,7 +367,8 @@ export function matchModel(text: string, catalog: readonly WaCar[]): ModelMatch 
         for (let j = 0; j < pts.length; j++) {
           const pt = pts[j];
           const mt = tokens[start + j];
-          if (pt === mt) {
+          // sameWord: "الكوراج" (the Courage) is the alias "كوراج".
+          if (sameWord(pt, mt)) {
             score += 100;
             continue;
           }
@@ -283,6 +416,7 @@ export function matchModel(text: string, catalog: readonly WaCar[]): ModelMatch 
     return {
       decision: "hold",
       contenders: names,
+      contenderIds: survivors.map((s) => s.car.id),
       reason: `Mentions more than one car (${names.join(" and ")}) — handed to your team.`,
     };
   }
@@ -324,6 +458,132 @@ const GREETING_WORDS = new Set([
 export function isBareGreeting(text: string): boolean {
   const tokens = normalize(text).split(" ").filter((t) => t !== "");
   return tokens.length > 0 && tokens.every((t) => GREETING_WORDS.has(t));
+}
+
+/* -------------------------------------------------------- open enquiries --- */
+
+/** Words that say "tell me about your cars" without naming one. */
+const ENQUIRY_WORDS = new Set([
+  "info", "infos", "information", "informations", "details", "detail",
+  "interested", "interest", "car", "cars", "model", "models", "vehicle",
+  "vehicles", "catalogue", "catalog", "brochure", "brochures", "lineup",
+  "electric", "ev", "evs", "suv", "suvs", "options",
+  "ma3loumet", "ma3lomet", "sayara", "sayyara", "voiture", "voitures",
+]);
+
+/** Words that carry no subject of their own — they only frame the enquiry. */
+const FILLER_WORDS = new Set([
+  "i", "im", "m", "d", "s", "me", "my", "we", "a", "an", "the", "some", "any",
+  "about", "on", "of", "for", "in", "to", "is", "it", "its", "can", "could",
+  "would", "will", "get", "have", "has", "do", "does", "your", "what",
+  "which", "want", "wanted", "like", "need", "know", "more", "send", "see",
+  "show", "tell", "am", "and", "or", "new", "all", "yes", "just", "also",
+]);
+
+/**
+ * "Hi, can I get more information?" — a new customer asking about the cars
+ * without naming one. The flow answers it with "which model are you
+ * interested in?".
+ *
+ * Deliberately narrow: EVERY word must be an enquiry, filler or greeting
+ * word, and at least one must be an enquiry word. "What time do you open
+ * tomorrow?" and "how much is it?" are real questions a person should
+ * answer, and replying to them with a model list would ignore what they asked.
+ */
+export function isOpenEnquiry(text: string): boolean {
+  const tokens = normalize(text).split(" ").filter((t) => t !== "");
+  let sawEnquiry = false;
+  for (const t of tokens) {
+    if (ENQUIRY_WORDS.has(t)) {
+      sawEnquiry = true;
+      continue;
+    }
+    if (FILLER_WORDS.has(t) || GREETING_WORDS.has(t)) continue;
+    return false;
+  }
+  return sawEnquiry;
+}
+
+/* ----------------------------------------------------------- the families --- */
+
+/**
+ * The cars of a brand the message names WITHOUT naming a model — "the
+ * mhero", "voyah?" — in catalogue order, so the flow can ask "which one?".
+ *
+ * A family is a first word shared by two or more cars, discovered from the
+ * catalogue rather than listed here: Mhero 1 and Mhero 2 make "mhero" a
+ * family, and a third Mhero would join it. Only consulted when matchModel
+ * found no car, so "voyah passion" is still the Passion and never the line.
+ */
+export function familyMentioned(text: string, catalog: readonly WaCar[]): WaCar[] {
+  const tokens = blankOrdinaryPhrases(matchTokens(text));
+  // "m hero" is one word typed with a space.
+  const words = [...tokens];
+  for (let i = 0; i + 1 < tokens.length; i++) {
+    if (tokens[i].length === 1) words.push(tokens[i] + tokens[i + 1]);
+  }
+
+  const families = new Map<string, WaCar[]>();
+  for (const car of catalog) {
+    const first = matchTokens(car.name)[0];
+    if (!first) continue;
+    const members = families.get(first) ?? [];
+    members.push(car);
+    families.set(first, members);
+  }
+
+  const out: WaCar[] = [];
+  for (const [word, members] of families) {
+    if (members.length < 2) continue;
+    const allow = fuzzyAllowance(word);
+    const named = words.some(
+      (t) => t === word || (allow > 0 && editDistance(word, t, allow) <= allow)
+    );
+    if (named) out.push(...members);
+  }
+  return out;
+}
+
+/** Ways of pointing at the Nth car offered: "the second", "2nd". */
+const ORDINALS: readonly (readonly string[])[] = [
+  ["the first", "first one", "1 st"],
+  ["the second", "second one", "2 nd"],
+  ["the third", "third one", "3 rd"],
+];
+
+function containsRun(tokens: readonly string[], run: readonly string[]): boolean {
+  for (let s = 0; s + run.length <= tokens.length; s++) {
+    if (run.every((w, j) => tokens[s + j] === w)) return true;
+  }
+  return false;
+}
+
+/**
+ * Which of the cars we just offered did the reply pick? After "the Mhero 1 or
+ * the Mhero 2?", the answers "2", "2nd" and "the second one" name no model
+ * but are perfectly clear. Returns null unless exactly ONE candidate is
+ * picked.
+ *
+ * The caller runs the full matcher FIRST, so a reply naming a different car
+ * ("actually the dream") still finds it; this only reads what tells the
+ * candidates apart.
+ */
+export function pickAmong(text: string, candidates: readonly WaCar[]): WaCar | null {
+  if (candidates.length < 2) return null;
+  const tokens = matchTokens(text);
+  const names = candidates.map((c) => matchTokens(c.name));
+  const shared = names[0].filter((t) => names.every((n) => n.includes(t)));
+
+  const picked = new Set<WaCar>();
+  candidates.forEach((car, i) => {
+    const distinct = names[i].filter((t) => !shared.includes(t));
+    if (distinct.length > 0 && containsRun(tokens, distinct)) picked.add(car);
+    const ordinal = ORDINALS[i];
+    if (ordinal && ordinal.some((p) => containsRun(tokens, p.split(" ")))) {
+      picked.add(car);
+    }
+  });
+  return picked.size === 1 ? [...picked][0] : null;
 }
 
 /* ------------------------------------------------------------ the guards --- */

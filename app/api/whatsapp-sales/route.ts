@@ -26,7 +26,7 @@ import { requireStaff } from "@/lib/auth";
 import {
   catalogueImported,
   catalogueSource,
-  catalogueWarnings,
+  folderWarnings,
   loadCatalog,
   mediaIndexFor,
 } from "@/lib/wasales/catalog";
@@ -47,12 +47,13 @@ export async function GET(request: Request): Promise<NextResponse> {
     /** Where it came from, in words the screen can print. */
     source: catalogueSource(),
     /**
-     * Everything the import flagged for a person: an empty colour folder, a
-     * file over the bucket's limit, the same video filed under two models.
-     * Shown on the screen rather than buried in a terminal, because the
-     * person who can fix them is the one looking at this page.
+     * What the import flagged about the FOLDER that the shared library cannot
+     * answer: a file over the bucket's limit, the same video filed under two
+     * models. Gaps the library CAN answer (an empty colour, a missing
+     * brochure) are checked live on the screen instead, so a gap already
+     * filled by uploading is never reported as open.
      */
-    warnings: catalogueWarnings(),
+    warnings: folderWarnings(),
     catalog: cars,
     /**
      * How many videos each colour has IN THE FOLDER, per car. The screen

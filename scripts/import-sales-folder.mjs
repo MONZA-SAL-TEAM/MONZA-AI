@@ -94,8 +94,8 @@ function aliasesFor(modelName) {
   if (/^mhero/.test(lower)) {
     out.add(lower.replace(/^mhero/, "m hero"));
     out.add(lower.replace(/^mhero/, "m-hero"));
-    // Roman numerals, as the catalogue PDFs name them.
-    if (/\b1\b/.test(lower)) out.add(lower.replace(/\b1\b/, "i"));
+    // Roman numerals, as the catalogue PDFs name them — but only "ii". A
+    // bare "i" is the pronoun: "the mhero i saw" must not read as Mhero 1.
     if (/\b2\b/.test(lower)) out.add(lower.replace(/\b2\b/, "ii"));
   }
 

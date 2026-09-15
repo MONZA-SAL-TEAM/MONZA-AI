@@ -1,59 +1,60 @@
 /**
- * The REAL catalogue — the one lib/wasales/sales-manifest.ts holds after the
- * sales folder has been imported.
+ * The REAL catalogue and knowledge — lib/wasales/sales-manifest.ts after the
+ * sales folder was imported, and MONZA_KNOWLEDGE as it ships.
  *
- * The other sales tests use fixtures, which is right: they pin down the flow's
- * rules independently of what Monza happens to have filmed. This file does the
- * opposite job. It asserts the invariants that must hold for the data actually
- * shipping, so that a re-import which quietly breaks one of them fails here
- * rather than in a customer's chat.
+ * The engine tests use fixtures, which is right: they pin down the rules
+ * independently of what Monza happens to have filmed or approved. This file
+ * does the opposite job. It asserts the invariants that must hold for the
+ * data actually shipping, so that a re-import which quietly breaks one of
+ * them fails here rather than in a customer's chat.
  *
- * Nothing here hardcodes a model or a colour. The folder is Monza's to change:
- * they will fill Mhero 1's empty Black folder, they will add cars. Every
- * assertion below is written over whatever the manifest contains, so it keeps
- * its meaning after that happens.
+ * Nothing here hardcodes a colour. Every assertion is written over whatever
+ * the manifest contains, so it keeps its meaning when Monza fills an empty
+ * colour folder or adds a car. The exceptions are the words customers use
+ * for each model (Samer's list) and the definition of done, run over the
+ * real, still-unapproved knowledge.
  */
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import {
+  SUPERSEDED_BY_LIVE_CHECK,
   catalogueImported,
+  folderMedia,
+  folderWarnings,
   loadCatalog,
   mediaIndexFor,
 } from "@/lib/wasales/catalog";
 import { sendableColours } from "@/lib/wasales/colours";
-import { advance, INITIAL_STATE, type CarMedia } from "@/lib/wasales/flow";
+import { decide, type EngineDecision } from "@/lib/wasales/engine";
+import { freshState, type SearchEngineState } from "@/lib/wasales/context";
+import { MONZA_KNOWLEDGE, videoCounts } from "@/lib/wasales/knowledge";
+import { actionLabel, renderPlan } from "@/lib/wasales/templates";
+import { isCustomerFacing } from "@/lib/wasales/actions";
+import { matchModel } from "@/lib/wasales/matcher";
 
 const CATALOG = loadCatalog();
+const K = MONZA_KNOWLEDGE;
 
-function mediaFor(carId: string): CarMedia {
-  const car = CATALOG.find((c) => c.id === carId);
-  if (!car) return { hasBrochure: false, videosByColour: {} };
-  return { hasBrochure: Boolean(car.brochure), videosByColour: mediaIndexFor(car) };
+function say(text: string, brand = "monza", state: SearchEngineState = freshState()): EngineDecision {
+  return decide(
+    { text, brand, conversationIsNew: state.updatedAt === null, now: "2026-09-14T09:00:00.000Z" },
+    state,
+    { knowledge: K, catalog: CATALOG, media: folderMedia, ttlHours: 72 }
+  );
 }
 
-/** What the auto-sender would say to "tell me about the <car>". */
-function firstReply(carName: string): string {
-  const result = advance(
-    {
-      text: `hi can i get more information about the ${carName}`,
-      isNewNumber: true,
-      isFirstMessage: true,
-      source: "direct",
-      autoSendEnabled: true,
-    },
-    INITIAL_STATE,
-    CATALOG,
-    mediaFor
-  );
-  return result.action.kind === "hold" ? "" : result.action.message;
+function words(d: EngineDecision, brand = "monza"): string {
+  return renderPlan(d.actions, { channel: "instagram", brand: brand as "monza", knowledge: K })
+    .map((p) => (p.kind === "text" ? p.text : ""))
+    .join(" ");
 }
 
 describe("the imported catalogue", () => {
   test("it has been imported at all", () => {
-    // If this fails, the manifest was reset and every car below is a seed with
-    // no colours — the screen would be honest about it, but so should CI be.
     assert.ok(catalogueImported(), "run scripts/import-sales-folder.mjs");
     assert.ok(CATALOG.length > 0);
   });
@@ -78,118 +79,148 @@ describe("the imported catalogue", () => {
       }
     }
   });
+
+  test("every knowledge model has its own catalogue car", () => {
+    for (const m of K.models) {
+      assert.ok(CATALOG.some((c) => c.id === m.catalogueId), m.code);
+    }
+  });
+});
+
+describe("the words customers use (Samer, 2026-09-12)", () => {
+  const WORDS: [string, string][] = [
+    ["free", "voyah-free-comp"],
+    ["free 318", "voyah-free-comp"],
+    ["courage", "voyah-courage"],
+    ["كوراج", "voyah-courage"],
+    ["dream", "voyah-dream"],
+    ["passion", "voyah-passion"],
+    ["passion l", "voyah-passion-l"],
+    ["taishan", "voyah-taishan"],
+    ["تايشان", "voyah-taishan"],
+    ["mhero 1", "mhero-1"],
+    ["mhero1", "mhero-1"],
+    ["917", "mhero-1"],
+    ["mhero 2", "mhero-2"],
+    ["817", "mhero-2"],
+  ];
+
+  test("each one reaches its own car", () => {
+    for (const [word, id] of WORDS) {
+      assert.equal(matchModel(`hi, ${word}?`, CATALOG).model?.id, id, word);
+    }
+  });
+
+  test("'mhero' alone is a question on MHERO and MONZA SAL — and another brand on VOYAH", () => {
+    assert.match(actionLabel(say("info about the mhero", "mhero").actions[0]), /^SHOW MODEL CHOICES/);
+    assert.match(actionLabel(say("info about the mhero", "monza").actions[0]), /^SHOW MODEL CHOICES/);
+    const onVoyah = say("info about the mhero", "voyah");
+    assert.deepEqual(onVoyah.understanding.crossBrand, ["MHERO_1", "MHERO_2"]);
+  });
+
+  test("a bare 'i' never picks the Mhero 1, and 'feel free' is not the Free", () => {
+    assert.notEqual(matchModel("the mhero i saw on instagram", CATALOG).model?.id, "mhero-1");
+    assert.equal(matchModel("feel free to call me back", CATALOG).decision, "hold");
+  });
 });
 
 describe("a colour with no video", () => {
-  /**
-   * THE RULE THIS FILE EXISTS FOR.
-   *
-   * An empty colour folder is a real fact about the business: the colour is
-   * offered in the showroom, nobody has filmed it yet. It must be VISIBLE —
-   * the sales screen shows it greyed out so somebody knows to shoot it — and
-   * it must never be OFFERED, because we cannot send what we do not have.
-   *
-   * Those two requirements pull in opposite directions, and the obvious
-   * shortcut (drop empty colours when loading the catalogue) satisfies the
-   * second by making the first impossible. So: keep every colour, and let the
-   * flow do the filtering. These tests hold that line.
-   */
   test("it is still listed on the car, so the gap is visible", () => {
     for (const car of CATALOG) {
       const counts = mediaIndexFor(car);
       for (const colour of car.colours) {
-        assert.ok(
-          colour.id in counts,
-          `${car.name}/${colour.name} is on the car but has no video count`
-        );
+        assert.ok(colour.id in counts, `${car.name}/${colour.name} has no video count`);
       }
     }
   });
 
-  test("it is never sendable", () => {
-    for (const car of CATALOG) {
-      const counts = mediaIndexFor(car);
-      for (const colour of sendableColours(car.colours, counts)) {
-        assert.ok(
-          (counts[colour.id] ?? 0) > 0,
-          `${car.name}/${colour.name} is offered with no video`
-        );
-      }
-    }
-  });
-
-  test("its name never appears in the message that goes out", () => {
-    for (const car of CATALOG) {
-      const counts = mediaIndexFor(car);
+  test("it is never offered, and its name never appears in anything said", () => {
+    for (const m of K.models) {
+      const car = CATALOG.find((c) => c.id === m.catalogueId);
+      if (!car) continue;
+      const counts = videoCounts(folderMedia(car.id));
       const empty = car.colours.filter((c) => (counts[c.id] ?? 0) === 0);
       if (empty.length === 0) continue;
-
-      const said = firstReply(car.name).toLowerCase();
-      if (said === "") continue; // held — nothing goes out, nothing to check
-
+      const d = say(`im interested in the ${car.name}`);
+      const said = words(d).toLowerCase();
       for (const colour of empty) {
-        assert.ok(
-          !said.includes(colour.name.toLowerCase()),
-          `${car.name} offers ${colour.name}, which has no video: "${said}"`
-        );
+        assert.ok(!said.includes(colour.name.toLowerCase()), `${car.name} names ${colour.name}: "${said}"`);
+      }
+      for (const a of d.actions) {
+        if (a.type === "SHOW_COLOUR_CHOICES") {
+          const offerable = sendableColours(car.colours, counts).map((c) => c.id);
+          for (const c of a.colours) assert.ok(offerable.includes(c.id), `${car.name}/${c.id}`);
+        }
       }
     }
   });
 });
 
-describe("what the auto-sender would really do", () => {
-  test("a car it answers about has both a brochure and a sendable colour", () => {
-    for (const car of CATALOG) {
-      if (firstReply(car.name) === "") continue;
-      assert.ok(car.brochure, `${car.name} answers with no brochure`);
+describe("what the engine would really do", () => {
+  test("every model is reachable by its own name, and opens with its own brochure", () => {
+    for (const m of K.models) {
+      const car = CATALOG.find((c) => c.id === m.catalogueId);
+      if (!car) continue;
+      const d = say(`im interested in the ${car.name}`);
+      assert.equal(d.understanding.model, m.code, car.name);
+      const first = d.actions.filter(isCustomerFacing)[0];
       assert.ok(
-        sendableColours(car.colours, mediaIndexFor(car)).length > 0,
-        `${car.name} answers with no sendable colour`
+        (first?.type === "SEND_BROCHURE" && first.model === m.code) ||
+          d.gaps.some((g) => g.content === "BROCHURE"),
+        car.name
       );
     }
   });
 
-  test("a car missing its material holds, and says which piece is missing", () => {
-    for (const car of CATALOG) {
-      const sendable = sendableColours(car.colours, mediaIndexFor(car));
-      if (car.brochure && sendable.length > 0) continue;
+  test("the definition of done over the REAL knowledge: no fact is approved, so the number", () => {
+    const hp = say("hp?", "voyah");
+    const courage = decide(
+      { text: "courage", brand: "voyah", conversationIsNew: false, now: "2026-09-14T09:01:00.000Z" },
+      hp.nextState,
+      { knowledge: K, catalog: CATALOG, media: folderMedia, ttlHours: 72 }
+    );
+    assert.deepEqual(courage.actions.map(actionLabel), [
+      "SEND COURAGE BROCHURE",
+      "SEND CONTACT FALLBACK — MISSING FACT COURAGE / HORSEPOWER",
+      "SHOW COURAGE COLOURS",
+      "MISSING APPROVED FACT: COURAGE / HORSEPOWER",
+    ]);
+    assert.match(words(courage, "voyah"), /For more information, please call 70 70 85 85\./);
+  });
 
-      const result = advance(
-        {
-          text: `tell me about the ${car.name}`,
-          isNewNumber: true,
-          isFirstMessage: true,
-          source: "direct",
-          autoSendEnabled: true,
-        },
-        INITIAL_STATE,
-        CATALOG,
-        mediaFor
-      );
-      assert.equal(result.action.kind, "hold", car.name);
-      const reason = result.action.kind === "hold" ? result.action.reason : "";
-      assert.match(reason, /brochure|video/, `${car.name}: ${reason}`);
+  test("a caption awaiting approval is never sent", () => {
+    const d = say("courage range?", "voyah");
+    assert.ok(!d.actions.some((a) => a.type === "SEND_FACT"));
+    assert.deepEqual(d.gaps.map((g) => g.detail), ["FACT NOT APPROVED: COURAGE / RANGE"]);
+  });
+});
+
+describe("import warnings versus the live check", () => {
+  // The exact sentence endings scripts/import-sales-folder.mjs writes for the
+  // gaps the Sales screen now checks live. If the importer's wording changes,
+  // these fail rather than the stale warnings quietly coming back.
+  const LIVE_CHECKED = [
+    ": folder is empty — cannot be offered.",
+    ": no catalogue PDF — it can never auto-send.",
+    ": videos are not in colour folders — treated as one option with no colour choice.",
+  ];
+
+  test("each pattern matches what the importer actually writes", () => {
+    const importer = readFileSync(join(process.cwd(), "scripts", "import-sales-folder.mjs"), "utf8");
+    for (const ending of LIVE_CHECKED) {
+      assert.ok(importer.includes(ending), `importer no longer writes "${ending}"`);
+      assert.ok(SUPERSEDED_BY_LIVE_CHECK.some((p) => p.test(`Some Car / Black${ending}`)), ending);
     }
   });
 
-  test("every car in the catalogue is reachable by its own name", () => {
-    // A model the matcher cannot find is material nobody can ever be sent.
-    // Holding is fine; matching a DIFFERENT car is not.
-    for (const car of CATALOG) {
-      const result = advance(
-        {
-          text: `im interested in the ${car.name}`,
-          isNewNumber: true,
-          isFirstMessage: true,
-          source: "direct",
-          autoSendEnabled: true,
-        },
-        INITIAL_STATE,
-        CATALOG,
-        mediaFor
-      );
-      if (result.action.kind === "hold") continue;
-      assert.equal(result.action.car.id, car.id, `asked for ${car.name}`);
+  test("gaps the library can answer never reach the screen as folder warnings", () => {
+    for (const w of folderWarnings()) {
+      for (const ending of LIVE_CHECKED) assert.ok(!w.endsWith(ending), w);
     }
+  });
+
+  test("a warning the library cannot answer is kept", () => {
+    const oversize = "Voyah Dream / big.mov: 250.0 MB is over the 200 MB limit — compress before uploading.";
+    assert.ok(!SUPERSEDED_BY_LIVE_CHECK.some((p) => p.test(oversize)));
   });
 });
