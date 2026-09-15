@@ -29,9 +29,14 @@ import {
   readDeliveries,
   readWhatsAppConversations,
   readWhatsAppMessages,
+  recordWhatsAppSent,
   type StoredAccount,
 } from "@/lib/channels/store";
-import { mapWhatsAppConversation, mapWhatsAppMessage } from "@/lib/channels/whatsapp";
+import {
+  mapWhatsAppConversation,
+  mapWhatsAppMessage,
+  sendWhatsAppText,
+} from "@/lib/channels/whatsapp";
 import { instagramAdapter, sendInstagramLogin } from "@/lib/channels/instagram";
 import { messengerAdapter } from "@/lib/channels/messenger";
 import { replyWindow, windowExplanation, type ReplyWindow } from "@/lib/channels/types";
@@ -593,6 +598,63 @@ async function readWhatsAppThread(
   };
 }
 
+/**
+ * A staff reply on a WhatsApp thread. Same gates as Instagram and Facebook, in
+ * the same order: the 24-hour window as the database has it, then the send
+ * switch, then the key. The recipient is read from OUR stored conversation —
+ * the browser names a thread, never a number.
+ */
+async function sendOnWhatsApp(
+  account: StoredAccount,
+  conversationId: string,
+  text: string,
+  live: boolean,
+  staffName: string
+): Promise<SendOutcome> {
+  const r = await readWhatsAppMessages(account.id, conversationId, 1);
+  if (!r.ok) return { kind: "refused", status: 502, problem: "Could not read this WhatsApp conversation." };
+  if (!r.value || r.value.peerExternalId === "") {
+    return { kind: "refused", status: 404, problem: "That conversation was not found." };
+  }
+
+  const window = replyWindow(r.value.lastInboundAt, new Date());
+  if (!window.open) return { kind: "window_closed", explanation: windowExplanation(window, "whatsapp") };
+  if (!live) return { kind: "switched_off" };
+
+  const token = channelToken(account.tokenEnv);
+  if (!token) {
+    return {
+      kind: "refused",
+      status: 503,
+      problem: "The WhatsApp sending key has not been added yet, so nothing was sent.",
+    };
+  }
+
+  const sent = await sendWhatsAppText(
+    { phoneNumberId: account.externalId, to: r.value.peerExternalId, text },
+    token
+  );
+  if (!sent.ok) {
+    return sent.windowClosed
+      ? { kind: "window_closed", explanation: sent.problem }
+      : { kind: "refused", status: 502, problem: sent.problem };
+  }
+
+  const recorded = await recordWhatsAppSent({
+    accountId: account.id,
+    brand: account.brand,
+    conversationId,
+    externalMessageId: sent.externalMessageId,
+    text,
+    at: new Date().toISOString(),
+    staffName,
+  });
+  // It WENT. Failing to write our copy must not report a failure — a person
+  // would send it a second time.
+  if (!recorded) console.error("[channels/whatsapp] sent, but the copy could not be recorded");
+  return { kind: "sent" };
+}
+
 /** The WhatsApp account a thread id names, or null for any other channel. */
 async function whatsappAccountOf(threadId: unknown): Promise<{ account: StoredAccount; id: string } | null> {
   const ids = decodeThreadId(threadId);
@@ -1144,16 +1206,12 @@ export type SendOutcome =
 export async function sendOnThread(
   threadId: unknown,
   text: string,
-  live: boolean
+  live: boolean,
+  /** Who pressed Send — shown under the reply in the thread. */
+  staffName = "Monza"
 ): Promise<SendOutcome> {
-  // Nothing is sent on WhatsApp from here: staff reply in the WhatsApp app.
-  if (await whatsappAccountOf(threadId)) {
-    return {
-      kind: "refused",
-      status: 409,
-      problem: "Monza AI does not send on WhatsApp yet — reply from the WhatsApp Business app.",
-    };
-  }
+  const wa = await whatsappAccountOf(threadId);
+  if (wa) return sendOnWhatsApp(wa.account, wa.id, text, live, staffName);
   const t = await openThread(threadId, new Date());
   if (!t.ok) return { kind: "refused", status: t.status, problem: t.problem };
   if (!t.peer) {

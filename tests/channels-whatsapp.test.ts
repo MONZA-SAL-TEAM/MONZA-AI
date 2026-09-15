@@ -25,12 +25,15 @@ import {
   mapWhatsAppConversation,
   mapWhatsAppMessage,
   parseWhatsApp,
+  sendWhatsAppText,
   waTime,
   whatsappMessageRow,
+  whatsappSendProblem,
+  whatsappSentRow,
 } from "@/lib/channels/whatsapp";
 import { parseInstagram } from "@/lib/channels/instagram";
 import { messengerAdapter } from "@/lib/channels/messenger";
-import { decodeThreadId, inboundIndexRow } from "@/lib/channels/live-map";
+import { decodeThreadId, inboundIndexRow, redactDelivery } from "@/lib/channels/live-map";
 import { isCronAuthorized, retentionCutoff } from "@/lib/channels/retention";
 import type { ChannelAccount } from "@/lib/channels/types";
 
@@ -343,6 +346,124 @@ describe("reading WhatsApp back for the inbox", () => {
     assert.equal(displayPhone("9613123456"), "+961 3 123 456");
     assert.equal(displayPhone("447700900123"), "+447700900123");
     assert.equal(displayPhone(""), "");
+  });
+});
+
+describe("sending a reply (a person pressed Send)", () => {
+  type Call = { url: string; init: RequestInit };
+  function fakeFetch(status: number, body: unknown, calls: Call[]): typeof fetch {
+    return (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init: init ?? {} });
+      return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+  }
+
+  test("the request: the number's id in the path, digits-only recipient, plain text", async () => {
+    const calls: Call[] = [];
+    const r = await sendWhatsAppText(
+      { phoneNumberId: PHONE_ID, to: "+961 70 123 456", text: "Yes, we have it in white." },
+      "KEY",
+      fakeFetch(200, { messaging_product: "whatsapp", messages: [{ id: "wamid.sent1" }] }, calls)
+    );
+    assert.deepEqual(r, { ok: true, externalMessageId: "wamid.sent1" });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, `https://graph.facebook.com/v21.0/${PHONE_ID}/messages`);
+    assert.equal(calls[0].init.method, "POST");
+    assert.equal((calls[0].init.headers as Record<string, string>).Authorization, "Bearer KEY");
+    const sent = JSON.parse(String(calls[0].init.body));
+    assert.deepEqual(sent, {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: "96170123456",
+      type: "text",
+      text: { preview_url: false, body: "Yes, we have it in white." },
+    });
+  });
+
+  test("it only ever calls /messages — never anything that touches the number's registration", async () => {
+    const calls: Call[] = [];
+    await sendWhatsAppText({ phoneNumberId: PHONE_ID, to: CUSTOMER, text: "hi" }, "KEY", fakeFetch(200, { messages: [{ id: "w" }] }, calls));
+    assert.ok(calls.every((c) => c.url.endsWith("/messages")));
+    assert.ok(calls.every((c) => !/register|deregister|request_code|verify_code/.test(c.url)));
+  });
+
+  test("a number id that is not digits is refused before any request", async () => {
+    const calls: Call[] = [];
+    const r = await sendWhatsAppText({ phoneNumberId: "123/../me", to: CUSTOMER, text: "hi" }, "KEY", fakeFetch(200, {}, calls));
+    assert.equal(r.ok, false);
+    assert.equal(calls.length, 0);
+  });
+
+  test("more than 24 hours is reported as the window closing, in words", async () => {
+    const r = await sendWhatsAppText(
+      { phoneNumberId: PHONE_ID, to: CUSTOMER, text: "hi" },
+      "KEY",
+      fakeFetch(400, { error: { code: 131047, message: "Re-engagement message" } }, [])
+    );
+    assert.equal(r.ok, false);
+    assert.equal(!r.ok && r.windowClosed, true);
+    assert.match(!r.ok ? r.problem : "", /24 hours/);
+  });
+
+  test("other refusals say what to do, and never claim it went", () => {
+    assert.match(whatsappSendProblem({ error: { code: 190 } }, 401).problem, /invalid or has expired/);
+    assert.match(whatsappSendProblem({ error: { code: 200 } }, 403).problem, /not allowed to send/);
+    assert.match(whatsappSendProblem({ error: { code: 131026 } }, 400).problem, /could not deliver/);
+    assert.match(whatsappSendProblem(null, 429).problem, /limiting/);
+  });
+
+  test("a network failure is 'not confirmed', not 'failed'", async () => {
+    const broken = (async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+    const r = await sendWhatsAppText({ phoneNumberId: PHONE_ID, to: CUSTOMER, text: "hi" }, "KEY", broken);
+    assert.match(!r.ok ? r.problem : "", /nothing was confirmed/);
+  });
+
+  test("what was sent is recorded as our side, under WhatsApp's own id", () => {
+    const row = whatsappSentRow({
+      conversationId: "c1",
+      brand: "monza",
+      accountId: "wa-monza",
+      externalMessageId: "wamid.sent1",
+      text: "Yes, we have it in white.",
+      at: "2026-09-15T11:00:00.000Z",
+      staffName: "samer",
+    });
+    assert.equal(row.direction, "out");
+    assert.equal(row.author, "staff");
+    assert.equal(row.status, "sent");
+    assert.equal(row.body, "Yes, we have it in white.");
+    assert.equal(row.external_message_id, "wamid.sent1");
+    assert.equal(row.staff_name, "samer");
+  });
+});
+
+describe("the delivery record says what KIND of thing arrived — never its words", () => {
+  test("a WhatsApp message and a read receipt are told apart", () => {
+    const kept = redactDelivery(TEXT);
+    assert.deepEqual(kept, {
+      object: "whatsapp_business_account",
+      entries: [{ id: WABA, events: 1, fields: ["messages"], kinds: ["messages:text"] }],
+    });
+    assert.ok(!JSON.stringify(kept).includes("white"), "no words");
+    assert.ok(!JSON.stringify(kept).includes(CUSTOMER), "no numbers");
+
+    const receipt = redactDelivery(
+      delivery("messages", { statuses: [{ id: "wamid.1", status: "read", timestamp: "1", recipient_id: CUSTOMER }] })
+    );
+    assert.deepEqual((receipt.entries as Record<string, unknown>[])[0].kinds, ["status:read"]);
+  });
+
+  test("an echo is named as one", () => {
+    const echo = redactDelivery(
+      delivery("smb_message_echoes", {
+        message_echoes: [{ from: "96170708585", to: CUSTOMER, id: "wamid.e", timestamp: "1", type: "text", text: { body: "hello" } }],
+      })
+    );
+    const entry = (echo.entries as Record<string, unknown>[])[0];
+    assert.deepEqual(entry.fields, ["smb_message_echoes"]);
+    assert.deepEqual(entry.kinds, ["message_echoes:text"]);
   });
 });
 

@@ -635,10 +635,33 @@ export function redactDelivery(body: unknown): Record<string, unknown> {
     entries: entries.map((raw) => {
       const e = obj(raw);
       const messaging = Array.isArray(e?.messaging) ? e.messaging.length : 0;
-      const changes = Array.isArray(e?.changes) ? e.changes.length : 0;
-      return { id: str(e?.id), events: messaging + changes };
+      const changes = Array.isArray(e?.changes) ? e.changes : [];
+      const kept: Record<string, unknown> = { id: str(e?.id), events: messaging + changes.length };
+      // WhatsApp deliveries arrive as `changes`. Which KIND each was — its
+      // field name and its message types or status names — is what tells "a
+      // reply we could not read" from "a read receipt" (2026-09-15: one
+      // delivery was read as nothing and nobody could say what it had been).
+      // Still shape only: types and status words are Meta's, never a person's.
+      if (changes.length > 0) {
+        kept.fields = changes.map((c) => str(obj(c)?.field) ?? "?");
+        kept.kinds = changes.flatMap((c) => changeKinds(obj(obj(c)?.value)));
+      }
+      return kept;
     }),
   };
+}
+
+/** "messages:text", "message_echoes:image", "status:read" — for a change's value. */
+function changeKinds(value: Record<string, unknown> | null): string[] {
+  if (!value) return [];
+  const kinds: string[] = [];
+  for (const key of ["messages", "message_echoes"]) {
+    const rows = Array.isArray(value[key]) ? (value[key] as unknown[]) : [];
+    for (const m of rows) kinds.push(`${key}:${str(obj(m)?.type) ?? "?"}`);
+  }
+  const statuses = Array.isArray(value.statuses) ? (value.statuses as unknown[]) : [];
+  for (const s of statuses) kinds.push(`status:${str(obj(s)?.status) ?? "?"}`);
+  return kinds;
 }
 
 /**

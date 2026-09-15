@@ -30,9 +30,10 @@
  * Rule 19 drops Instagram and Messenger echoes because they are copies of what
  * MONZA AI itself sent, and storing them doubles every reply. WhatsApp's
  * `smb_message_echoes` are something else: the replies staff type in the
- * WhatsApp Business app (or Business Suite). MONZA AI sends nothing on
- * WhatsApp, so these are the ONLY record of our side of a WhatsApp thread —
+ * WhatsApp Business app (or Business Suite) — the only record of those, so
  * without them every conversation would read as the customer talking alone.
+ * A reply sent FROM MONZA AI produces no echo at all, so sendOnThread records
+ * it itself at the moment WhatsApp accepts it (whatsappSentRow).
  *
  * ── Dropped ─────────────────────────────────────────────────────────────────
  * Delivery and read statuses, reactions, edits, revokes and system notices
@@ -371,17 +372,141 @@ export function mapWhatsAppMessage(row: WhatsAppMessageRow, threadId: string): I
   };
 }
 
+/* ── Sending — a person pressed Send (Samer, 2026-09-15) ─────────────────── */
+
+const GRAPH = "https://graph.facebook.com/v21.0";
+
+/** WhatsApp's own limit for one text message. */
+export const WHATSAPP_MAX_TEXT = 4096;
+
+export type WhatsAppSendResult =
+  | { ok: true; externalMessageId: string }
+  | { ok: false; problem: string; windowClosed: boolean };
+
+/** Meta's WhatsApp error, in words staff can act on. */
+export function whatsappSendProblem(
+  payload: unknown,
+  httpStatus: number
+): { problem: string; windowClosed: boolean } {
+  const e = obj(obj(payload)?.error);
+  const code = typeof e?.code === "number" ? e.code : null;
+  if (code === 131047) {
+    return {
+      problem:
+        "More than 24 hours since this customer wrote, so WhatsApp only allows a paid, pre-approved template — not a free reply.",
+      windowClosed: true,
+    };
+  }
+  if (code === 190) {
+    return { problem: "The WhatsApp sending key is invalid or has expired.", windowClosed: false };
+  }
+  if (code === 3 || code === 10 || (code !== null && code >= 200 && code < 300)) {
+    return { problem: "The WhatsApp sending key is not allowed to send for this number.", windowClosed: false };
+  }
+  if (code === 131026) {
+    return { problem: "WhatsApp could not deliver it to this number.", windowClosed: false };
+  }
+  if (code === 130429 || code === 131056 || code === 80007 || httpStatus === 429) {
+    return { problem: "WhatsApp is limiting messages for a moment — try again shortly.", windowClosed: false };
+  }
+  const message = str(e?.message);
+  return {
+    problem: message
+      ? `WhatsApp said: ${message.slice(0, 200)}`
+      : `WhatsApp answered with an error (HTTP ${httpStatus}).`,
+    windowClosed: false,
+  };
+}
+
+/**
+ * Send one text through the Cloud API, as the WhatsApp number `phoneNumberId`.
+ * With Coexistence the message also appears in the WhatsApp Business app on
+ * the phone. This call sends a MESSAGE and nothing else: it never touches the
+ * number's registration (register / deregister / codes are other endpoints,
+ * and nothing in this codebase calls them).
+ *
+ * `fetchFn` exists so the request's shape can be tested without a network.
+ */
+export async function sendWhatsAppText(
+  input: { phoneNumberId: string; to: string; text: string },
+  token: string,
+  fetchFn: typeof fetch = fetch
+): Promise<WhatsAppSendResult> {
+  const to = input.to.replace(/\D/g, "");
+  // The number id goes into the URL path, so it must be digits and nothing else.
+  if (!/^\d{5,20}$/.test(input.phoneNumberId) || to === "") {
+    return { ok: false, problem: "This conversation has no WhatsApp number to reply to.", windowClosed: false };
+  }
+  try {
+    const res = await fetchFn(`${GRAPH}/${input.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "text",
+        text: { preview_url: false, body: input.text },
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const json: unknown = await res.json().catch(() => null);
+    const id = str(obj(list(obj(json)?.messages)[0])?.id);
+    if (res.ok && id) return { ok: true, externalMessageId: id };
+    if (res.ok) {
+      return {
+        ok: false,
+        problem: "WhatsApp accepted the request but returned no message id — check the phone before sending it again.",
+        windowClosed: false,
+      };
+    }
+    return { ok: false, ...whatsappSendProblem(json, res.status) };
+  } catch {
+    // Unknown, not failed: it may or may not have gone. Say so.
+    return {
+      ok: false,
+      problem: "Could not reach WhatsApp just now — nothing was confirmed as sent. Check the phone before sending it again.",
+      windowClosed: false,
+    };
+  }
+}
+
+/** The stored row for a reply sent from MONZA AI — WhatsApp sends no echo for it. */
+export function whatsappSentRow(input: {
+  conversationId: string;
+  brand: string;
+  accountId: string;
+  externalMessageId: string;
+  text: string;
+  at: string;
+  staffName: string;
+}): Record<string, unknown> {
+  return {
+    conversation_id: input.conversationId,
+    brand: input.brand,
+    account_id: input.accountId,
+    direction: "out",
+    author: "staff",
+    body: input.text,
+    attachments: [],
+    external_message_id: input.externalMessageId,
+    status: "sent",
+    staff_name: input.staffName,
+    sent_at: input.at,
+  };
+}
+
 /* ── The adapter ─────────────────────────────────────────────────────────── */
 
 /**
- * MONZA AI does not send on WhatsApp. Replies are typed in the WhatsApp
- * Business app (their echoes come back and are stored), and the inbox offers
- * a prefilled wa.me link. Sending from here is a later, deliberate step.
+ * The generic adapter's send cannot know the WhatsApp number id (it is the
+ * ACCOUNT's external id, not the message's), so WhatsApp replies go through
+ * sendOnThread → sendWhatsAppText in lib/channels/live.ts instead.
  */
 async function sendWhatsApp(): Promise<SendResult> {
   return {
     ok: false,
-    error: "Monza AI does not send on WhatsApp yet — reply from the WhatsApp Business app.",
+    error: "WhatsApp replies are sent through the inbox's conversation route.",
     retryable: false,
   };
 }

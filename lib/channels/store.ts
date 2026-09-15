@@ -51,6 +51,7 @@ import type { InboundEvent } from "@/lib/channels/types";
 import { inboundIndexRow, redactDelivery, type DeliveryRecord } from "@/lib/channels/live-map";
 import {
   whatsappMessageRow,
+  whatsappSentRow,
   type WhatsAppConversationRow,
   type WhatsAppMessageRow,
 } from "@/lib/channels/whatsapp";
@@ -298,14 +299,16 @@ export async function readWhatsAppMessages(
   accountId: string,
   conversationId: string,
   limit: number
-): Promise<Read<{ lastInboundAt: string | null; rows: WhatsAppMessageRow[] } | null>> {
+): Promise<
+  Read<{ lastInboundAt: string | null; peerExternalId: string; rows: WhatsAppMessageRow[] } | null>
+> {
   if (!UUID.test(conversationId)) return { ok: true, value: null };
   const sb = client();
   if (!sb) return { ok: false, error: NO_DB };
 
   const conv = await sb
     .from("channel_conversations")
-    .select("id, last_inbound_at")
+    .select("id, last_inbound_at, peer_external_id")
     .eq("id", conversationId)
     .eq("account_id", accountId)
     .maybeSingle();
@@ -325,9 +328,37 @@ export async function readWhatsAppMessages(
     ok: true,
     value: {
       lastInboundAt: (conv.data.last_inbound_at as string | null) ?? null,
+      peerExternalId: (conv.data.peer_external_id as string | null) ?? "",
       rows: ((msgs.data ?? []) as WhatsAppMessageRow[]).reverse(),
     },
   };
+}
+
+/**
+ * Record a reply that was just sent from MONZA AI. WhatsApp returns no echo
+ * for an API send, so without this the thread would never show it. Keyed on
+ * WhatsApp's own message id, so a repeat is a no-op.
+ */
+export async function recordWhatsAppSent(input: {
+  accountId: string;
+  brand: string;
+  conversationId: string;
+  externalMessageId: string;
+  text: string;
+  at: string;
+  staffName: string;
+}): Promise<boolean> {
+  const sb = client();
+  if (!sb) return false;
+  const { error } = await sb
+    .from("channel_messages")
+    .upsert(whatsappSentRow(input), {
+      onConflict: "account_id,external_message_id",
+      ignoreDuplicates: true,
+    });
+  if (error) return false;
+  await sb.rpc("channel_note_outbound", { p_conversation: input.conversationId, p_at: input.at });
+  return true;
 }
 
 /** Delete WhatsApp messages sent before `before` (the 12-month rule). */

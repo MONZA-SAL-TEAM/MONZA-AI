@@ -1,7 +1,9 @@
 /**
- * POST /api/channels/send — a staff reply on a live Instagram or Facebook
- * thread. It goes out through Meta, so it also appears in the Instagram and
- * Facebook apps. MONZA AI keeps no copy of it (Samer, 2026-09-10).
+ * POST /api/channels/send — a staff reply on a live Instagram, Facebook or
+ * WhatsApp thread. It goes out through Meta, so it also appears in the
+ * Instagram and Facebook apps, and on the phone for WhatsApp. MONZA AI keeps no
+ * copy of Instagram and Facebook replies (Samer, 2026-09-10); a WhatsApp reply
+ * is recorded in its thread, because WhatsApp is stored (2026-09-15).
  *
  * ── SWITCHED OFF UNTIL SOMEBODY DELIBERATELY SAYS OTHERWISE ─────────────────
  * `CHANNELS_SEND_MODE` must equal "live" for anything to leave the building.
@@ -25,6 +27,7 @@ import { MEDIA_CAPABILITIES } from "@/lib/permissions/media";
 import { channelsSendLive } from "@/lib/env";
 import { decodeThreadId } from "@/lib/channels/live-map";
 import { sendOnThread } from "@/lib/channels/live";
+import { WHATSAPP_MAX_TEXT } from "@/lib/channels/whatsapp";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -70,13 +73,17 @@ export async function POST(request: Request): Promise<NextResponse> {
   const ids = decodeThreadId(conversationId);
   if (!ids) return fail("No conversation.", 400, "badRequest");
   if (text === "") return fail("Write something first.", 400, "badRequest");
-  // Instagram's own limit is 1,000 characters; refusing here beats Meta
-  // refusing after the person thinks it went.
-  if (text.length > MAX_LENGTH) {
-    return fail("That message is too long to send (1,000 characters at most).", 400, "badRequest");
+  // Instagram's own limit is 1,000 characters, WhatsApp's 4,096 (our WhatsApp
+  // account ids start "wa-"); refusing here beats Meta refusing after the
+  // person thinks it went.
+  const max = ids.accountId.startsWith("wa-") ? WHATSAPP_MAX_TEXT : MAX_LENGTH;
+  if (text.length > max) {
+    return fail(`That message is too long to send (${max.toLocaleString("en-US")} characters at most).`, 400, "badRequest");
   }
 
-  const outcome = await sendOnThread(conversationId, text, channelsSendLive());
+  // Shown under the reply in a WhatsApp thread: the part of the email before "@".
+  const staffName = access.user.email?.split("@")[0] || "Monza";
+  const outcome = await sendOnThread(conversationId, text, channelsSendLive(), staffName);
 
   // Counts and ids only — never the text (it is customer-facing content).
   console.info(`[channels/send] ${outcome.kind} on ${ids.accountId} by ${access.user.userId}`);

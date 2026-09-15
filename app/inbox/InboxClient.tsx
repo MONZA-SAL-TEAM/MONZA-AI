@@ -1308,7 +1308,7 @@ export default function InboxClient(props: Props) {
                     </span>
                   </p>
                 </div>
-                {live && open.channel !== "whatsapp" && (
+                {live && (
                   <span
                     className="ibx-window"
                     data-open={thread.windowOpen}
@@ -1392,7 +1392,7 @@ export default function InboxClient(props: Props) {
                       e.target.style.height = `${Math.min(e.target.scrollHeight, 180)}px`;
                     }}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && live && open.channel !== "whatsapp") {
+                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && live) {
                         e.preventDefault();
                         void sendReply();
                       }
@@ -1410,16 +1410,7 @@ export default function InboxClient(props: Props) {
                     >
                       <Icon d={I.copy} size={16} />
                     </button>
-                    {open.channel === "whatsapp" ? (
-                      <a
-                        className="ibx-send"
-                        href={waLink(open.peerPhone ?? open.channelAddress, composerText)}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Open in WhatsApp
-                      </a>
-                    ) : live ? (
+                    {live ? (
                       <button
                         type="button"
                         className="ibx-send"
@@ -1429,6 +1420,15 @@ export default function InboxClient(props: Props) {
                         <Icon d={I.send} size={16} />
                         {sending ? "Sending…" : "Send"}
                       </button>
+                    ) : open.channel === "whatsapp" ? (
+                      <a
+                        className="ibx-send"
+                        href={waLink(open.peerPhone ?? open.channelAddress, composerText)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open in WhatsApp
+                      </a>
                     ) : (
                       <span className="ibx-send" aria-disabled="true">
                         Not connected
@@ -1437,10 +1437,10 @@ export default function InboxClient(props: Props) {
                   </div>
                 </div>
                 <p className="ibx-compose-note" role="status">
-                  {open.channel === "whatsapp"
-                    ? "Nothing is sent from Monza AI — opening WhatsApp fills this in and you tap send."
-                    : live
-                      ? sendNote ?? (thread.loading ? "Checking the conversation…" : `${thread.windowText} Ctrl+Enter sends.`)
+                  {live
+                    ? sendNote ?? (thread.loading ? "Checking the conversation…" : `${thread.windowText} Ctrl+Enter sends.`)
+                    : open.channel === "whatsapp"
+                      ? "Nothing is sent from Monza AI — opening WhatsApp fills this in and you tap send."
                       : `${CHANNEL_LABEL[open.channel]} replies are not connected yet.`}
                 </p>
               </div>

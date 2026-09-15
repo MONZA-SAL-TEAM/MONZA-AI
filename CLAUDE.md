@@ -714,8 +714,23 @@ WhatsApp" flow again** — that is the step that locked the phone out on
 - **`smb_message_echoes` ARE stored**, as staff messages. That is not a breach
   of rule 19: those drop echoes of what MONZA AI sent; these are replies staff
   typed in the WhatsApp Business app, the only record of our side of the thread.
-- **MONZA AI sends nothing on WhatsApp.** The composer offers a prefilled wa.me
-  link; `/api/channels/send` refuses WhatsApp threads.
+- **Sending from MONZA AI (added 2026-09-15, Samer asked for a Send button):**
+  a person presses Send; `sendOnWhatsApp` (live.ts) checks the 24-hour window
+  from the stored `last_inbound_at`, then `CHANNELS_SEND_MODE`, then the key
+  `META_TOKEN_WHATSAPP` (the account's `token_env`), and posts ONE request,
+  `POST /{phone-number-id}/messages`. Nothing in this codebase calls register,
+  deregister, request_code or verify_code — a test asserts the sender cannot.
+  An API send produces no echo, so the reply is recorded at send time
+  (`whatsappSentRow`), keyed on WhatsApp's own message id. Needs, from Samer:
+  a system-user key allowed `whatsapp_business_messaging` on WABA
+  `1502691630809243`, pasted into Vercel as `META_TOKEN_WHATSAPP`, and
+  `CHANNELS_SEND_MODE=live`.
+- **Test result 2026-09-15:** a real message from another phone arrived, was
+  signature-checked, stored under `wa-monza` and shown in the Inbox; a reply
+  typed on the business phone came back as an echo and was stored as our side.
+  `wa-monza.connected_at` is set. One delivery read as nothing (10:18) — the
+  delivery record now keeps each change's field name and message/status kinds
+  (still no words), so the next such delivery can be named.
 - **To make it live (each step needs Samer's yes):** apply
   `009_whatsapp_messages.sql`; insert `channel_accounts` row `wa-monza`
   (brand `monza`, channel `whatsapp`, external_id `984244264767607`, portfolio
