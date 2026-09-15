@@ -14,7 +14,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
 import { NO_TEXT, mapThread, metaAttachmentsOf } from "@/lib/channels/live-map";
-import { isMetaCdn } from "@/lib/inbox/media";
+import { instagramEmbedUrl, isMetaCdn } from "@/lib/inbox/media";
 
 const NOW = Date.parse("2026-09-15T13:00:00.000Z");
 const CDN = "https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=1&signature=x";
@@ -99,6 +99,29 @@ describe("in the thread", () => {
     const m = thread({});
     assert.equal(m.text, NO_TEXT);
     assert.equal(m.attachments, undefined);
+  });
+});
+
+describe("a shared post shows as the post (Samer: 'show the post, not a link')", () => {
+  test("Instagram posts and reels become Instagram's own embed", () => {
+    assert.equal(instagramEmbedUrl("https://www.instagram.com/p/DOabc123XYZ/"), "https://www.instagram.com/p/DOabc123XYZ/embed/captioned/");
+    assert.equal(instagramEmbedUrl("https://instagram.com/reel/DOabc123XYZ"), "https://www.instagram.com/reel/DOabc123XYZ/embed/captioned/");
+    assert.equal(instagramEmbedUrl("https://www.instagram.com/reels/DOabc123XYZ/"), "https://www.instagram.com/reel/DOabc123XYZ/embed/captioned/");
+    assert.equal(instagramEmbedUrl("https://www.instagram.com/voyahlebanon/p/DOabc123XYZ/"), "https://www.instagram.com/p/DOabc123XYZ/embed/captioned/");
+    assert.equal(
+      instagramEmbedUrl("https://www.instagram.com/p/DOabc123XYZ/?igsh=MWx0&utm_source=ig_web"),
+      "https://www.instagram.com/p/DOabc123XYZ/embed/captioned/",
+      "tracking parameters are dropped"
+    );
+  });
+
+  test("anything else is not embedded", () => {
+    assert.equal(instagramEmbedUrl("https://www.instagram.com/voyahlebanon/"), null, "a profile is a link");
+    assert.equal(instagramEmbedUrl("http://www.instagram.com/p/DOabc123XYZ/"), null);
+    assert.equal(instagramEmbedUrl("https://instagram.com.evil.io/p/DOabc123XYZ/"), null);
+    assert.equal(instagramEmbedUrl("https://www.instagram.com/p/<script>/"), null);
+    assert.equal(instagramEmbedUrl(CDN), null);
+    assert.equal(instagramEmbedUrl(undefined), null);
   });
 });
 

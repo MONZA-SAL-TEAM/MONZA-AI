@@ -101,7 +101,17 @@ a.ibx-att-card:hover { background: color-mix(in srgb, currentColor 14%, transpar
 
 /* A shared Instagram / Facebook post. */
 .ibx-att-share { display: flex; flex-direction: column; gap: 5px; }
-.ibx-att-share-label { padding: 0 6px; font-size: 12px; font-weight: 700; opacity: .85; }
+.ibx-att-share-label { padding: 0 6px; font-size: 12px; font-weight: 700; opacity: .85; color: inherit; }
+a.ibx-att-share-label { text-decoration: underline; text-underline-offset: 2px; }
+.ibx-att-embed {
+  display: block;
+  width: 328px;
+  max-width: 100%;
+  height: 620px;
+  border: 0;
+  border-radius: 12px;
+  background: #fff;
+}
 
 /* Voice notes. */
 .ibx-voice {

@@ -130,6 +130,28 @@ export function waWebChatLink(phone: string | undefined): string | null {
   return digits.length >= 7 && digits.length <= 15 ? `https://web.whatsapp.com/send?phone=${digits}` : null;
 }
 
+/**
+ * A shared Instagram post or reel, as Instagram's own embedded post — the
+ * picture or video with its caption, drawn by Instagram inside the chat
+ * (Samer, 2026-09-15: "show the post, not a link to it"). Meta's API gives a
+ * shared post only as its instagram.com address, with no picture, so the
+ * embed is how the post itself appears. Null for anything else.
+ */
+export function instagramEmbedUrl(link: string | undefined): string | null {
+  if (!link) return null;
+  let u: URL;
+  try {
+    u = new URL(link);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "https:" || !/^(www\.)?instagram\.com$/.test(u.hostname)) return null;
+  const m = /^\/(?:[A-Za-z0-9._]{1,30}\/)?(p|reel|reels|tv)\/([A-Za-z0-9_-]{5,64})\/?$/.exec(u.pathname);
+  if (!m) return null;
+  const kind = m[1] === "reels" ? "reel" : m[1];
+  return `https://www.instagram.com/${kind}/${m[2]}/embed/captioned/`;
+}
+
 export function mapsLink(lat: number, lng: number): string {
   return `https://www.google.com/maps?q=${lat},${lng}`;
 }

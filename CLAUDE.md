@@ -794,6 +794,13 @@ WhatsApp" flow again** — that is the step that locked the phone out on
   (`isMetaCdn`) are drawn as pictures — any other shared link is a card to
   click, so a customer's link cannot see who reads the inbox. The list's
   previews still ask for words only.
+  - **A shared post or reel arrives ONLY as its instagram.com address** —
+    `shares.link = https://www.instagram.com/reel/<code>/`, no picture (seen
+    live on @samer_k's share, 2026-09-15). Samer: "show the post, not a link".
+    So it is drawn with Instagram's own embed (`instagramEmbedUrl` →
+    `/embed/captioned/`, sandboxed iframe). A server-side fetch of that address
+    answers `X-Frame-Options: DENY`, but in a real browser it renders (proven in
+    Chrome the same day) — do not "fix" it from a curl result.
 
 ## General
 

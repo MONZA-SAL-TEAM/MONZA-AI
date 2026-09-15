@@ -12,7 +12,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { InboxAttachment } from "@/lib/inbox/types";
-import { formatBytes, formatClock, isMetaCdn, mapsLink, mediaLabel } from "@/lib/inbox/media";
+import { formatBytes, formatClock, instagramEmbedUrl, isMetaCdn, mapsLink, mediaLabel } from "@/lib/inbox/media";
 import "./media.css";
 
 const NOT_READY: Readonly<Record<Exclude<InboxAttachment["state"], "ready">, string>> = {
@@ -119,6 +119,26 @@ function Share({ a, onOpenImage }: { a: InboxAttachment; onOpenImage: (url: stri
   const [broken, setBroken] = useState(false);
   const url = a.url ?? "";
   const label = a.label ?? "Shared post";
+  // An Instagram post or reel: the post itself, drawn by Instagram.
+  const embed = instagramEmbedUrl(url);
+  if (embed) {
+    return (
+      <div className="ibx-att-share">
+        <iframe
+          className="ibx-att-embed"
+          src={embed}
+          title={label}
+          loading="lazy"
+          scrolling="no"
+          allow="encrypted-media; picture-in-picture"
+          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+        />
+        <a className="ibx-att-share-label" href={url} target="_blank" rel="noreferrer noopener">
+          Open in Instagram
+        </a>
+      </div>
+    );
+  }
   if (isMetaCdn(url) && !broken) {
     return (
       <div className="ibx-att-share">
