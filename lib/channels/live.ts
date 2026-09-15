@@ -24,7 +24,14 @@
 
 import { channelToken, metaAppSecret, metaAppSecretsMap } from "@/lib/env";
 import { parseMetaAppSecrets } from "@/lib/channels/meta-signature";
-import { listAccounts, readDeliveries, type StoredAccount } from "@/lib/channels/store";
+import {
+  listAccounts,
+  readDeliveries,
+  readWhatsAppConversations,
+  readWhatsAppMessages,
+  type StoredAccount,
+} from "@/lib/channels/store";
+import { mapWhatsAppConversation, mapWhatsAppMessage } from "@/lib/channels/whatsapp";
 import { instagramAdapter, sendInstagramLogin } from "@/lib/channels/instagram";
 import { messengerAdapter } from "@/lib/channels/messenger";
 import { replyWindow, windowExplanation, type ReplyWindow } from "@/lib/channels/types";
@@ -33,6 +40,7 @@ import type { Conversation, InboxMessage } from "@/lib/inbox/types";
 import {
   accountLabel,
   decodeThreadId,
+  encodeThreadId,
   graphProblem,
   isSafeCursor,
   isTooMuchData,
@@ -507,11 +515,16 @@ export async function readMore(
   lite: boolean
 ): Promise<MorePage> {
   const cursor = after === null || after === undefined || after === "" ? null : after;
-  if (typeof accountId !== "string" || (cursor !== null && !isSafeCursor(cursor))) {
+  if (typeof accountId !== "string") {
     return { ok: false, status: 400, problem: "That request for more conversations is not valid." };
   }
   const all = await listAccounts();
   const account = all.find((a) => a.id === accountId);
+  // WhatsApp is read from what was stored, not from Meta (lib/channels/whatsapp.ts).
+  if (account?.channel === "whatsapp") return readWhatsAppMore(account, cursor);
+  if (cursor !== null && !isSafeCursor(cursor)) {
+    return { ok: false, status: 400, problem: "That request for more conversations is not valid." };
+  }
   if (!account || !isMetaChannel(account)) {
     return { ok: false, status: 404, problem: "That account is not connected." };
   }
@@ -531,6 +544,61 @@ export async function readMore(
     lite: page.status.lite,
     note: page.status.problem,
   };
+}
+
+/* ── WhatsApp: stored, so read from the database ─────────────────────────── */
+
+/** WhatsApp conversations per page. The cursor is an offset, "25", "50"… */
+const WA_PAGE = 25;
+/** Messages shown in a WhatsApp thread — stored, so more than Meta's 20. */
+const WA_THREAD_LIMIT = 100;
+
+async function readWhatsAppMore(account: StoredAccount, cursor: unknown): Promise<MorePage> {
+  const offset =
+    cursor === null ? 0 : typeof cursor === "string" && /^\d{1,6}$/.test(cursor) ? Number(cursor) : -1;
+  if (offset < 0) {
+    return { ok: false, status: 400, problem: "That request for more conversations is not valid." };
+  }
+  const r = await readWhatsAppConversations(account.id, offset, WA_PAGE);
+  if (!r.ok) {
+    console.error(`[channels/whatsapp] list failed: ${r.error}`);
+    return { ok: false, status: 502, problem: "Could not read the saved WhatsApp conversations." };
+  }
+  return {
+    ok: true,
+    conversations: r.value.map((row) => mapWhatsAppConversation(row, account)),
+    next: r.value.length === WA_PAGE ? String(offset + WA_PAGE) : null,
+    lite: false,
+    note: null,
+  };
+}
+
+async function readWhatsAppThread(
+  account: StoredAccount,
+  conversationId: string,
+  now: Date
+): Promise<ThreadView> {
+  const r = await readWhatsAppMessages(account.id, conversationId, WA_THREAD_LIMIT);
+  if (!r.ok) {
+    console.error(`[channels/whatsapp] thread failed: ${r.error}`);
+    return { ok: false, status: 502, problem: "Could not read this WhatsApp conversation." };
+  }
+  if (!r.value) return { ok: false, status: 404, problem: "That conversation was not found." };
+  const threadId = encodeThreadId(account.id, conversationId);
+  const window = replyWindow(r.value.lastInboundAt, now);
+  return {
+    ok: true,
+    messages: r.value.rows.map((row) => mapWhatsAppMessage(row, threadId)),
+    window: { open: window.open, text: windowExplanation(window, "whatsapp") },
+  };
+}
+
+/** The WhatsApp account a thread id names, or null for any other channel. */
+async function whatsappAccountOf(threadId: unknown): Promise<{ account: StoredAccount; id: string } | null> {
+  const ids = decodeThreadId(threadId);
+  if (!ids) return null;
+  const account = (await listAccounts()).find((a) => a.id === ids.accountId);
+  return account?.channel === "whatsapp" ? { account, id: ids.metaConversationId } : null;
 }
 
 /* ── One thread ──────────────────────────────────────────────────────────── */
@@ -592,6 +660,8 @@ export type ThreadView =
 
 /** What the screen needs for one open thread. The token never leaves here. */
 export async function readThreadForStaff(threadId: unknown): Promise<ThreadView> {
+  const wa = await whatsappAccountOf(threadId);
+  if (wa) return readWhatsAppThread(wa.account, wa.id, new Date());
   const t = await openThread(threadId, new Date());
   if (!t.ok) return t;
   return {
@@ -1076,6 +1146,14 @@ export async function sendOnThread(
   text: string,
   live: boolean
 ): Promise<SendOutcome> {
+  // Nothing is sent on WhatsApp from here: staff reply in the WhatsApp app.
+  if (await whatsappAccountOf(threadId)) {
+    return {
+      kind: "refused",
+      status: 409,
+      problem: "Monza AI does not send on WhatsApp yet — reply from the WhatsApp Business app.",
+    };
+  }
   const t = await openThread(threadId, new Date());
   if (!t.ok) return { kind: "refused", status: t.status, problem: t.problem };
   if (!t.peer) {

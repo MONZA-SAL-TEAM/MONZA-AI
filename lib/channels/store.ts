@@ -25,6 +25,13 @@
  *
  * and the verified delivery as its shape only (redactDelivery).
  *
+ * ── WhatsApp is the exception, by decision (Samer, 2026-09-15) ──────────────
+ * WhatsApp cannot be read back from Meta, so its messages are stored WITH their
+ * words (whatsappMessageRow) — including staff replies typed in the WhatsApp
+ * Business app, which arrive as echoes. Kept 12 months, then deleted by
+ * purgeWhatsApp (lib/channels/retention.ts). Instagram and Facebook are
+ * unchanged: still no words.
+ *
  * ── Idempotency is the point ────────────────────────────────────────────────
  * Meta redelivers, for up to seven days. The arrival row's unique
  * `(account_id, external_message_id)` turns a redelivery into a no-op, and the
@@ -42,6 +49,11 @@ import { noStoreFetch } from "@/lib/supabase-fetch";
 import { aiServiceRoleKey, aiUrl } from "@/lib/env";
 import type { InboundEvent } from "@/lib/channels/types";
 import { inboundIndexRow, redactDelivery, type DeliveryRecord } from "@/lib/channels/live-map";
+import {
+  whatsappMessageRow,
+  type WhatsAppConversationRow,
+  type WhatsAppMessageRow,
+} from "@/lib/channels/whatsapp";
 import { noteInboundLead } from "@/lib/leads/store";
 
 export interface StoredAccount {
@@ -121,12 +133,20 @@ async function upsertConversation(
   sb: SupabaseClient,
   accountId: string,
   brand: string,
-  peerExternalId: string
+  peerExternalId: string,
+  /** WhatsApp's profile name. Only written when present, so an echo (which
+   *  carries no name) never erases the one the customer's message gave us. */
+  peerDisplay: string | null = null
 ): Promise<string | null> {
   const { data, error } = await sb
     .from("channel_conversations")
     .upsert(
-      { account_id: accountId, brand, peer_external_id: peerExternalId },
+      {
+        account_id: accountId,
+        brand,
+        peer_external_id: peerExternalId,
+        ...(peerDisplay ? { peer_display: peerDisplay } : {}),
+      },
       { onConflict: "account_id,peer_external_id" }
     )
     .select("id")
@@ -166,29 +186,37 @@ export async function storeInbound(events: readonly InboundEvent[]): Promise<Sto
       continue;
     }
 
+    const isWhatsApp = account.channel === "whatsapp";
+    const outgoing = event.direction === "out";
+    // Only WhatsApp reports our own side (its app echoes). Anything else
+    // claiming to be outgoing is not a customer message and is not kept.
+    if (outgoing && !isWhatsApp) continue;
+
     const conversationId = await upsertConversation(
       sb,
       account.id,
       account.brand,
-      event.fromExternalId
+      event.fromExternalId,
+      isWhatsApp ? event.fromDisplay : null
     );
     if (!conversationId) return { ok: false, error: "Could not open the conversation." };
 
-    // The arrival, without its words. `ignoreDuplicates` turns the unique
+    // Instagram and Facebook: the arrival, without its words. WhatsApp: the
+    // message itself (see the header). `ignoreDuplicates` turns the unique
     // constraint into a no-op, and the empty result is how a redelivery is
     // recognised.
-    const { data: inserted, error } = await sb
-      .from("channel_messages")
-      .upsert(
-        inboundIndexRow({
+    const row = isWhatsApp
+      ? whatsappMessageRow({ conversationId, brand: account.brand, accountId: account.id, event })
+      : inboundIndexRow({
           conversationId,
           brand: account.brand,
           accountId: account.id,
           externalMessageId: event.externalMessageId,
           at: event.at,
-        }),
-        { onConflict: "account_id,external_message_id", ignoreDuplicates: true }
-      )
+        });
+    const { data: inserted, error } = await sb
+      .from("channel_messages")
+      .upsert(row, { onConflict: "account_id,external_message_id", ignoreDuplicates: true })
       .select("id");
 
     if (error) return { ok: false, error: "Could not record the message." };
@@ -199,6 +227,13 @@ export async function storeInbound(events: readonly InboundEvent[]): Promise<Sto
     }
 
     stored++;
+
+    // Our own reply, typed in the WhatsApp app: the thread moves on, but it is
+    // not unread, it does not reopen the reply window, and it is not a lead.
+    if (outgoing) {
+      await sb.rpc("channel_note_outbound", { p_conversation: conversationId, p_at: event.at });
+      continue;
+    }
 
     // Only for a NEW message: advance "last heard from", then note the lead.
     await sb.rpc("channel_note_inbound", {
@@ -226,6 +261,82 @@ export async function storeInbound(events: readonly InboundEvent[]): Promise<Sto
   }
 
   return { ok: true, stored, duplicates, unmatched };
+}
+
+/* ── WhatsApp, read back for the inbox ───────────────────────────────────── */
+
+type Read<T> = { ok: true; value: T } | { ok: false; error: string };
+
+const NO_DB = "The database key for this product is not configured.";
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** One page of an account's WhatsApp conversations, newest activity first,
+ *  each with its latest message (channel_whatsapp_page, migration 009). */
+export async function readWhatsAppConversations(
+  accountId: string,
+  offset: number,
+  limit: number
+): Promise<Read<WhatsAppConversationRow[]>> {
+  const sb = client();
+  if (!sb) return { ok: false, error: NO_DB };
+  const { data, error } = await sb.rpc("channel_whatsapp_page", {
+    p_account: accountId,
+    p_limit: limit,
+    p_offset: offset,
+  });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, value: (data ?? []) as WhatsAppConversationRow[] };
+}
+
+/**
+ * One WhatsApp thread: its latest `limit` messages, oldest first, and when the
+ * customer last wrote (the 24-hour window). Asked BY ACCOUNT as well as by
+ * conversation, so a thread id naming another account's conversation reads
+ * nothing (rule 4).
+ */
+export async function readWhatsAppMessages(
+  accountId: string,
+  conversationId: string,
+  limit: number
+): Promise<Read<{ lastInboundAt: string | null; rows: WhatsAppMessageRow[] } | null>> {
+  if (!UUID.test(conversationId)) return { ok: true, value: null };
+  const sb = client();
+  if (!sb) return { ok: false, error: NO_DB };
+
+  const conv = await sb
+    .from("channel_conversations")
+    .select("id, last_inbound_at")
+    .eq("id", conversationId)
+    .eq("account_id", accountId)
+    .maybeSingle();
+  if (conv.error) return { ok: false, error: conv.error.message };
+  if (!conv.data) return { ok: true, value: null };
+
+  const msgs = await sb
+    .from("channel_messages")
+    .select("id, direction, author, body, attachments, status, staff_name, sent_at")
+    .eq("conversation_id", conversationId)
+    .eq("account_id", accountId)
+    .order("sent_at", { ascending: false })
+    .limit(limit);
+  if (msgs.error) return { ok: false, error: msgs.error.message };
+
+  return {
+    ok: true,
+    value: {
+      lastInboundAt: (conv.data.last_inbound_at as string | null) ?? null,
+      rows: ((msgs.data ?? []) as WhatsAppMessageRow[]).reverse(),
+    },
+  };
+}
+
+/** Delete WhatsApp messages sent before `before` (the 12-month rule). */
+export async function purgeWhatsApp(before: string): Promise<Read<number>> {
+  const sb = client();
+  if (!sb) return { ok: false, error: NO_DB };
+  const { data, error } = await sb.rpc("channel_purge_whatsapp", { p_before: before });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, value: typeof data === "number" ? data : 0 };
 }
 
 /** Record that a verified delivery happened — its shape, never its words — for

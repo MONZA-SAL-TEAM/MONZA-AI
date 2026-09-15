@@ -694,6 +694,37 @@ and tested in `lib/inbox/sync.ts`.
   plus a browser notification while the tab is in the background if allowed.
   Nothing rings when the inbox is closed — there is no push service.
 
+## WhatsApp in the inbox (2026-09-15)
+
+**+961 70 708 585 is ALREADY connected** to the Business Platform through Meta
+Business Suite (Coexistence): Business Suite → Inbox → WhatsApp shows live
+chats, and WhatsApp Manager (WABA `1502691630809243`, phone number id
+`984244264767607`) shows the number **Connected**. **Never run a "connect
+WhatsApp" flow again** — that is the step that locked the phone out on
+2026-08-29 (rules 27–29). Samer accepted losing the blue check (rule 30).
+
+- **WhatsApp is STORED; Instagram and Facebook are not.** The Cloud API cannot
+  list past conversations or return old messages, so WhatsApp exists for us
+  only as webhooks arrive. Samer chose storing (2026-09-15), with a **12-month
+  limit**: `channel_purge_whatsapp` (migration 009) run daily by
+  `/api/channels/retention` via Vercel Cron (`vercel.json`), guarded by
+  `CRON_SECRET` — unset refuses. Nothing from before the connection exists here.
+- **Routing is by `metadata.phone_number_id`** (the number reached), never by
+  `entry[].id` (the WABA, which can hold several numbers).
+- **`smb_message_echoes` ARE stored**, as staff messages. That is not a breach
+  of rule 19: those drop echoes of what MONZA AI sent; these are replies staff
+  typed in the WhatsApp Business app, the only record of our side of the thread.
+- **MONZA AI sends nothing on WhatsApp.** The composer offers a prefilled wa.me
+  link; `/api/channels/send` refuses WhatsApp threads.
+- **To make it live (each step needs Samer's yes):** apply
+  `009_whatsapp_messages.sql`; insert `channel_accounts` row `wa-monza`
+  (brand `monza`, channel `whatsapp`, external_id `984244264767607`, portfolio
+  VoyahLebanon, app_id `912301501380919`); FIRST read which apps are subscribed
+  to the WABA (Business Suite and the lead bot must keep working), then point
+  app `912301501380919`'s WhatsApp webhook at `/api/channels/meta` with fields
+  `messages` + `smb_message_echoes`, and subscribe the app to the WABA; set
+  `CRON_SECRET` in Vercel. Test with one real message from another phone.
+
 ## General
 
 - `npm run verify` = typecheck + tests + build. Run it before pushing.

@@ -128,6 +128,11 @@ export function channelToken(envName: string): string | null {
   return read(envName);
 }
 
+/** Vercel Cron's shared secret. Unset means the daily clean-up refuses to run. */
+export function cronSecret(): string | null {
+  return read("CRON_SECRET");
+}
+
 export function anthropicApiKey(): string | null {
   return read("ANTHROPIC_API_KEY");
 }

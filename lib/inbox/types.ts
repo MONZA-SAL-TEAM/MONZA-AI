@@ -99,6 +99,8 @@ export interface Conversation {
    */
   accountId?: string;
   brand?: string;
+  /** WhatsApp only: the customer's number, for the prefilled wa.me link. */
+  peerPhone?: string;
 }
 
 /* ── Filters ─────────────────────────────────────────────────────────────── */

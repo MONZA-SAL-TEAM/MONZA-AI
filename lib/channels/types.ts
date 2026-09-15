@@ -140,6 +140,12 @@ export interface InboundEvent {
    * stays valid rather than silently reporting "no referral" as a fact.
    */
   referral?: InboundReferral | null;
+  /**
+   * "out" for our own side of the thread, as WhatsApp's `smb_message_echoes`
+   * report it (what staff typed in the WhatsApp Business app). Absent means
+   * "in": Instagram and Messenger drop their echoes (rule 19) and never set it.
+   */
+  direction?: "in" | "out";
 }
 
 export interface InboundAttachment {

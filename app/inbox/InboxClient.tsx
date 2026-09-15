@@ -1361,7 +1361,7 @@ export default function InboxClient(props: Props) {
                     ))}
                   </section>
                 ))}
-                {live && messages.length >= 20 && (
+                {live && open.channel !== "whatsapp" && messages.length >= 20 && (
                   <p className="ibx-conv-foot">Meta shares the latest 20 messages of a conversation.</p>
                 )}
               </div>
@@ -1413,7 +1413,7 @@ export default function InboxClient(props: Props) {
                     {open.channel === "whatsapp" ? (
                       <a
                         className="ibx-send"
-                        href={waLink(open.channelAddress, composerText)}
+                        href={waLink(open.peerPhone ?? open.channelAddress, composerText)}
                         target="_blank"
                         rel="noreferrer"
                       >

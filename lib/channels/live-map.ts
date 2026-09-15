@@ -51,7 +51,12 @@ export interface AccountStatus {
 }
 
 export function accountLabel(account: LiveAccount): string {
-  const network = account.channel === "instagram" ? "Instagram" : "Facebook";
+  const network =
+    account.channel === "instagram"
+      ? "Instagram"
+      : account.channel === "whatsapp"
+        ? "WhatsApp"
+        : "Facebook";
   return `${account.displayName} (${network})`;
 }
 

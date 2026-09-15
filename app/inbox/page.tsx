@@ -44,7 +44,7 @@ export default async function InboxPage() {
 
   const live = accounts.length > 0;
   const inboxAccounts: InboxAccount[] = accounts
-    .filter((a) => a.channel === "instagram" || a.channel === "facebook")
+    .filter((a) => a.channel === "instagram" || a.channel === "facebook" || a.channel === "whatsapp")
     .map((a) => ({
       id: a.id,
       brand: a.brand,
