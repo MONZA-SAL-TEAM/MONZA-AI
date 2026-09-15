@@ -50,11 +50,14 @@ import { aiServiceRoleKey, aiUrl } from "@/lib/env";
 import type { InboundEvent } from "@/lib/channels/types";
 import { inboundIndexRow, redactDelivery, type DeliveryRecord } from "@/lib/channels/live-map";
 import {
+  statusesBefore,
   whatsappMessageRow,
   whatsappSentRow,
   type WhatsAppConversationRow,
   type WhatsAppMessageRow,
+  type WhatsAppStatusUpdate,
 } from "@/lib/channels/whatsapp";
+import type { StoredAttachment } from "@/lib/channels/wa-media";
 import { noteInboundLead } from "@/lib/leads/store";
 
 export interface StoredAccount {
@@ -70,8 +73,24 @@ export interface StoredAccount {
   appId: string | null;
 }
 
+/**
+ * A newly stored WhatsApp message carrying files still to be copied out of
+ * Meta (lib/channels/wa-media-store.ts) — everything that needs, and no text.
+ */
+export interface MediaJob {
+  messageId: string;
+  accountId: string;
+  conversationId: string;
+  externalMessageId: string;
+  /** The WhatsApp number's id: Meta hands a file out only to the number it reached. */
+  phoneNumberId: string;
+  tokenEnv: string;
+  sentAt: string;
+  attachments: StoredAttachment[];
+}
+
 export type StoreResult =
-  | { ok: true; stored: number; duplicates: number; unmatched: number }
+  | { ok: true; stored: number; duplicates: number; unmatched: number; media: MediaJob[] }
   | { ok: false; error: string };
 
 function client(): SupabaseClient | null {
@@ -81,6 +100,11 @@ function client(): SupabaseClient | null {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { fetch: noStoreFetch },
   });
+}
+
+/** The same service-role client, for the WhatsApp file store (wa-media-store.ts). */
+export function channelDb(): SupabaseClient | null {
+  return client();
 }
 
 /** The connected accounts, from the database rather than from code, so
@@ -164,7 +188,7 @@ async function upsertConversation(
  * the exceptional one.
  */
 export async function storeInbound(events: readonly InboundEvent[]): Promise<StoreResult> {
-  if (events.length === 0) return { ok: true, stored: 0, duplicates: 0, unmatched: 0 };
+  if (events.length === 0) return { ok: true, stored: 0, duplicates: 0, unmatched: 0, media: [] };
 
   const sb = client();
   if (!sb) return { ok: false, error: "The database is not configured on this server." };
@@ -175,6 +199,7 @@ export async function storeInbound(events: readonly InboundEvent[]): Promise<Sto
   let stored = 0;
   let duplicates = 0;
   let unmatched = 0;
+  const media: MediaJob[] = [];
 
   for (const event of events) {
     // A message for an account nobody has connected. Not an error — Meta
@@ -229,6 +254,24 @@ export async function storeInbound(events: readonly InboundEvent[]): Promise<Sto
 
     stored++;
 
+    // Files to copy out of Meta before its 7 days run out. Only for a NEW row:
+    // a redelivery's files are already queued or kept.
+    if (isWhatsApp) {
+      const attachments = (row.attachments ?? []) as StoredAttachment[];
+      if (attachments.some((a) => a.state === "pending")) {
+        media.push({
+          messageId: inserted[0].id as string,
+          accountId: account.id,
+          conversationId,
+          externalMessageId: event.externalMessageId,
+          phoneNumberId: account.externalId,
+          tokenEnv: account.tokenEnv,
+          sentAt: event.at,
+          attachments,
+        });
+      }
+    }
+
     // Our own reply, typed in the WhatsApp app: the thread moves on, but it is
     // not unread, it does not reopen the reply window, and it is not a lead.
     if (outgoing) {
@@ -261,7 +304,32 @@ export async function storeInbound(events: readonly InboundEvent[]): Promise<Sto
     });
   }
 
-  return { ok: true, stored, duplicates, unmatched };
+  return { ok: true, stored, duplicates, unmatched, media };
+}
+
+/**
+ * Move the ticks of messages WE sent: sent → delivered → read, never
+ * backwards, and "failed" only before delivery (statusesBefore). A receipt for
+ * a message we do not hold changes nothing and creates nothing (rule 19).
+ * Best-effort: a receipt is not worth failing a delivery over.
+ */
+export async function applyWhatsAppStatuses(updates: readonly WhatsAppStatusUpdate[]): Promise<number> {
+  if (updates.length === 0) return 0;
+  const sb = client();
+  if (!sb) return 0;
+  let moved = 0;
+  for (const u of updates) {
+    const { data, error } = await sb
+      .from("channel_messages")
+      .update({ status: u.status, error: u.error })
+      .eq("account_id", u.accountId)
+      .eq("external_message_id", u.externalMessageId)
+      .eq("direction", "out")
+      .in("status", statusesBefore(u.status))
+      .select("id");
+    if (!error && data) moved += data.length;
+  }
+  return moved;
 }
 
 /* ── WhatsApp, read back for the inbox ───────────────────────────────────── */
@@ -272,7 +340,8 @@ const NO_DB = "The database key for this product is not configured.";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** One page of an account's WhatsApp conversations, newest activity first,
- *  each with its latest message (channel_whatsapp_page, migration 009). */
+ *  each with its latest message (channel_whatsapp_page2, migration 010 — or
+ *  009's channel_whatsapp_page until 010 is applied). */
 export async function readWhatsAppConversations(
   accountId: string,
   offset: number,
@@ -280,13 +349,13 @@ export async function readWhatsAppConversations(
 ): Promise<Read<WhatsAppConversationRow[]>> {
   const sb = client();
   if (!sb) return { ok: false, error: NO_DB };
-  const { data, error } = await sb.rpc("channel_whatsapp_page", {
-    p_account: accountId,
-    p_limit: limit,
-    p_offset: offset,
-  });
-  if (error) return { ok: false, error: error.message };
-  return { ok: true, value: (data ?? []) as WhatsAppConversationRow[] };
+  const args = { p_account: accountId, p_limit: limit, p_offset: offset };
+  let res = await sb.rpc("channel_whatsapp_page2", args);
+  if (res.error && /channel_whatsapp_page2/.test(res.error.message ?? "")) {
+    res = await sb.rpc("channel_whatsapp_page", args);
+  }
+  if (res.error) return { ok: false, error: res.error.message };
+  return { ok: true, value: (res.data ?? []) as WhatsAppConversationRow[] };
 }
 
 /**
@@ -317,7 +386,7 @@ export async function readWhatsAppMessages(
 
   const msgs = await sb
     .from("channel_messages")
-    .select("id, direction, author, body, attachments, status, staff_name, sent_at")
+    .select("id, direction, author, body, attachments, status, staff_name, sent_at, external_message_id, error")
     .eq("conversation_id", conversationId)
     .eq("account_id", accountId)
     .order("sent_at", { ascending: false })
@@ -347,6 +416,8 @@ export async function recordWhatsAppSent(input: {
   text: string;
   at: string;
   staffName: string;
+  /** The file that went with it, already kept in our bucket. */
+  attachment?: StoredAttachment;
 }): Promise<boolean> {
   const sb = client();
   if (!sb) return false;

@@ -25,7 +25,11 @@ import {
   mapWhatsAppConversation,
   mapWhatsAppMessage,
   parseWhatsApp,
+  parseWhatsAppStatuses,
+  sendWhatsAppMedia,
   sendWhatsAppText,
+  statusesBefore,
+  uploadWhatsAppMedia,
   waTime,
   whatsappMessageRow,
   whatsappSendProblem,
@@ -127,17 +131,35 @@ describe("parsing a WhatsApp delivery", () => {
     assert.equal(parseWhatsApp(TEXT, onlyIg)[0].accountId, null);
   });
 
-  test("photos, voice notes and files are messages even without words", () => {
+  test("photos, voice notes, files and stickers are messages even without words — known by id, never by URL", () => {
     const d = delivery("messages", {
       messages: [
-        { from: CUSTOMER, id: "wamid.2", timestamp: "1757930401", type: "image", image: { id: "m1", mime_type: "image/jpeg", caption: "my car" } },
-        { from: CUSTOMER, id: "wamid.3", timestamp: "1757930402", type: "audio", audio: { id: "m2", mime_type: "audio/ogg" } },
-        { from: CUSTOMER, id: "wamid.4", timestamp: "1757930403", type: "document", document: { id: "m3" } },
+        { from: CUSTOMER, id: "wamid.2", timestamp: "1757930401", type: "image", image: { id: "1001", mime_type: "image/jpeg", sha256: "abc", caption: "my car", url: "https://lookaside.fbsbx.com/x" } },
+        { from: CUSTOMER, id: "wamid.3", timestamp: "1757930402", type: "audio", audio: { id: "1002", mime_type: "audio/ogg; codecs=opus", voice: true } },
+        { from: CUSTOMER, id: "wamid.4", timestamp: "1757930403", type: "document", document: { id: "1003", mime_type: "application/pdf", filename: "Offer.pdf" } },
+        { from: CUSTOMER, id: "wamid.4s", timestamp: "1757930403", type: "sticker", sticker: { id: "1004", mime_type: "image/webp", animated: false } },
       ],
     });
     const events = parseWhatsApp(d, ACCOUNTS);
-    assert.deepEqual(events.map((e) => e.text), ["my car", "", ""]);
-    assert.deepEqual(events.map((e) => e.attachments[0]?.kind), ["image", "audio", "file"]);
+    assert.deepEqual(events.map((e) => e.text), ["my car", "", "", ""]);
+    assert.deepEqual(events.map((e) => e.attachments[0]?.kind), ["image", "audio", "file", "sticker"]);
+    assert.deepEqual(events[0].attachments[0], { kind: "image", url: null, mediaId: "1001", mime: "image/jpeg", sha256: "abc" });
+    assert.equal(events[1].attachments[0].voice, true, "a voice note, not just an audio file");
+    assert.equal(events[2].attachments[0].filename, "Offer.pdf");
+  });
+
+  test("a shared location keeps its place; a contact card keeps name and number", () => {
+    const loc = contentOf({ type: "location", location: { latitude: 33.8938, longitude: 35.5018, name: "Monza showroom" } });
+    assert.equal(loc?.text, "Shared a location: Monza showroom");
+    assert.deepEqual(loc?.attachments, [{ kind: "location", url: null, lat: 33.8938, lng: 35.5018, label: "Monza showroom" }]);
+    assert.deepEqual(contentOf({ type: "location", location: { latitude: 999, longitude: 0 } })?.attachments, [], "not a place on Earth");
+
+    const card = contentOf({
+      type: "contacts",
+      contacts: [{ name: { formatted_name: "Rami K", first_name: "Rami" }, phones: [{ phone: "+961 70 123 456", wa_id: CUSTOMER }] }],
+    });
+    assert.equal(card?.text, "Shared a contact card");
+    assert.deepEqual(card?.attachments, [{ kind: "contact", url: null, name: "Rami K", phone: "+961 70 123 456" }]);
   });
 
   test("button and list answers carry the words the customer tapped", () => {
@@ -267,12 +289,21 @@ describe("what is stored", () => {
     assert.equal(row.staff_name, WHATSAPP_STAFF_NAME);
   });
 
-  test("attachments are stored as kinds only — no expiring URLs, no media ids", () => {
+  // Samer, 2026-09-15: files are kept, like the words, for 12 months. Meta
+  // keeps a received file 7 days, so the row holds its id until it is copied.
+  test("a file is stored by its media id, waiting to be copied — never Meta's 5-minute URL", () => {
     const d = delivery("messages", {
-      messages: [{ from: CUSTOMER, id: "wamid.13", timestamp: "1757930410", type: "image", image: { id: "secret-media-id" } }],
+      messages: [
+        { from: CUSTOMER, id: "wamid.13", timestamp: "1757930410", type: "image", image: { id: "1005", mime_type: "image/jpeg", url: "https://lookaside.fbsbx.com/x" } },
+        { from: CUSTOMER, id: "wamid.14", timestamp: "1757930411", type: "image", image: {} },
+      ],
     });
-    const row = whatsappMessageRow({ conversationId: "c1", brand: "monza", accountId: "wa-monza", event: parseWhatsApp(d, ACCOUNTS)[0] });
-    assert.deepEqual(row.attachments, [{ kind: "image" }]);
+    const [withId, withoutId] = parseWhatsApp(d, ACCOUNTS).map((event) =>
+      whatsappMessageRow({ conversationId: "c1", brand: "monza", accountId: "wa-monza", event })
+    );
+    assert.deepEqual(withId.attachments, [{ kind: "image", mediaId: "1005", mime: "image/jpeg", state: "pending" }]);
+    assert.ok(!JSON.stringify(withId.attachments).includes("lookaside"), "no URL is stored");
+    assert.deepEqual(withoutId.attachments, [{ kind: "image", state: "unavailable" }], "nothing to fetch");
   });
 
   test("Instagram and Facebook rows STILL cannot hold words", () => {
@@ -318,13 +349,26 @@ describe("reading WhatsApp back for the inbox", () => {
       { ...ROW, last_body: "", last_attachments: 1, last_direction: "out", status: "nonsense" },
       ACCOUNT
     );
-    assert.equal(c.lastMessage.text, WA_ATTACHMENT_ONLY);
+    assert.equal(c.lastMessage.text, WA_ATTACHMENT_ONLY, "009's count, before migration 010");
     assert.equal(c.lastMessage.direction, "out");
     assert.equal(c.status, "waiting_reply");
+
+    const voice = mapWhatsAppConversation(
+      { ...ROW, last_body: "", last_attachments: [{ kind: "audio", voice: true, state: "stored", path: "p" }] },
+      ACCOUNT
+    );
+    assert.equal(voice.lastMessage.text, "🎤 Voice message", "010's list says what it was");
+    const pdf = mapWhatsAppConversation(
+      { ...ROW, last_body: "", last_attachments: [{ kind: "file", filename: "Offer.pdf", state: "pending" }] },
+      ACCOUNT
+    );
+    assert.equal(pdf.lastMessage.text, "📄 Offer.pdf");
   });
 
+  const threadId = "wa-monza~" + ROW.id;
+  const NOW = Date.parse("2026-09-15T12:00:00.000Z");
+
   test("messages map with their side and author", () => {
-    const threadId = "wa-monza~" + ROW.id;
     const inbound = mapWhatsAppMessage(
       { id: "m1", direction: "in", author: "customer", body: "hello", attachments: [], status: "received", staff_name: null, sent_at: "2026-09-15 10:00:00+00" },
       threadId
@@ -332,13 +376,44 @@ describe("reading WhatsApp back for the inbox", () => {
     assert.equal(inbound.direction, "in");
     assert.equal(inbound.author, "customer");
     assert.equal(inbound.at, "2026-09-15T10:00:00.000Z");
+    assert.equal(inbound.attachments, undefined);
     const ours = mapWhatsAppMessage(
       { id: "m2", direction: "out", author: "staff", body: "", attachments: [{ kind: "image" }], status: "sent", staff_name: null, sent_at: "2026-09-15 10:05:00+00" },
-      threadId
+      threadId,
+      undefined,
+      NOW
     );
     assert.equal(ours.author, "staff");
-    assert.equal(ours.text, WA_ATTACHMENT_ONLY);
+    assert.equal(ours.text, "", "the photo itself says what it is");
+    assert.deepEqual(ours.attachments, [{ kind: "image", state: "unavailable" }], "a photo from before files were kept");
     assert.equal(ours.staffName, WHATSAPP_STAFF_NAME);
+  });
+
+  test("a kept file comes with its short-lived link; a waiting one past Meta's 7 days is gone", () => {
+    const links = new Map([["in/wa-monza/c/w-0.jpg", { url: "https://signed/x", expiresAt: "2026-09-15T12:59:00.000Z" }]]);
+    const kept = mapWhatsAppMessage(
+      { id: "m3", direction: "in", author: "customer", body: "my car", attachments: [{ kind: "image", state: "stored", path: "in/wa-monza/c/w-0.jpg", mime: "image/jpeg" }], status: "received", staff_name: null, sent_at: "2026-09-15 11:00:00+00" },
+      threadId,
+      links,
+      NOW
+    );
+    assert.equal(kept.text, "my car");
+    assert.equal(kept.attachments?.[0].state, "ready");
+    assert.equal(kept.attachments?.[0].url, "https://signed/x");
+
+    const waiting = { id: "m4", direction: "in", author: "customer", body: "", attachments: [{ kind: "audio", voice: true, state: "pending", mediaId: "1" }], status: "received", staff_name: null };
+    assert.equal(mapWhatsAppMessage({ ...waiting, sent_at: "2026-09-15 11:59:00+00" }, threadId, links, NOW).attachments?.[0].state, "pending");
+    assert.equal(mapWhatsAppMessage({ ...waiting, sent_at: "2026-09-01 11:59:00+00" }, threadId, links, NOW).attachments?.[0].state, "unavailable");
+  });
+
+  test("our messages carry their ticks, and a failure its reason", () => {
+    const base = { id: "m5", direction: "out", author: "staff", body: "hi", attachments: [], staff_name: "samer", sent_at: "2026-09-15 11:00:00+00" };
+    assert.equal(mapWhatsAppMessage({ ...base, status: "read" }, threadId).status, "read");
+    assert.equal(mapWhatsAppMessage({ ...base, status: "delivered" }, threadId).status, "delivered");
+    assert.equal(mapWhatsAppMessage({ ...base, status: "nonsense" }, threadId).status, "sent");
+    const failed = mapWhatsAppMessage({ ...base, status: "failed", error: "Message undeliverable" }, threadId);
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.error, "Message undeliverable");
   });
 
   test("Lebanese numbers are shown the way people write them", () => {
@@ -380,11 +455,56 @@ describe("sending a reply (a person pressed Send)", () => {
     });
   });
 
-  test("it only ever calls /messages — never anything that touches the number's registration", async () => {
+  test("it only ever calls /messages and /media — never anything that touches the number's registration", async () => {
     const calls: Call[] = [];
-    await sendWhatsAppText({ phoneNumberId: PHONE_ID, to: CUSTOMER, text: "hi" }, "KEY", fakeFetch(200, { messages: [{ id: "w" }] }, calls));
-    assert.ok(calls.every((c) => c.url.endsWith("/messages")));
-    assert.ok(calls.every((c) => !/register|deregister|request_code|verify_code/.test(c.url)));
+    const ok = fakeFetch(200, { id: "555", messages: [{ id: "w" }] }, calls);
+    await sendWhatsAppText({ phoneNumberId: PHONE_ID, to: CUSTOMER, text: "hi" }, "KEY", ok);
+    await uploadWhatsAppMedia({ phoneNumberId: PHONE_ID, bytes: new Uint8Array([1, 2, 3]), mime: "image/jpeg", filename: "a.jpg" }, "KEY", ok);
+    await sendWhatsAppMedia({ phoneNumberId: PHONE_ID, to: CUSTOMER, kind: "image", mediaId: "555" }, "KEY", ok);
+    assert.equal(calls.length, 3);
+    assert.ok(calls.every((c) => c.url.endsWith("/messages") || c.url.endsWith("/media")));
+    assert.ok(calls.every((c) => !/register|deregister|request_code|verify_code|settings|two_step/.test(c.url)));
+  });
+
+  test("a file is handed to WhatsApp as multipart, to the number's own /media", async () => {
+    const calls: Call[] = [];
+    const r = await uploadWhatsAppMedia(
+      { phoneNumberId: PHONE_ID, bytes: new Uint8Array([0xff, 0xd8, 0xff]), mime: "image/jpeg", filename: "car.jpg" },
+      "KEY",
+      fakeFetch(200, { id: "1234567" }, calls)
+    );
+    assert.deepEqual(r, { ok: true, mediaId: "1234567" });
+    assert.equal(calls[0].url, `https://graph.facebook.com/v21.0/${PHONE_ID}/media`);
+    assert.equal(calls[0].init.method, "POST");
+    const form = calls[0].init.body as FormData;
+    assert.ok(form instanceof FormData);
+    assert.equal(form.get("messaging_product"), "whatsapp");
+    assert.equal(form.get("type"), "image/jpeg");
+    assert.equal((form.get("file") as File).name, "car.jpg");
+    assert.equal((form.get("file") as File).size, 3);
+  });
+
+  test("each kind goes out in WhatsApp's shape: captions, a document's name, voice notes", async () => {
+    const bodyOf = async (input: Parameters<typeof sendWhatsAppMedia>[0]) => {
+      const calls: Call[] = [];
+      await sendWhatsAppMedia(input, "KEY", fakeFetch(200, { messages: [{ id: "w" }] }, calls));
+      return JSON.parse(String(calls[0].init.body));
+    };
+    const base = { phoneNumberId: PHONE_ID, to: "+961 70 123 456", mediaId: "555" };
+    assert.deepEqual(await bodyOf({ ...base, kind: "image", caption: "The white one" }), {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: "96170123456",
+      type: "image",
+      image: { id: "555", caption: "The white one" },
+    });
+    assert.deepEqual((await bodyOf({ ...base, kind: "document", caption: "Offer", filename: "Offer.pdf" })).document, {
+      id: "555",
+      caption: "Offer",
+      filename: "Offer.pdf",
+    });
+    assert.deepEqual((await bodyOf({ ...base, kind: "audio", voice: true, caption: "ignored" })).audio, { id: "555", voice: true }, "audio carries no caption");
+    assert.deepEqual((await bodyOf({ ...base, kind: "video" })).video, { id: "555" });
   });
 
   test("a number id that is not digits is refused before any request", async () => {
@@ -436,6 +556,55 @@ describe("sending a reply (a person pressed Send)", () => {
     assert.equal(row.body, "Yes, we have it in white.");
     assert.equal(row.external_message_id, "wamid.sent1");
     assert.equal(row.staff_name, "samer");
+    assert.deepEqual(row.attachments, []);
+
+    const withFile = whatsappSentRow({
+      conversationId: "c1",
+      brand: "monza",
+      accountId: "wa-monza",
+      externalMessageId: "wamid.sent2",
+      text: "",
+      at: "2026-09-15T11:01:00.000Z",
+      staffName: "samer",
+      attachment: { kind: "audio", voice: true, mime: "audio/ogg", path: "out/wa-monza/c1/x.ogg", state: "stored", size: 9000 },
+    });
+    assert.deepEqual(withFile.attachments, [{ kind: "audio", voice: true, mime: "audio/ogg", path: "out/wa-monza/c1/x.ogg", state: "stored", size: 9000 }]);
+  });
+});
+
+describe("ticks: delivery and read receipts", () => {
+  const RECEIPTS = delivery("messages", {
+    statuses: [
+      { id: "wamid.a", status: "sent", timestamp: "1", recipient_id: CUSTOMER },
+      { id: "wamid.b", status: "delivered", timestamp: "2", recipient_id: CUSTOMER },
+      { id: "wamid.c", status: "read", timestamp: "3", recipient_id: CUSTOMER },
+      { id: "wamid.d", status: "played", timestamp: "4", recipient_id: CUSTOMER },
+      { id: "wamid.e", status: "failed", timestamp: "5", recipient_id: CUSTOMER, errors: [{ code: 131026, title: "Message undeliverable" }] },
+      { id: "wamid.f", status: "deleted", timestamp: "6", recipient_id: CUSTOMER },
+    ],
+  });
+
+  test("are read for our number, and are not messages", () => {
+    assert.deepEqual(parseWhatsAppStatuses(RECEIPTS, ACCOUNTS), [
+      { accountId: "wa-monza", externalMessageId: "wamid.a", status: "sent", error: null },
+      { accountId: "wa-monza", externalMessageId: "wamid.b", status: "delivered", error: null },
+      { accountId: "wa-monza", externalMessageId: "wamid.c", status: "read", error: null },
+      { accountId: "wa-monza", externalMessageId: "wamid.d", status: "read", error: null },
+      { accountId: "wa-monza", externalMessageId: "wamid.e", status: "failed", error: "Message undeliverable" },
+    ]);
+    assert.deepEqual(parseWhatsApp(RECEIPTS, ACCOUNTS), [], "a receipt never becomes a message (rule 19)");
+  });
+
+  test("an unknown number's receipts move nothing", () => {
+    const d = delivery("messages", { statuses: [{ id: "wamid.x", status: "read", timestamp: "1" }] }, "111");
+    assert.deepEqual(parseWhatsAppStatuses(d, ACCOUNTS), []);
+  });
+
+  test("ticks only move forward: a late 'delivered' cannot undo 'read'", () => {
+    assert.deepEqual(statusesBefore("sent"), ["queued"]);
+    assert.deepEqual(statusesBefore("delivered"), ["queued", "sent"]);
+    assert.deepEqual(statusesBefore("read"), ["queued", "sent", "delivered"]);
+    assert.deepEqual(statusesBefore("failed"), ["queued", "sent"], "a delivered message is not re-marked failed");
   });
 });
 

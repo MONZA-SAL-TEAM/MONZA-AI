@@ -26,9 +26,10 @@
 import { NextResponse } from "next/server";
 import { instagramAdapter } from "@/lib/channels/instagram";
 import { messengerAdapter } from "@/lib/channels/messenger";
-import { whatsappAdapter } from "@/lib/channels/whatsapp";
+import { parseWhatsAppStatuses, whatsappAdapter, type WhatsAppStatusUpdate } from "@/lib/channels/whatsapp";
 import type { ChannelAccount, InboundEvent } from "@/lib/channels/types";
-import { listAccounts, recordDelivery, storeInbound } from "@/lib/channels/store";
+import { applyWhatsAppStatuses, listAccounts, recordDelivery, storeInbound } from "@/lib/channels/store";
+import { captureMedia } from "@/lib/channels/wa-media-store";
 import {
   accountsForApp,
   parseMetaAppSecrets,
@@ -38,10 +39,19 @@ import {
 import { metaAppSecret, metaAppSecretsMap, metaVerifyToken } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
+/** Room to copy a customer's photo or voice note out of Meta before answering. */
+export const maxDuration = 30;
 
 /** The adapters, in the order their payloads are tried. Each ignores an
  *  envelope that is not its own, so order is irrelevant to correctness. */
 const ADAPTERS = [instagramAdapter, messengerAdapter, whatsappAdapter];
+
+/**
+ * How long a delivery spends copying WhatsApp files out of Meta. A photo or a
+ * voice note takes well under a second; what does not fit stays "pending" for
+ * the thread and the daily job (lib/channels/wa-media-store.ts).
+ */
+const MEDIA_BUDGET_MS = 8_000;
 
 export async function GET(request: Request): Promise<Response> {
   const params = new URL(request.url).searchParams;
@@ -117,9 +127,22 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ ok: true });
   }
 
+  // WhatsApp receipts move the ticks of messages we sent. They never create a
+  // message (rule 19), and a failure here never fails the delivery.
+  let statuses: WhatsAppStatusUpdate[] = [];
+  try {
+    statuses = parseWhatsAppStatuses(body, accounts);
+    if (statuses.length > 0) {
+      const moved = await applyWhatsAppStatuses(statuses);
+      console.info(`[channels/meta] receipts ${statuses.length}, ticks moved ${moved}`);
+    }
+  } catch (e) {
+    console.error("[channels/meta] receipts failed:", e);
+  }
+
   if (events.length === 0) {
     await recordDelivery(null, body, 0, 0);
-    return NextResponse.json({ ok: true, received: 0, stored: 0 });
+    return NextResponse.json({ ok: true, received: 0, stored: 0, receipts: statuses.length });
   }
 
   const result = await storeInbound(events);
@@ -141,6 +164,17 @@ export async function POST(request: Request): Promise<Response> {
       `duplicate ${result.duplicates}, unmatched ${result.unmatched}`
   );
   await recordDelivery(null, body, events.length, result.stored);
+
+  // Photos, voice notes, videos and files: copied out of Meta now, while its
+  // link is fresh. Whatever does not finish is picked up later.
+  if (result.media.length > 0) {
+    try {
+      const m = await captureMedia(result.media, MEDIA_BUDGET_MS);
+      console.info(`[channels/meta] files kept ${m.saved}, waiting ${m.left}`);
+    } catch (e) {
+      console.error("[channels/meta] keeping files failed:", e);
+    }
+  }
 
   return NextResponse.json({
     ok: true,

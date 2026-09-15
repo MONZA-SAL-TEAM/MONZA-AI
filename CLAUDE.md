@@ -721,24 +721,66 @@ WhatsApp" flow again** — that is the step that locked the phone out on
   `POST /{phone-number-id}/messages`. Nothing in this codebase calls register,
   deregister, request_code or verify_code — a test asserts the sender cannot.
   An API send produces no echo, so the reply is recorded at send time
-  (`whatsappSentRow`), keyed on WhatsApp's own message id. Needs, from Samer:
-  a system-user key allowed `whatsapp_business_messaging` on WABA
-  `1502691630809243`, pasted into Vercel as `META_TOKEN_WHATSAPP`, and
-  `CHANNELS_SEND_MODE=live`.
+  (`whatsappSentRow`), keyed on WhatsApp's own message id. It IS mirrored to
+  the WhatsApp Business app on the phone (Coexistence), just not as an echo.
+  **Live since 2026-09-15:** key from system user `MONZA AI Sender`
+  (`61594598122176`, VoyahLebanon; ONLY `whatsapp_business_messaging`, never
+  expires; WABA asset = Messages + Phone numbers view-only) in Vercel as
+  `META_TOKEN_WHATSAPP`; `CHANNELS_SEND_MODE=live` — ONE switch, so Instagram
+  and Facebook Send went live too; `CRON_SECRET` set. The Vercel connector in
+  Claude's tools does NOT see project `monza-ai` — use Samer's Chrome.
+- **Files: photos, videos, voice notes, documents (2026-09-15, Samer: "send
+  and receive voice notes, photos, videos, PDF files and more"; keep them 12
+  months like text).** Rules in `lib/channels/wa-media.ts`, storage in
+  `lib/channels/wa-media-store.ts`, private bucket `whatsapp-media`
+  (migration `010_whatsapp_media.sql`; no storage policy — service role and
+  signed links only; customers send photos of IDs).
+  - **Meta keeps a received file 7 DAYS** and each download link 5 minutes, so
+    rows store the media id (never the URL) as `state: "pending"`, and the file
+    is copied three ways: the webhook (8 s budget, `maxDuration = 30`), opening
+    the thread, and the daily cron. Paths are made from ids, so a redelivery
+    keeps it once (rule 17). `mergeAttachments` stops a slower copy undoing a
+    faster one.
+  - A downloaded file must match Meta's sha256, and its type is checked against
+    its first bytes (`verifiedType`); anything unverified is kept as
+    `application/octet-stream` and only ever downloaded. The key is only sent to
+    Meta's own hosts (`isMetaMediaUrl`).
+  - **Sending:** the browser asks `/api/channels/media` for a one-time signed
+    upload (every send gate checked FIRST, path chosen by the server under that
+    conversation), uploads straight to the bucket (Vercel bodies stop at
+    4.5 MB), then `/api/channels/send` checks the path belongs to the
+    conversation (`isOutboundPathFor`), re-checks type and size, uploads to
+    `POST /{phone-number-id}/media` and sends. WhatsApp's limits: JPG/PNG 5 MB,
+    MP4/3GP 16 MB, audio 16 MB, documents 100 MB, captions 1,024.
+  - **Voice notes** must be mono Ogg/Opus + `"voice": true`. Chrome records
+    WebM/Opus, repackaged packet-for-packet by `lib/media/ogg-opus.ts` (no
+    re-encoding, no library); Firefox records Ogg; Safari's MP4 goes as plain
+    audio.
+  - **Ticks:** `statuses` move our rows sent → delivered → read, never
+    backwards (`statusesBefore`); "played" counts as read. They create nothing
+    (rule 19).
+  - The 12-month clean-up deletes the FILES first; if that fails, the messages
+    are kept for the next run.
+- **Calls cannot ring inside MONZA AI on this number.** Meta's Calling API
+  requires a number used with the Cloud API *only* ("not the WhatsApp Business
+  app"), and the Coexistence page lists calls as unsupported — checked
+  2026-09-15, still true. Calls keep ringing on the phone and on linked
+  WhatsApp Web / WhatsApp for Mac (NOT the Windows Store app, unsupported for
+  Coexistence). The inbox's 📞 opens `web.whatsapp.com/send?phone=…` for the
+  customer. In-app calling would need a SECOND, API-only number — never move
+  +961 70 708 585 off the phone app for it.
 - **Test result 2026-09-15:** a real message from another phone arrived, was
   signature-checked, stored under `wa-monza` and shown in the Inbox; a reply
   typed on the business phone came back as an echo and was stored as our side.
   `wa-monza.connected_at` is set. One delivery read as nothing (10:18) — the
   delivery record now keeps each change's field name and message/status kinds
   (still no words), so the next such delivery can be named.
-- **To make it live (each step needs Samer's yes):** apply
-  `009_whatsapp_messages.sql`; insert `channel_accounts` row `wa-monza`
-  (brand `monza`, channel `whatsapp`, external_id `984244264767607`, portfolio
-  VoyahLebanon, app_id `912301501380919`); FIRST read which apps are subscribed
-  to the WABA (Business Suite and the lead bot must keep working), then point
-  app `912301501380919`'s WhatsApp webhook at `/api/channels/meta` with fields
-  `messages` + `smb_message_echoes`, and subscribe the app to the WABA; set
-  `CRON_SECRET` in Vercel. Test with one real message from another phone.
+- **Connected 2026-09-15 (each step with Samer's yes):** 009 applied; row
+  `wa-monza` (brand `monza`, external_id `984244264767607`, portfolio
+  VoyahLebanon, app_id `912301501380919`); app `912301501380919` (now
+  **Published**) has its WhatsApp webhook on `/api/channels/meta` with exactly
+  `messages` + `smb_message_echoes`, and is the ONE app in the WABA's
+  `subscribed_apps`. Files additionally need `010_whatsapp_media.sql` applied.
 
 ## General
 

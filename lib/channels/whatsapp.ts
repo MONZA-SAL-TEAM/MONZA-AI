@@ -13,6 +13,13 @@
  * run daily by /api/channels/retention). Nothing from before the connection
  * exists here.
  *
+ * ── Files are kept too (Samer, 2026-09-15) ──────────────────────────────────
+ * "Send and receive voice notes, photos, videos, PDF files and more." A photo,
+ * video, voice note or document arrives as a media id that Meta keeps for 7
+ * days, so its id and type are kept here and the file itself is copied into
+ * our private bucket (lib/channels/wa-media.ts, lib/channels/wa-media-store.ts),
+ * for the same 12 months as the words.
+ *
  * ── The payload ─────────────────────────────────────────────────────────────
  *   { object: "whatsapp_business_account",
  *     entry: [ { id: <WABA id>,
@@ -35,9 +42,13 @@
  * A reply sent FROM MONZA AI produces no echo at all, so sendOnThread records
  * it itself at the moment WhatsApp accepts it (whatsappSentRow).
  *
+ * ── Statuses move OUR ticks, and create nothing ─────────────────────────────
+ * Delivery and read receipts (`statuses`) are not messages (rule 19): they
+ * only move the ✓ / ✓✓ / blue ✓✓ of a message we already hold, and never
+ * backwards (parseWhatsAppStatuses, statusesBefore).
+ *
  * ── Dropped ─────────────────────────────────────────────────────────────────
- * Delivery and read statuses, reactions, edits, revokes and system notices
- * carry no new message.
+ * Reactions, edits, revokes and system notices carry no new message.
  *
  * PURE: body in, events out. The network and the database are elsewhere.
  */
@@ -50,8 +61,18 @@ import type {
   InboundReferral,
   SendResult,
 } from "@/lib/channels/types";
-import type { Conversation, ConversationStatus, InboxMessage } from "@/lib/inbox/types";
+import type { Conversation, ConversationStatus, InboxAttachment, InboxMessage, MessageStatus } from "@/lib/inbox/types";
 import { encodeThreadId } from "@/lib/channels/live-map";
+import { mediaLabel } from "@/lib/inbox/media";
+import {
+  MAX_CAPTION,
+  META_MEDIA_DAYS,
+  isMediaKind,
+  readAttachments,
+  toInboxAttachment,
+  type OutboundKind,
+  type StoredAttachment,
+} from "@/lib/channels/wa-media";
 
 /* ── Small readers ───────────────────────────────────────────────────────── */
 
@@ -67,6 +88,11 @@ function str(value: unknown): string | null {
 
 function list(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function num(value: unknown): number | null {
+  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
+  return Number.isFinite(n) ? n : null;
 }
 
 /**
@@ -95,8 +121,40 @@ const MEDIA_KIND: Readonly<Record<string, InboundAttachment["kind"]>> = {
   video: "video",
   audio: "audio",
   document: "file",
-  sticker: "image",
+  sticker: "sticker",
 };
+
+/** A photo, video, voice note, document or sticker: its id on Meta and what it is — never a URL. */
+function mediaOf(type: string, media: Record<string, unknown> | null): InboundAttachment {
+  const a: InboundAttachment = { kind: MEDIA_KIND[type] ?? "unknown", url: null };
+  const mediaId = str(media?.id);
+  const mime = str(media?.mime_type);
+  const sha256 = str(media?.sha256);
+  const filename = str(media?.filename);
+  if (mediaId) a.mediaId = mediaId;
+  if (mime) a.mime = mime;
+  if (sha256) a.sha256 = sha256;
+  if (filename) a.filename = filename.slice(0, 200);
+  if (type === "audio" && media?.voice === true) a.voice = true;
+  return a;
+}
+
+/** The cards of a shared contact: the name and the first number on each. */
+function contactsOf(m: Record<string, unknown>): InboundAttachment[] {
+  return list(m.contacts)
+    .slice(0, 10)
+    .map((raw): InboundAttachment => {
+      const c = obj(raw);
+      const n = obj(c?.name);
+      const phone = obj(list(c?.phones)[0]);
+      const a: InboundAttachment = { kind: "contact", url: null };
+      const name = str(n?.formatted_name) ?? str(n?.first_name);
+      const number = str(phone?.phone) ?? str(phone?.wa_id);
+      if (name) a.name = name.slice(0, 200);
+      if (number) a.phone = number.slice(0, 40);
+      return a;
+    });
+}
 
 /**
  * A message's words and parts, whatever its type — or null for a type that is
@@ -116,11 +174,10 @@ export function contentOf(
     case "video":
     case "audio":
     case "document":
-    case "sticker":
-      return {
-        text: str(obj(m[type])?.caption) ?? "",
-        attachments: [{ kind: MEDIA_KIND[type] ?? "unknown", url: null }],
-      };
+    case "sticker": {
+      const media = obj(m[type]);
+      return { text: str(media?.caption) ?? "", attachments: [mediaOf(type, media)] };
+    }
     case "interactive": {
       const i = obj(m.interactive);
       return {
@@ -133,10 +190,21 @@ export function contentOf(
     case "location": {
       const l = obj(m.location);
       const label = str(l?.name) ?? str(l?.address);
-      return { text: label ? `Shared a location: ${label}` : "Shared a location", attachments: [] };
+      const lat = num(l?.latitude);
+      const lng = num(l?.longitude);
+      const place: InboundAttachment = { kind: "location", url: null };
+      if (lat !== null && lng !== null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+        place.lat = lat;
+        place.lng = lng;
+      }
+      if (label) place.label = label.slice(0, 200);
+      return {
+        text: label ? `Shared a location: ${label}` : "Shared a location",
+        attachments: place.lat !== undefined ? [place] : [],
+      };
     }
     case "contacts":
-      return { text: "Shared a contact card", attachments: [] };
+      return { text: "Shared a contact card", attachments: contactsOf(m) };
     case "order":
       return { text: "Sent an order from the catalogue", attachments: [] };
     default:
@@ -166,80 +234,166 @@ function referralOf(m: Record<string, unknown>): InboundReferral | null {
 
 /* ── Parsing a delivery ──────────────────────────────────────────────────── */
 
+/** Each change on a WhatsApp delivery, with the number it reached (or null). */
+function changesOf(
+  body: unknown,
+  accounts: readonly ChannelAccount[]
+): { field: string; value: Record<string, unknown>; account: ChannelAccount | null }[] {
+  const root = obj(body);
+  // Instagram ("instagram") and Messenger ("page") have their own adapters.
+  if (!root || str(root.object) !== "whatsapp_business_account") return [];
+  const out: { field: string; value: Record<string, unknown>; account: ChannelAccount | null }[] = [];
+  for (const rawEntry of list(root.entry)) {
+    for (const rawChange of list(obj(rawEntry)?.changes)) {
+      const change = obj(rawChange);
+      const field = str(change?.field);
+      const value = obj(change?.value);
+      if (!field || !value) continue;
+      // Which of OUR numbers it reached. An unknown number is not guessed at.
+      const phoneNumberId = str(obj(value.metadata)?.phone_number_id);
+      const account = phoneNumberId
+        ? (accounts.find((a) => a.channel === "whatsapp" && a.externalId === phoneNumberId) ?? null)
+        : null;
+      out.push({ field, value, account });
+    }
+  }
+  return out;
+}
+
 export function parseWhatsApp(
   body: unknown,
   accounts: readonly ChannelAccount[],
   receivedAt = new Date().toISOString()
 ): InboundEvent[] {
-  const root = obj(body);
-  // Instagram ("instagram") and Messenger ("page") have their own adapters.
-  if (!root || str(root.object) !== "whatsapp_business_account") return [];
-
   const out: InboundEvent[] = [];
 
-  for (const rawEntry of list(root.entry)) {
-    for (const rawChange of list(obj(rawEntry)?.changes)) {
-      const change = obj(rawChange);
-      const field = str(change?.field);
-      if (field !== "messages" && field !== "smb_message_echoes") continue;
-      const value = obj(change?.value);
-      if (!value) continue;
+  for (const { field, value, account } of changesOf(body, accounts)) {
+    if (field !== "messages" && field !== "smb_message_echoes") continue;
 
-      // Which of OUR numbers it reached. An unknown number is not guessed at:
-      // the event stays unmatched and is counted, never filed under a brand.
-      const phoneNumberId = str(obj(value.metadata)?.phone_number_id);
-      const account = phoneNumberId
-        ? (accounts.find((a) => a.channel === "whatsapp" && a.externalId === phoneNumberId) ?? null)
-        : null;
+    // The customer's own profile name, as WhatsApp shares it.
+    const names = new Map<string, string>();
+    for (const rawContact of list(value.contacts)) {
+      const c = obj(rawContact);
+      const waId = str(c?.wa_id);
+      const name = str(obj(c?.profile)?.name);
+      if (waId && name) names.set(waId, name);
+    }
 
-      // The customer's own profile name, as WhatsApp shares it.
-      const names = new Map<string, string>();
-      for (const rawContact of list(value.contacts)) {
-        const c = obj(rawContact);
-        const waId = str(c?.wa_id);
-        const name = str(obj(c?.profile)?.name);
-        if (waId && name) names.set(waId, name);
-      }
+    const incoming = field === "messages";
+    const rows = incoming ? list(value.messages) : list(value.message_echoes);
 
-      const incoming = field === "messages";
-      const rows = incoming ? list(value.messages) : list(value.message_echoes);
+    for (const raw of rows) {
+      const m = obj(raw);
+      if (!m) continue;
+      const id = str(m.id);
+      // The customer is the sender of an incoming message and the recipient
+      // of an echo. Without an id there is no idempotency key; without a
+      // customer there is no thread to put it in.
+      const peer = incoming ? str(m.from) : str(m.to);
+      if (!id || !peer) continue;
 
-      for (const raw of rows) {
-        const m = obj(raw);
-        if (!m) continue;
-        const id = str(m.id);
-        // The customer is the sender of an incoming message and the recipient
-        // of an echo. Without an id there is no idempotency key; without a
-        // customer there is no thread to put it in.
-        const peer = incoming ? str(m.from) : str(m.to);
-        if (!id || !peer) continue;
+      const content = contentOf(m);
+      if (!content) continue;
+      if (content.text === "" && content.attachments.length === 0) continue;
 
-        const content = contentOf(m);
-        if (!content) continue;
-        if (content.text === "" && content.attachments.length === 0) continue;
-
-        out.push({
-          accountId: account?.id ?? null,
-          fromExternalId: peer,
-          fromDisplay: names.get(peer) ?? null,
-          externalMessageId: id,
-          text: content.text,
-          at: waTime(m.timestamp, receivedAt),
-          attachments: content.attachments,
-          referral: incoming ? referralOf(m) : null,
-          direction: incoming ? "in" : "out",
-        });
-      }
+      out.push({
+        // Unmatched stays null: counted, never filed under a brand (rule 1).
+        accountId: account?.id ?? null,
+        fromExternalId: peer,
+        fromDisplay: names.get(peer) ?? null,
+        externalMessageId: id,
+        text: content.text,
+        at: waTime(m.timestamp, receivedAt),
+        attachments: content.attachments,
+        referral: incoming ? referralOf(m) : null,
+        direction: incoming ? "in" : "out",
+      });
     }
   }
 
   return out;
 }
 
+/* ── Ticks: delivery and read receipts ───────────────────────────────────── */
+
+export interface WhatsAppStatusUpdate {
+  accountId: string;
+  externalMessageId: string;
+  status: "sent" | "delivered" | "read" | "failed";
+  /** WhatsApp's reason, for a message that failed. */
+  error: string | null;
+}
+
+/**
+ * The receipts on a delivery, for OUR connected numbers only. "played" (a
+ * voice note was listened to) counts as read.
+ */
+export function parseWhatsAppStatuses(body: unknown, accounts: readonly ChannelAccount[]): WhatsAppStatusUpdate[] {
+  const out: WhatsAppStatusUpdate[] = [];
+  for (const { field, value, account } of changesOf(body, accounts)) {
+    if (field !== "messages" || !account) continue;
+    for (const raw of list(value.statuses)) {
+      const s = obj(raw);
+      const id = str(s?.id);
+      const said = str(s?.status);
+      const status =
+        said === "sent" || said === "delivered" || said === "read" || said === "failed"
+          ? said
+          : said === "played"
+            ? "read"
+            : null;
+      if (!id || !status) continue;
+      const e = obj(list(s?.errors)[0]);
+      const reason = str(obj(e?.error_data)?.details) ?? str(e?.message) ?? str(e?.title);
+      out.push({
+        accountId: account.id,
+        externalMessageId: id,
+        status,
+        error: status === "failed" ? (reason ?? "WhatsApp could not deliver it.").slice(0, 300) : null,
+      });
+    }
+  }
+  return out;
+}
+
+const TICK_ORDER = ["queued", "sent", "delivered", "read"] as const;
+
+/**
+ * The statuses a message may move FROM to reach `next` — never backwards, so
+ * a late "delivered" cannot undo a "read". A failure only replaces a message
+ * that was not yet delivered.
+ */
+export function statusesBefore(next: WhatsAppStatusUpdate["status"]): string[] {
+  if (next === "failed") return ["queued", "sent"];
+  return TICK_ORDER.slice(0, TICK_ORDER.indexOf(next));
+}
+
 /* ── What is kept ────────────────────────────────────────────────────────── */
 
 /** Who wrote our side of a WhatsApp thread: somebody on the app or in Business Suite. */
 export const WHATSAPP_STAFF_NAME = "Monza · WhatsApp app";
+
+/**
+ * One received attachment as it is stored. A file starts "pending": the
+ * webhook, the thread and the daily job copy it out of Meta within its 7 days.
+ */
+export function storedFromInbound(a: InboundAttachment): StoredAttachment {
+  const s: StoredAttachment = { kind: a.kind };
+  if (a.mediaId) s.mediaId = a.mediaId;
+  if (a.mime) s.mime = a.mime;
+  if (a.sha256) s.sha256 = a.sha256;
+  if (a.filename) s.filename = a.filename;
+  if (a.voice) s.voice = true;
+  if (a.lat !== undefined && a.lng !== undefined) {
+    s.lat = a.lat;
+    s.lng = a.lng;
+  }
+  if (a.label) s.label = a.label;
+  if (a.name) s.name = a.name;
+  if (a.phone) s.phone = a.phone;
+  if (isMediaKind(a.kind)) s.state = a.mediaId ? "pending" : "unavailable";
+  return s;
+}
 
 /**
  * The stored row for one WhatsApp message — WITH its words, deliberately
@@ -260,9 +414,9 @@ export function whatsappMessageRow(input: {
     direction: out ? "out" : "in",
     author: out ? "staff" : "customer",
     body: input.event.text,
-    // Kinds only. Media ids need a token to fetch and URLs expire; the app on
-    // the phone is where a photo is looked at.
-    attachments: input.event.attachments.map((a) => ({ kind: a.kind })),
+    // The media id and type, so the file can be copied out of Meta (7 days);
+    // never Meta's download URL, which dies in 5 minutes.
+    attachments: input.event.attachments.map(storedFromInbound),
     external_message_id: input.event.externalMessageId,
     status: out ? "sent" : "received",
     staff_name: out ? WHATSAPP_STAFF_NAME : null,
@@ -272,7 +426,8 @@ export function whatsappMessageRow(input: {
 
 /* ── Reading it back for the inbox ───────────────────────────────────────── */
 
-/** One row of channel_whatsapp_page() (migration 009). */
+/** One row of channel_whatsapp_page2() (migration 010) — or of 009's page, whose
+ *  `last_attachments` is a count rather than the list. */
 export interface WhatsAppConversationRow {
   id: string;
   peer_external_id: string;
@@ -285,7 +440,7 @@ export interface WhatsAppConversationRow {
   last_direction: string | null;
   last_author: string | null;
   last_sent_at: string | null;
-  last_attachments: number | null;
+  last_attachments: unknown;
 }
 
 /** One stored WhatsApp message, as the thread view reads it. */
@@ -298,9 +453,11 @@ export interface WhatsAppMessageRow {
   status: string | null;
   staff_name: string | null;
   sent_at: string;
+  external_message_id?: string | null;
+  error?: string | null;
 }
 
-/** Shown for a message that is only a photo, video, voice note or file. */
+/** Shown for a message whose only content cannot be shown here. */
 export const WA_ATTACHMENT_ONLY = "Photo, video, voice note or file — open WhatsApp to see it.";
 
 /** "96170708585" → "+961 70 708 585"; other numbers keep their digits. */
@@ -314,8 +471,14 @@ export function displayPhone(waId: string): string {
 
 const STATUSES: readonly ConversationStatus[] = ["open", "waiting_reply", "follow_up", "closed"];
 
-function attachmentCount(value: unknown): number {
-  return Array.isArray(value) ? value.length : 0;
+/** The list row's line for a message with no words. */
+function attachmentsPreview(value: unknown): string {
+  if (typeof value === "number") return value > 0 ? WA_ATTACHMENT_ONLY : "";
+  for (const a of readAttachments(value)) {
+    const shown = toInboxAttachment(a);
+    if (shown) return mediaLabel(shown.kind, shown.filename);
+  }
+  return Array.isArray(value) && value.length > 0 ? WA_ATTACHMENT_ONLY : "";
 }
 
 export function mapWhatsAppConversation(
@@ -325,12 +488,7 @@ export function mapWhatsAppConversation(
   const phone = displayPhone(row.peer_external_id);
   const name = row.peer_display?.trim() || phone || "WhatsApp contact";
   const direction: "in" | "out" = row.last_direction === "out" ? "out" : "in";
-  const text =
-    row.last_body && row.last_body !== ""
-      ? row.last_body
-      : (row.last_attachments ?? 0) > 0
-        ? WA_ATTACHMENT_ONLY
-        : "";
+  const text = row.last_body && row.last_body !== "" ? row.last_body : attachmentsPreview(row.last_attachments);
   const status = STATUSES.find((s) => s === row.status) ?? (direction === "out" ? "waiting_reply" : "open");
 
   return {
@@ -356,19 +514,50 @@ export function mapWhatsAppConversation(
   };
 }
 
-export function mapWhatsAppMessage(row: WhatsAppMessageRow, threadId: string): InboxMessage {
+const OUT_STATUSES: ReadonlySet<string> = new Set(["queued", "sent", "delivered", "read", "failed"]);
+const DAY_MS = 86_400_000;
+
+/**
+ * One stored message for the screen. `links` are the signed URLs of the files
+ * kept for this thread; a file still "pending" after Meta's 7 days is gone.
+ */
+export function mapWhatsAppMessage(
+  row: WhatsAppMessageRow,
+  threadId: string,
+  links?: ReadonlyMap<string, { url: string; expiresAt: string }>,
+  nowMs: number = Date.now()
+): InboxMessage {
   const out = row.direction === "out";
+  const at = iso(row.sent_at);
+  const expired = nowMs - Date.parse(at) > META_MEDIA_DAYS * DAY_MS;
+
+  const attachments: InboxAttachment[] = [];
+  for (const a of readAttachments(row.attachments)) {
+    const shown = toInboxAttachment(a, a.path ? links?.get(a.path) : undefined);
+    if (!shown) continue;
+    attachments.push(shown.state === "pending" && expired ? { ...shown, state: "unavailable" } : shown);
+  }
+
+  const body = row.body ?? "";
   const text =
-    row.body && row.body !== "" ? row.body : attachmentCount(row.attachments) > 0 ? WA_ATTACHMENT_ONLY : "";
+    body !== "" ? body : attachments.length === 0 && Array.isArray(row.attachments) && row.attachments.length > 0 ? WA_ATTACHMENT_ONLY : "";
+  const status: MessageStatus = out
+    ? OUT_STATUSES.has(row.status ?? "")
+      ? (row.status as MessageStatus)
+      : "sent"
+    : "received";
+
   return {
     id: row.id,
     conversationId: threadId,
     direction: out ? "out" : "in",
     author: row.author === "automation" ? "automation" : out ? "staff" : "customer",
     text,
-    at: iso(row.sent_at),
-    status: out ? "sent" : "received",
+    at,
+    status,
     ...(out ? { staffName: row.staff_name ?? WHATSAPP_STAFF_NAME } : {}),
+    ...(attachments.length > 0 ? { attachments } : {}),
+    ...(status === "failed" && row.error ? { error: row.error } : {}),
   };
 }
 
@@ -378,6 +567,8 @@ const GRAPH = "https://graph.facebook.com/v21.0";
 
 /** WhatsApp's own limit for one text message. */
 export const WHATSAPP_MAX_TEXT = 4096;
+/** …and for the caption under a photo, video or document. */
+export const WHATSAPP_MAX_CAPTION = MAX_CAPTION;
 
 export type WhatsAppSendResult =
   | { ok: true; externalMessageId: string }
@@ -406,6 +597,9 @@ export function whatsappSendProblem(
   if (code === 131026) {
     return { problem: "WhatsApp could not deliver it to this number.", windowClosed: false };
   }
+  if (code === 131053) {
+    return { problem: "WhatsApp could not use that file — check its type and size.", windowClosed: false };
+  }
   if (code === 130429 || code === 131056 || code === 80007 || httpStatus === 429) {
     return { problem: "WhatsApp is limiting messages for a moment — try again shortly.", windowClosed: false };
   }
@@ -419,35 +613,29 @@ export function whatsappSendProblem(
 }
 
 /**
- * Send one text through the Cloud API, as the WhatsApp number `phoneNumberId`.
- * With Coexistence the message also appears in the WhatsApp Business app on
- * the phone. This call sends a MESSAGE and nothing else: it never touches the
- * number's registration (register / deregister / codes are other endpoints,
- * and nothing in this codebase calls them).
- *
- * `fetchFn` exists so the request's shape can be tested without a network.
+ * One message through the Cloud API, as the WhatsApp number `phoneNumberId`.
+ * With Coexistence it also appears in the WhatsApp Business app on the phone.
+ * This sends a MESSAGE and nothing else: it never touches the number's
+ * registration (register / deregister / codes are other endpoints, and nothing
+ * in this codebase calls them).
  */
-export async function sendWhatsAppText(
-  input: { phoneNumberId: string; to: string; text: string },
+async function postWhatsAppMessage(
+  phoneNumberId: string,
+  recipient: string,
+  payload: Record<string, unknown>,
   token: string,
-  fetchFn: typeof fetch = fetch
+  fetchFn: typeof fetch
 ): Promise<WhatsAppSendResult> {
-  const to = input.to.replace(/\D/g, "");
+  const to = recipient.replace(/\D/g, "");
   // The number id goes into the URL path, so it must be digits and nothing else.
-  if (!/^\d{5,20}$/.test(input.phoneNumberId) || to === "") {
+  if (!/^\d{5,20}$/.test(phoneNumberId) || to === "") {
     return { ok: false, problem: "This conversation has no WhatsApp number to reply to.", windowClosed: false };
   }
   try {
-    const res = await fetchFn(`${GRAPH}/${input.phoneNumberId}/messages`, {
+    const res = await fetchFn(`${GRAPH}/${phoneNumberId}/messages`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to,
-        type: "text",
-        text: { preview_url: false, body: input.text },
-      }),
+      body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", to, ...payload }),
       signal: AbortSignal.timeout(20_000),
     });
     const json: unknown = await res.json().catch(() => null);
@@ -471,6 +659,79 @@ export async function sendWhatsAppText(
   }
 }
 
+/** `fetchFn` exists so the request's shape can be tested without a network. */
+export async function sendWhatsAppText(
+  input: { phoneNumberId: string; to: string; text: string },
+  token: string,
+  fetchFn: typeof fetch = fetch
+): Promise<WhatsAppSendResult> {
+  return postWhatsAppMessage(
+    input.phoneNumberId,
+    input.to,
+    { type: "text", text: { preview_url: false, body: input.text } },
+    token,
+    fetchFn
+  );
+}
+
+/**
+ * Hand WhatsApp a file to send (POST /{phone-number-id}/media). It answers with
+ * an id, valid 30 days, that a message then names. Uploading is not sending:
+ * nothing reaches the customer until sendWhatsAppMedia.
+ */
+export async function uploadWhatsAppMedia(
+  input: { phoneNumberId: string; bytes: Uint8Array; mime: string; filename: string },
+  token: string,
+  fetchFn: typeof fetch = fetch
+): Promise<{ ok: true; mediaId: string } | { ok: false; problem: string }> {
+  if (!/^\d{5,20}$/.test(input.phoneNumberId)) {
+    return { ok: false, problem: "This conversation has no WhatsApp number to send from." };
+  }
+  const form = new FormData();
+  form.append("messaging_product", "whatsapp");
+  form.append("type", input.mime);
+  form.append("file", new Blob([new Uint8Array(input.bytes)], { type: input.mime }), input.filename);
+  try {
+    const res = await fetchFn(`${GRAPH}/${input.phoneNumberId}/media`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+      signal: AbortSignal.timeout(60_000),
+    });
+    const json: unknown = await res.json().catch(() => null);
+    const id = str(obj(json)?.id);
+    if (res.ok && id) return { ok: true, mediaId: id };
+    return { ok: false, problem: whatsappSendProblem(json, res.status).problem };
+  } catch {
+    return { ok: false, problem: "Could not reach WhatsApp to upload the file — nothing was sent." };
+  }
+}
+
+/**
+ * Send an uploaded file. A voice note is audio with `voice: true` — WhatsApp
+ * then shows it with a waveform, and only accepts it as Ogg/Opus, which the
+ * caller has checked. Audio carries no caption; documents keep their name.
+ */
+export async function sendWhatsAppMedia(
+  input: {
+    phoneNumberId: string;
+    to: string;
+    kind: OutboundKind;
+    mediaId: string;
+    caption?: string;
+    filename?: string;
+    voice?: boolean;
+  },
+  token: string,
+  fetchFn: typeof fetch = fetch
+): Promise<WhatsAppSendResult> {
+  const part: Record<string, unknown> = { id: input.mediaId };
+  if (input.caption && input.kind !== "audio") part.caption = input.caption.slice(0, WHATSAPP_MAX_CAPTION);
+  if (input.kind === "document" && input.filename) part.filename = input.filename;
+  if (input.kind === "audio" && input.voice) part.voice = true;
+  return postWhatsAppMessage(input.phoneNumberId, input.to, { type: input.kind, [input.kind]: part }, token, fetchFn);
+}
+
 /** The stored row for a reply sent from MONZA AI — WhatsApp sends no echo for it. */
 export function whatsappSentRow(input: {
   conversationId: string;
@@ -480,6 +741,7 @@ export function whatsappSentRow(input: {
   text: string;
   at: string;
   staffName: string;
+  attachment?: StoredAttachment;
 }): Record<string, unknown> {
   return {
     conversation_id: input.conversationId,
@@ -488,7 +750,7 @@ export function whatsappSentRow(input: {
     direction: "out",
     author: "staff",
     body: input.text,
-    attachments: [],
+    attachments: input.attachment ? [input.attachment] : [],
     external_message_id: input.externalMessageId,
     status: "sent",
     staff_name: input.staffName,
@@ -501,7 +763,7 @@ export function whatsappSentRow(input: {
 /**
  * The generic adapter's send cannot know the WhatsApp number id (it is the
  * ACCOUNT's external id, not the message's), so WhatsApp replies go through
- * sendOnThread → sendWhatsAppText in lib/channels/live.ts instead.
+ * sendOnThread → sendWhatsAppText / sendWhatsAppMedia in lib/channels/live.ts.
  */
 async function sendWhatsApp(): Promise<SendResult> {
   return {

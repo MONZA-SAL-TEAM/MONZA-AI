@@ -48,6 +48,41 @@ export type MessageStatus =
   | "read"
   | "failed";
 
+/** What a message carries besides words. */
+export type AttachmentKind =
+  | "image"
+  | "video"
+  | "voice"
+  | "audio"
+  | "file"
+  | "sticker"
+  | "location"
+  | "contact";
+
+/**
+ * A photo, video, voice note, file, location or contact card in a message.
+ *
+ *   ready        kept by MONZA AI; `url` is a short-lived link to it
+ *   pending      arrived, not kept yet (normally a few seconds)
+ *   too_large    bigger than MONZA AI keeps — it is on the phone
+ *   unavailable  never kept: from before files were kept, or Meta's 7 days ran out
+ */
+export interface InboxAttachment {
+  kind: AttachmentKind;
+  state: "ready" | "pending" | "too_large" | "unavailable";
+  url?: string;
+  /** When `url` stops working (ISO). Links are never saved in the browser's copy. */
+  urlExpiresAt?: string;
+  mime?: string;
+  filename?: string;
+  size?: number;
+  lat?: number;
+  lng?: number;
+  label?: string;
+  name?: string;
+  phone?: string;
+}
+
 export interface InboxMessage {
   id: string;
   conversationId: string;
@@ -61,6 +96,10 @@ export interface InboxMessage {
   automationId?: string;
   /** The staff member who sent it, when a person did. */
   staffName?: string;
+  /** Photos, videos, voice notes, files, locations, contact cards. */
+  attachments?: InboxAttachment[];
+  /** Why an outgoing message was not delivered, in WhatsApp's words. */
+  error?: string;
 }
 
 /**

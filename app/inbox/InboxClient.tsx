@@ -33,6 +33,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import DraftDock from "./DraftDock";
+import MediaComposer from "./MediaComposer";
+import { Attachments, Lightbox, Ticks } from "./MediaBubble";
+import { carryUrls, previewText, waWebChatLink, withoutLinks } from "@/lib/inbox/media";
 import type { Conversation, InboxMessage } from "@/lib/inbox/types";
 import {
   CHANNEL_LABEL,
@@ -210,6 +213,8 @@ const I = {
   x: "M18 6L6 18 M6 6l12 12",
   chat: "M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.8-.9L3 21l1.9-5.2A8.4 8.4 0 1 1 21 11.5z",
   copy: "M9 9h11v11H9z M5 15H4V4h11v1",
+  phone:
+    "M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z",
 };
 
 /** The channel's mark, drawn small in the corner of an avatar. */
@@ -306,6 +311,10 @@ export default function InboxClient(props: Props) {
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const [sending, setSending] = useState(false);
   const [sendNote, setSendNote] = useState<string | null>(null);
+  /** A file dropped or pasted into a WhatsApp conversation, for the attach sheet. */
+  const [dropped, setDropped] = useState<File | null>(null);
+  /** The thread's photos, open full screen. */
+  const [viewer, setViewer] = useState<{ images: string[]; index: number } | null>(null);
 
   const [alerts, setAlerts] = useState<AlertsState>("unsupported");
   const alertsRef = useRef<AlertsState>("unsupported");
@@ -688,14 +697,16 @@ export default function InboxClient(props: Props) {
         const json = (await res.json().catch(() => null)) as ThreadResponse | null;
         if (!alive) return;
         if (res.ok && json && json.ok) {
-          setThread({
-            messages: json.messages,
+          // A photo's link is kept while fresh, so the 15-second refresh does not reload it.
+          setThread((t) => ({
+            messages: carryUrls(t.messages, json.messages, Date.now()),
             loading: false,
             problem: null,
             windowOpen: json.window.open,
             windowText: json.window.text,
-          });
-          void cacheRef.current?.putThread(id, json.messages);
+          }));
+          // Links expire; the saved copy keeps everything else.
+          void cacheRef.current?.putThread(id, withoutLinks(json.messages));
           // The thread is newer news than the list row: bring the row up to date.
           const last = json.messages[json.messages.length - 1];
           const row = convRef.current.get(id);
@@ -706,7 +717,7 @@ export default function InboxClient(props: Props) {
                   ...row,
                   status: last.direction === "out" ? "waiting_reply" : "open",
                   lastMessage: {
-                    text: last.text,
+                    text: previewText(last),
                     at: last.at,
                     direction: last.direction,
                     author: last.author,
@@ -756,6 +767,33 @@ export default function InboxClient(props: Props) {
     [messages, mounted, today]
   );
 
+  /** Every photo in the thread, in order, for the full-screen viewer's arrows. */
+  const threadImages = useMemo(
+    () =>
+      messages.flatMap((m) =>
+        (m.attachments ?? [])
+          .filter((a) => (a.kind === "image" || a.kind === "sticker") && a.state === "ready" && a.url)
+          .map((a) => a.url as string)
+      ),
+    [messages]
+  );
+
+  const openImage = useCallback(
+    (url: string) => {
+      const i = threadImages.indexOf(url);
+      setViewer({ images: threadImages, index: i >= 0 ? i : 0 });
+    },
+    [threadImages]
+  );
+
+  const takeDropped = useCallback(() => setDropped(null), []);
+
+  const mediaSent = useCallback(() => {
+    setSendNote("Sent.");
+    scrolledFor.current = null; // show what just went out
+    reloadThread.current?.();
+  }, []);
+
   // A thread opens at its newest message, once per opening — the refresh must
   // not yank somebody reading older ones.
   useEffect(() => {
@@ -774,8 +812,13 @@ export default function InboxClient(props: Props) {
   // One customer's half-written reply never travels to another's thread.
   useEffect(() => {
     setComposerText("");
+    setDropped(null);
+    setViewer(null);
     if (composerRef.current) composerRef.current.style.height = "";
   }, [openId]);
+
+  /** Files and voice notes: live WhatsApp threads only, for now. */
+  const canAttach = !!open && live && open.channel === "whatsapp";
 
   const anchorMessageId = useMemo(() => {
     const last = messages[messages.length - 1];
@@ -1283,7 +1326,27 @@ export default function InboxClient(props: Props) {
           </div>
         ) : (
           <div className="ibx-conv-grid" data-details={detailsOpen}>
-            <div className="ibx-conv">
+            <div
+              className="ibx-conv"
+              onDragOver={
+                canAttach
+                  ? (e) => {
+                      if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+                    }
+                  : undefined
+              }
+              onDrop={
+                canAttach
+                  ? (e) => {
+                      const f = e.dataTransfer.files?.[0];
+                      if (f) {
+                        e.preventDefault();
+                        setDropped(f);
+                      }
+                    }
+                  : undefined
+              }
+            >
               <header className="ibx-conv-head">
                 <button
                   type="button"
@@ -1322,6 +1385,21 @@ export default function InboxClient(props: Props) {
                         : "Reply window closed"}
                   </span>
                 )}
+                {open.channel === "whatsapp" && waWebChatLink(open.peerPhone) && (
+                  // Calls cannot ring inside MONZA AI on a number shared with the
+                  // phone app (Meta refuses Coexistence numbers). This opens the
+                  // customer's chat in WhatsApp Web, one click from its call button.
+                  <a
+                    className="ibx-icon-btn ibx-call"
+                    href={waWebChatLink(open.peerPhone) ?? undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Call on WhatsApp — opens this chat in WhatsApp Web, where the call button is"
+                    aria-label="Call on WhatsApp"
+                  >
+                    <Icon d={I.phone} />
+                  </a>
+                )}
                 <button
                   type="button"
                   className="ibx-icon-btn"
@@ -1345,8 +1423,16 @@ export default function InboxClient(props: Props) {
                       <span>{g.label}</span>
                     </div>
                     {g.items.map((m) => (
-                      <div key={m.id} className={`ibx-bubble ibx-bubble-${m.direction}`} data-author={m.author}>
-                        <p className="ibx-bubble-text">{m.text}</p>
+                      <div
+                        key={m.id}
+                        className={`ibx-bubble ibx-bubble-${m.direction}`}
+                        data-author={m.author}
+                        data-media={m.attachments && m.attachments.length > 0 ? "true" : undefined}
+                      >
+                        {m.attachments && m.attachments.length > 0 && (
+                          <Attachments items={m.attachments} onOpenImage={openImage} />
+                        )}
+                        {m.text !== "" && <p className="ibx-bubble-text">{m.text}</p>}
                         <p className="ibx-bubble-meta">
                           {m.author === "automation"
                             ? `Automatic · ${m.automationId ?? ""}`
@@ -1355,7 +1441,17 @@ export default function InboxClient(props: Props) {
                               : open.customerName}
                           {" · "}
                           {localClock(m.at)}
-                          {m.direction === "out" && m.status !== "sent" ? ` · ${m.status}` : ""}
+                          {m.direction === "out" &&
+                            (live ? (
+                              <>
+                                {" "}
+                                <Ticks status={m.status} error={m.error} />
+                              </>
+                            ) : m.status !== "sent" ? (
+                              ` · ${m.status}`
+                            ) : (
+                              ""
+                            ))}
                         </p>
                       </div>
                     ))}
@@ -1365,6 +1461,15 @@ export default function InboxClient(props: Props) {
                   <p className="ibx-conv-foot">Meta shares the latest 20 messages of a conversation.</p>
                 )}
               </div>
+
+              {viewer && (
+                <Lightbox
+                  images={viewer.images}
+                  index={viewer.index}
+                  onIndex={(i) => setViewer((v) => (v ? { ...v, index: i } : v))}
+                  onClose={() => setViewer(null)}
+                />
+              )}
 
               <div className="ibx-compose-wrap">
                 {/* Suggested drafts read the example threads only; on a live
@@ -1397,9 +1502,32 @@ export default function InboxClient(props: Props) {
                         void sendReply();
                       }
                     }}
+                    onPaste={(e) => {
+                      // A pasted screenshot or photo opens the attach sheet, like WhatsApp.
+                      const f = canAttach ? e.clipboardData?.files?.[0] : undefined;
+                      if (f) {
+                        e.preventDefault();
+                        setDropped(f);
+                      }
+                    }}
                     aria-label="Your reply"
                   />
                   <div className="ibx-compose-actions">
+                    {canAttach && (
+                      <MediaComposer
+                        conversationId={open.id}
+                        enabled={thread.windowOpen && !sending}
+                        disabledReason={
+                          thread.windowOpen
+                            ? "Wait for the reply to finish sending."
+                            : thread.windowText || "The reply window is closed."
+                        }
+                        dropped={dropped}
+                        onDroppedTaken={takeDropped}
+                        onSent={mediaSent}
+                        onNote={setSendNote}
+                      />
+                    )}
                     <button
                       type="button"
                       className="ibx-icon-btn"
@@ -1438,7 +1566,7 @@ export default function InboxClient(props: Props) {
                 </div>
                 <p className="ibx-compose-note" role="status">
                   {live
-                    ? sendNote ?? (thread.loading ? "Checking the conversation…" : `${thread.windowText} Ctrl+Enter sends.`)
+                    ? sendNote ?? (thread.loading ? "Checking the conversation…" : `${thread.windowText} Ctrl+Enter sends.${canAttach ? " Drop a file here, or use 📎 and 🎤." : ""}`)
                     : open.channel === "whatsapp"
                       ? "Nothing is sent from Monza AI — opening WhatsApp fills this in and you tap send."
                       : `${CHANNEL_LABEL[open.channel]} replies are not connected yet.`}

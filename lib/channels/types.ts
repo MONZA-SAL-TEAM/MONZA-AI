@@ -149,9 +149,28 @@ export interface InboundEvent {
 }
 
 export interface InboundAttachment {
-  kind: "image" | "video" | "audio" | "file" | "story" | "unknown";
+  kind: "image" | "video" | "audio" | "file" | "sticker" | "location" | "contact" | "story" | "unknown";
   /** Present for media we can link to; media URLs from Meta expire. */
   url: string | null;
+  /**
+   * WhatsApp only. The file's id on Meta, fetched with the number's key and
+   * kept by Meta for 7 days — so it is copied to our storage on arrival
+   * (lib/channels/wa-media.ts). Never a URL: those expire in 5 minutes.
+   */
+  mediaId?: string;
+  mime?: string;
+  /** Meta's checksum of the file, compared with what is downloaded. */
+  sha256?: string;
+  filename?: string;
+  /** A voice note recorded in WhatsApp, rather than an audio file. */
+  voice?: boolean;
+  /** A shared location. */
+  lat?: number;
+  lng?: number;
+  label?: string;
+  /** A shared contact card. */
+  name?: string;
+  phone?: string;
 }
 
 /* ── Outbound ────────────────────────────────────────────────────────────── */

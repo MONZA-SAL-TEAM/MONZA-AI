@@ -35,8 +35,30 @@ import {
 import {
   mapWhatsAppConversation,
   mapWhatsAppMessage,
+  sendWhatsAppMedia,
   sendWhatsAppText,
+  uploadWhatsAppMedia,
 } from "@/lib/channels/whatsapp";
+import {
+  checkOutbound,
+  isOutboundPathFor,
+  linksWanted,
+  outboundMediaPath,
+  readAttachments,
+  safeFilename,
+  verifiedType,
+  type OutboundKind,
+  type StoredAttachment,
+} from "@/lib/channels/wa-media";
+import {
+  captureMedia,
+  mediaJobsFromRows,
+  readUploaded,
+  removeMedia,
+  signLinks,
+  signUpload,
+} from "@/lib/channels/wa-media-store";
+import { isOgg } from "@/lib/media/ogg-opus";
 import { instagramAdapter, sendInstagramLogin } from "@/lib/channels/instagram";
 import { messengerAdapter } from "@/lib/channels/messenger";
 import { replyWindow, windowExplanation, type ReplyWindow } from "@/lib/channels/types";
@@ -578,6 +600,9 @@ async function readWhatsAppMore(account: StoredAccount, cursor: unknown): Promis
   };
 }
 
+/** How long opening a thread waits for files still being copied out of Meta. */
+const THREAD_MEDIA_BUDGET_MS = 12_000;
+
 async function readWhatsAppThread(
   account: StoredAccount,
   conversationId: string,
@@ -589,13 +614,33 @@ async function readWhatsAppThread(
     return { ok: false, status: 502, problem: "Could not read this WhatsApp conversation." };
   }
   if (!r.value) return { ok: false, status: 404, problem: "That conversation was not found." };
+  let value = r.value;
+
+  // Files the webhook did not manage to copy: try again now, while Meta still has them.
+  const waiting = mediaJobsFromRows(value.rows, account, conversationId);
+  if (waiting.length > 0) {
+    await captureMedia(waiting, THREAD_MEDIA_BUDGET_MS);
+    const again = await readWhatsAppMessages(account.id, conversationId, WA_THREAD_LIMIT);
+    if (again.ok && again.value) value = again.value;
+  }
+
+  const links = await signLinks(linksWanted(value.rows.flatMap((row) => readAttachments(row.attachments))));
   const threadId = encodeThreadId(account.id, conversationId);
-  const window = replyWindow(r.value.lastInboundAt, now);
+  const window = replyWindow(value.lastInboundAt, now);
   return {
     ok: true,
-    messages: r.value.rows.map((row) => mapWhatsAppMessage(row, threadId)),
+    messages: value.rows.map((row) => mapWhatsAppMessage(row, threadId, links, now.getTime())),
     window: { open: window.open, text: windowExplanation(window, "whatsapp") },
   };
+}
+
+/** A file staff attached, already uploaded to our bucket (POST /api/channels/media). */
+export interface OutgoingAttachment {
+  path: string;
+  kind: OutboundKind;
+  filename?: string;
+  /** Recorded in the inbox: sent as a voice note when it is Ogg/Opus. */
+  voice?: boolean;
 }
 
 /**
@@ -609,7 +654,8 @@ async function sendOnWhatsApp(
   conversationId: string,
   text: string,
   live: boolean,
-  staffName: string
+  staffName: string,
+  attachment?: OutgoingAttachment
 ): Promise<SendOutcome> {
   const r = await readWhatsAppMessages(account.id, conversationId, 1);
   if (!r.ok) return { kind: "refused", status: 502, problem: "Could not read this WhatsApp conversation." };
@@ -630,10 +676,61 @@ async function sendOnWhatsApp(
     };
   }
 
-  const sent = await sendWhatsAppText(
-    { phoneNumberId: account.externalId, to: r.value.peerExternalId, text },
-    token
-  );
+  let stored: StoredAttachment | undefined;
+  let sent: Awaited<ReturnType<typeof sendWhatsAppText>>;
+
+  if (!attachment) {
+    sent = await sendWhatsAppText({ phoneNumberId: account.externalId, to: r.value.peerExternalId, text }, token);
+  } else {
+    // Only a file uploaded for THIS conversation — never another customer's.
+    if (!isOutboundPathFor(attachment.path, account.id, conversationId)) {
+      return { kind: "refused", status: 400, problem: "That file does not belong to this conversation." };
+    }
+    const file = await readUploaded(attachment.path);
+    if (!file.ok) {
+      return { kind: "refused", status: 404, problem: "The file did not finish uploading — attach it again." };
+    }
+    // Checked again here: the browser's own check is a courtesy, not a guard.
+    const check = checkOutbound(attachment.kind, verifiedType(file.mime, file.bytes), file.bytes.length);
+    if (!check.ok) {
+      await removeMedia([attachment.path]);
+      return { kind: "refused", status: 400, problem: check.problem };
+    }
+    const voice = check.kind === "audio" && attachment.voice === true && check.mime === "audio/ogg" && isOgg(file.bytes);
+    const filename = safeFilename(attachment.filename, check.ext);
+
+    const up = await uploadWhatsAppMedia(
+      { phoneNumberId: account.externalId, bytes: file.bytes, mime: check.mime, filename },
+      token
+    );
+    if (!up.ok) {
+      await removeMedia([attachment.path]);
+      return { kind: "refused", status: 502, problem: up.problem };
+    }
+    sent = await sendWhatsAppMedia(
+      {
+        phoneNumberId: account.externalId,
+        to: r.value.peerExternalId,
+        kind: check.kind,
+        mediaId: up.mediaId,
+        caption: text || undefined,
+        filename,
+        voice,
+      },
+      token
+    );
+    if (!sent.ok) await removeMedia([attachment.path]);
+    stored = {
+      kind: check.kind === "document" ? "file" : check.kind,
+      mime: check.mime,
+      filename,
+      size: file.bytes.length,
+      path: attachment.path,
+      state: "stored",
+      ...(voice ? { voice: true } : {}),
+    };
+  }
+
   if (!sent.ok) {
     return sent.windowClosed
       ? { kind: "window_closed", explanation: sent.problem }
@@ -648,11 +745,52 @@ async function sendOnWhatsApp(
     text,
     at: new Date().toISOString(),
     staffName,
+    attachment: stored,
   });
   // It WENT. Failing to write our copy must not report a failure — a person
   // would send it a second time.
   if (!recorded) console.error("[channels/whatsapp] sent, but the copy could not be recorded");
   return { kind: "sent" };
+}
+
+export type UploadGrant =
+  | { kind: "ok"; path: string; token: string }
+  | { kind: "switched_off" }
+  | { kind: "window_closed"; explanation: string }
+  | { kind: "refused"; status: number; problem: string };
+
+/**
+ * Permission to upload one file for a WhatsApp reply. Every gate the send
+ * itself has is checked FIRST — nobody waits for a 16 MB upload that could
+ * never be sent — and the place it goes is chosen here, under this
+ * conversation, never by the browser.
+ */
+export async function prepareWhatsAppUpload(
+  threadId: unknown,
+  file: { kind: unknown; mime: unknown; size: unknown },
+  live: boolean
+): Promise<UploadGrant> {
+  const wa = await whatsappAccountOf(threadId);
+  if (!wa) return { kind: "refused", status: 400, problem: "Files can be sent on WhatsApp conversations only, for now." };
+  const check = checkOutbound(file.kind, file.mime, file.size);
+  if (!check.ok) return { kind: "refused", status: 400, problem: check.problem };
+
+  const r = await readWhatsAppMessages(wa.account.id, wa.id, 1);
+  if (!r.ok) return { kind: "refused", status: 502, problem: "Could not read this WhatsApp conversation." };
+  if (!r.value) return { kind: "refused", status: 404, problem: "That conversation was not found." };
+  const window = replyWindow(r.value.lastInboundAt, new Date());
+  if (!window.open) return { kind: "window_closed", explanation: windowExplanation(window, "whatsapp") };
+  if (!live) return { kind: "switched_off" };
+  if (!channelToken(wa.account.tokenEnv)) {
+    return { kind: "refused", status: 503, problem: "The WhatsApp sending key has not been added yet, so nothing was sent." };
+  }
+
+  const path = outboundMediaPath(wa.account.id, wa.id, crypto.randomUUID(), check.ext);
+  const signed = await signUpload(path);
+  if (!signed.ok) {
+    return { kind: "refused", status: 503, problem: "Could not prepare the upload — the file store may not be set up yet." };
+  }
+  return { kind: "ok", path, token: signed.token };
 }
 
 /** The WhatsApp account a thread id names, or null for any other channel. */
@@ -1208,10 +1346,15 @@ export async function sendOnThread(
   text: string,
   live: boolean,
   /** Who pressed Send — shown under the reply in the thread. */
-  staffName = "Monza"
+  staffName = "Monza",
+  /** A file already uploaded for this conversation. WhatsApp only, for now. */
+  attachment?: OutgoingAttachment
 ): Promise<SendOutcome> {
   const wa = await whatsappAccountOf(threadId);
-  if (wa) return sendOnWhatsApp(wa.account, wa.id, text, live, staffName);
+  if (wa) return sendOnWhatsApp(wa.account, wa.id, text, live, staffName, attachment);
+  if (attachment) {
+    return { kind: "refused", status: 400, problem: "Files can be sent on WhatsApp conversations only, for now." };
+  }
   const t = await openThread(threadId, new Date());
   if (!t.ok) return { kind: "refused", status: t.status, problem: t.problem };
   if (!t.peer) {

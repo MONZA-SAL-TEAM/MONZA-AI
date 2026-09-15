@@ -26,8 +26,9 @@ import { requireRealStaff, type StaffAccess } from "@/lib/auth";
 import { MEDIA_CAPABILITIES } from "@/lib/permissions/media";
 import { channelsSendLive } from "@/lib/env";
 import { decodeThreadId } from "@/lib/channels/live-map";
-import { sendOnThread } from "@/lib/channels/live";
-import { WHATSAPP_MAX_TEXT } from "@/lib/channels/whatsapp";
+import { sendOnThread, type OutgoingAttachment } from "@/lib/channels/live";
+import { WHATSAPP_MAX_CAPTION, WHATSAPP_MAX_TEXT } from "@/lib/channels/whatsapp";
+import { isOutboundKind } from "@/lib/channels/wa-media";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -36,6 +37,23 @@ const MAX_LENGTH = 1000;
 
 function fail(message: string, status: number, code: string): NextResponse {
   return NextResponse.json({ error: code, message }, { status });
+}
+
+/**
+ * The file part of a request, as named by the browser. Its path is checked
+ * against the conversation in lib/channels/live.ts — here it is only shape.
+ */
+function attachmentOf(value: unknown): OutgoingAttachment | null | "bad" {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "object") return "bad";
+  const a = value as Record<string, unknown>;
+  if (typeof a.path !== "string" || a.path.length > 300 || !isOutboundKind(a.kind)) return "bad";
+  return {
+    path: a.path,
+    kind: a.kind,
+    ...(typeof a.filename === "string" ? { filename: a.filename.slice(0, 200) } : {}),
+    ...(a.voice === true ? { voice: true } : {}),
+  };
 }
 
 function refuse(access: Extract<StaffAccess, { ok: false }>): NextResponse {
@@ -65,28 +83,45 @@ export async function POST(request: Request): Promise<NextResponse> {
   const body = (raw && typeof raw === "object" ? raw : {}) as {
     conversationId?: unknown;
     text?: unknown;
+    attachment?: unknown;
   };
 
   const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";
   const text = typeof body.text === "string" ? body.text.trim() : "";
+  const attachment = attachmentOf(body.attachment);
 
   const ids = decodeThreadId(conversationId);
   if (!ids) return fail("No conversation.", 400, "badRequest");
-  if (text === "") return fail("Write something first.", 400, "badRequest");
-  // Instagram's own limit is 1,000 characters, WhatsApp's 4,096 (our WhatsApp
-  // account ids start "wa-"); refusing here beats Meta refusing after the
-  // person thinks it went.
-  const max = ids.accountId.startsWith("wa-") ? WHATSAPP_MAX_TEXT : MAX_LENGTH;
-  if (text.length > max) {
-    return fail(`That message is too long to send (${max.toLocaleString("en-US")} characters at most).`, 400, "badRequest");
+  if (attachment === "bad") return fail("That attachment is not valid.", 400, "badRequest");
+  if (text === "" && !attachment) return fail("Write something first.", 400, "badRequest");
+
+  const whatsapp = ids.accountId.startsWith("wa-");
+  if (attachment) {
+    if (!whatsapp) return fail("Files can be sent on WhatsApp conversations only, for now.", 400, "badRequest");
+    if (attachment.kind === "audio" && text !== "") {
+      return fail("A voice note or audio file cannot carry words — send them as a separate message.", 400, "badRequest");
+    }
+    if (text.length > WHATSAPP_MAX_CAPTION) {
+      return fail(`That caption is too long (${WHATSAPP_MAX_CAPTION.toLocaleString("en-US")} characters at most).`, 400, "badRequest");
+    }
+  } else {
+    // Instagram's own limit is 1,000 characters, WhatsApp's 4,096 (our WhatsApp
+    // account ids start "wa-"); refusing here beats Meta refusing after the
+    // person thinks it went.
+    const max = whatsapp ? WHATSAPP_MAX_TEXT : MAX_LENGTH;
+    if (text.length > max) {
+      return fail(`That message is too long to send (${max.toLocaleString("en-US")} characters at most).`, 400, "badRequest");
+    }
   }
 
   // Shown under the reply in a WhatsApp thread: the part of the email before "@".
   const staffName = access.user.email?.split("@")[0] || "Monza";
-  const outcome = await sendOnThread(conversationId, text, channelsSendLive(), staffName);
+  const outcome = await sendOnThread(conversationId, text, channelsSendLive(), staffName, attachment ?? undefined);
 
-  // Counts and ids only — never the text (it is customer-facing content).
-  console.info(`[channels/send] ${outcome.kind} on ${ids.accountId} by ${access.user.userId}`);
+  // Counts and ids only — never the text or a file name (customer-facing content).
+  console.info(
+    `[channels/send] ${outcome.kind}${attachment ? ` (${attachment.kind})` : ""} on ${ids.accountId} by ${access.user.userId}`
+  );
 
   switch (outcome.kind) {
     case "sent":
