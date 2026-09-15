@@ -40,6 +40,7 @@ import type {
   OutboundMessage,
   SendResult,
 } from "@/lib/channels/types";
+import { outboundMessagePart } from "@/lib/channels/types";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
@@ -195,24 +196,28 @@ export function parseMessenger(
   return out;
 }
 
-async function sendMessenger(
+export async function sendMessenger(
   message: OutboundMessage,
-  token: string
+  token: string,
+  fetchFn: typeof fetch = fetch
 ): Promise<SendResult> {
   if (!message.accountId) {
     return { ok: false, error: "No account.", retryable: false };
   }
 
   try {
-    const res = await fetch(`${GRAPH}/me/messages`, {
+    const res = await fetchFn(`${GRAPH}/me/messages`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
+      // Messenger fetches a file before it answers: up to 75 s for a video.
+      signal: AbortSignal.timeout(message.attachment ? 90_000 : 20_000),
       body: JSON.stringify({
         recipient: { id: message.toExternalId },
-        message: { text: message.text },
+        // Words, or one file Messenger fetches from a short-lived link.
+        message: outboundMessagePart(message),
         // Messenger requires the tag or type to be stated. RESPONSE means "we
         // are answering something they said", which is the only thing this
         // product does — anything else needs a message tag and a policy

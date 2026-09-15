@@ -113,6 +113,56 @@ a.ibx-att-share-label { text-decoration: underline; text-underline-offset: 2px; 
   background: #fff;
 }
 
+.ibx-att-embed-fb { width: 350px; height: 520px; }
+.ibx-att-embed-fbv { width: 350px; height: 560px; }
+.ibx-link-embeds { margin-top: 6px; }
+
+/* Customer pictures and the profile card. */
+.ibx-av { overflow: visible; }
+.ibx-av-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.ibx-av .ibx-chan { z-index: 1; }
+.ibx-conv-num { font-variant-numeric: tabular-nums; }
+.ibx-conv-sub .ibx-follows {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  font-size: 11px;
+  font-weight: 700;
+}
+.ibx-profile-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.ibx-profile-pic {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--sunk);
+  font-weight: 800;
+}
+.ibx-profile-name { margin: 0; font-weight: 800; font-size: var(--t-md); }
+.ibx-profile-user { margin: 2px 0 0; color: var(--ink-3); font-size: var(--t-sm); }
+.ibx-mini {
+  margin-left: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 /* Voice notes. */
 .ibx-voice {
   display: flex;

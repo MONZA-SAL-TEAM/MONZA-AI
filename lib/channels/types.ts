@@ -180,6 +180,19 @@ export interface OutboundMessage {
   /** The recipient's opaque id on that channel. */
   toExternalId: string;
   text: string;
+  /**
+   * One file for Meta to fetch from `url` (a short-lived signed link into our
+   * private bucket) — Instagram and Messenger take files by link. When set, the
+   * message is the file alone; words go in a message of their own.
+   */
+  attachment?: { type: "image" | "video" | "audio" | "file"; url: string };
+}
+
+/** The `message` part of an Instagram or Messenger Send API request. */
+export function outboundMessagePart(m: OutboundMessage): Record<string, unknown> {
+  return m.attachment
+    ? { attachment: { type: m.attachment.type, payload: { url: m.attachment.url } } }
+    : { text: m.text };
 }
 
 export type SendResult =

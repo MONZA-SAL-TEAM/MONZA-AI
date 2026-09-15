@@ -225,6 +225,54 @@ export async function signUpload(path: string): Promise<{ ok: true; token: strin
   return { ok: true, token: data.token };
 }
 
+/**
+ * A short-lived link for Meta to fetch a file staff are sending on Instagram
+ * or Facebook — they take files by link, not by upload. Minutes, not hours:
+ * Meta fetches it while the send request is open.
+ */
+export async function signFor(path: string, seconds: number): Promise<string | null> {
+  const sb = channelDb();
+  if (!sb) return null;
+  const { data, error } = await sb.storage.from(WA_MEDIA_BUCKET).createSignedUrl(path, seconds);
+  if (error || !data?.signedUrl) {
+    if (error) console.error(`[channels/wa-media] could not sign a file for Meta: ${error.message}`);
+    return null;
+  }
+  return data.signedUrl;
+}
+
+/**
+ * The 12-month rule for files staff sent on Instagram and Facebook
+ * (channel_sent_files, migration 011): the files first, then their rows — a
+ * row is only deleted once its file is gone. Before migration 011 there is no
+ * table, and nothing to do.
+ */
+export async function purgeSentFiles(before: string): Promise<{ ok: true; removed: number } | { ok: false; error: string }> {
+  const sb = channelDb();
+  if (!sb) return { ok: false, error: "The database key for this product is not configured." };
+  let removed = 0;
+  for (let round = 0; round < 20; round++) {
+    const { data, error } = await sb
+      .from("channel_sent_files")
+      .select("id, path")
+      .lt("sent_at", before)
+      .order("sent_at")
+      .limit(500);
+    if (error) {
+      if (/channel_sent_files/.test(error.message) && /exist|find/i.test(error.message)) return { ok: true, removed };
+      return { ok: false, error: error.message };
+    }
+    const rows = (data ?? []) as { id: string; path: string }[];
+    if (rows.length === 0) break;
+    if (!(await removeMedia(rows.map((r) => r.path)))) return { ok: false, error: "Some sent files could not be deleted." };
+    const del = await sb.from("channel_sent_files").delete().in("id", rows.map((r) => r.id));
+    if (del.error) return { ok: false, error: del.error.message };
+    removed += rows.length;
+    if (rows.length < 500) break;
+  }
+  return { ok: true, removed };
+}
+
 /** A file staff uploaded, read back to hand to WhatsApp. */
 export async function readUploaded(path: string): Promise<{ ok: true; bytes: Uint8Array; mime: string } | { ok: false }> {
   const sb = channelDb();

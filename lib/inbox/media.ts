@@ -152,6 +152,98 @@ export function instagramEmbedUrl(link: string | undefined): string | null {
   return `https://www.instagram.com/${kind}/${m[2]}/embed/captioned/`;
 }
 
+const FB_HOST = /^(www\.|m\.|web\.|mbasic\.)?facebook\.com$/;
+/** Query parameters a Facebook address needs to name its post; everything else is tracking. */
+const FB_KEEP = ["story_fbid", "id", "fbid", "v", "set"];
+
+/**
+ * A shared Facebook post, video or reel, as Facebook's own embedded post or
+ * video player (Samer, 2026-09-15: shared posts shown "on Facebook and
+ * WhatsApp too, not just Instagram"). Public posts only — Facebook shows its
+ * own notice for anything else. Null for anything that is not one.
+ */
+export function facebookEmbedUrl(link: string | undefined): string | null {
+  if (!link) return null;
+  let u: URL;
+  try {
+    u = new URL(link);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "https:") return null;
+
+  let kind: "post" | "video" | null = null;
+  let clean: string;
+  if (u.hostname === "fb.watch") {
+    if (!/^\/[A-Za-z0-9_-]{3,40}\/?$/.test(u.pathname)) return null;
+    kind = "video";
+    clean = `https://fb.watch${u.pathname}`;
+  } else if (FB_HOST.test(u.hostname)) {
+    const p = u.pathname;
+    if (/^\/(reel|reels)\/\d{3,30}\/?$/.test(p) || /^\/watch\/?$/.test(p) || /^\/[A-Za-z0-9.]{1,80}\/videos\/(?:[\w.-]+\/)?\d{3,30}\/?$/.test(p) || /^\/share\/(v|r)\/[A-Za-z0-9_-]{3,40}\/?$/.test(p)) {
+      kind = "video";
+    } else if (
+      /^\/[A-Za-z0-9.]{1,80}\/posts\/[A-Za-z0-9_-]{3,80}\/?$/.test(p) ||
+      /^\/(permalink|story|photo)\.php$/.test(p) ||
+      /^\/photo\/?$/.test(p) ||
+      /^\/[A-Za-z0-9.]{1,80}\/photos\/[\w./-]{3,120}$/.test(p) ||
+      /^\/share\/p\/[A-Za-z0-9_-]{3,40}\/?$/.test(p)
+    ) {
+      kind = "post";
+    }
+    if (!kind) return null;
+    const params = new URLSearchParams();
+    for (const k of FB_KEEP) {
+      const v = u.searchParams.get(k);
+      if (v && /^[A-Za-z0-9._-]{1,80}$/.test(v)) params.set(k, v);
+    }
+    if (/^\/watch\/?$/.test(p) && !params.get("v")) return null;
+    if (/\.php$|^\/photo\/?$/.test(p) && !params.get("story_fbid") && !params.get("fbid")) return null;
+    const q = params.toString();
+    clean = `https://www.facebook.com${p}${q ? `?${q}` : ""}`;
+  } else {
+    return null;
+  }
+  return kind === "video"
+    ? `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(clean)}&show_text=false&width=350`
+    : `https://www.facebook.com/plugins/post.php?href=${encodeURIComponent(clean)}&show_text=true&width=350`;
+}
+
+/** How a link in someone's words can be shown as the post itself. */
+export interface EmbeddableLink {
+  network: "instagram" | "facebook";
+  /** The address as written, made https. */
+  link: string;
+  embed: string;
+}
+
+const LINK_IN_TEXT = /(?:https?:\/\/)?(?:(?:www|m|web)\.)?(?:instagram\.com|facebook\.com|fb\.watch)\/[^\s<>"'()]+/gi;
+
+/**
+ * The Instagram and Facebook post links inside a message's words — the ones a
+ * customer pastes into WhatsApp, mostly — so the chat can show each post under
+ * the words, like WhatsApp's own link preview. At most three per message.
+ * Any other link stays plain text: MONZA AI never fetches a site a customer
+ * names, so a link cannot reach our server or see who reads the inbox.
+ */
+export function embeddableLinks(text: string | undefined): EmbeddableLink[] {
+  if (!text) return [];
+  const out: EmbeddableLink[] = [];
+  const seen = new Set<string>();
+  for (const match of text.matchAll(LINK_IN_TEXT)) {
+    const raw = match[0].replace(/[.,!?;:]+$/, "");
+    const link = /^https?:\/\//i.test(raw) ? raw.replace(/^http:/i, "https:") : `https://${raw}`;
+    const ig = instagramEmbedUrl(link);
+    const fb = ig ? null : facebookEmbedUrl(link);
+    const embed = ig ?? fb;
+    if (!embed || seen.has(embed)) continue;
+    seen.add(embed);
+    out.push({ network: ig ? "instagram" : "facebook", link, embed });
+    if (out.length === 3) break;
+  }
+  return out;
+}
+
 export function mapsLink(lat: number, lng: number): string {
   return `https://www.google.com/maps?q=${lat},${lng}`;
 }

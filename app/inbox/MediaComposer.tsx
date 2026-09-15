@@ -13,18 +13,36 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatBytes, formatClock } from "@/lib/inbox/media";
-import { MAX_CAPTION } from "@/lib/channels/wa-media";
+import { MAX_CAPTION, type MediaChannel } from "@/lib/channels/wa-media";
 import { prepareFile, prepareRecording, recorderMimeType, sendFile, type ReadyFile } from "@/lib/inbox/send-media";
 
-/** WhatsApp's own ceiling for a voice note is far longer; this keeps one under 16 MB with room. */
-const MAX_RECORDING_MS = 15 * 60_000;
+/**
+ * The longest recording per channel: WhatsApp's Ogg is small (15 minutes fits
+ * 16 MB with room); Instagram and Facebook get WAV, ~2 MB a minute under 25 MB.
+ */
+const MAX_RECORDING_MS: Readonly<Record<MediaChannel, number>> = {
+  whatsapp: 15 * 60_000,
+  instagram: 11 * 60_000,
+  facebook: 11 * 60_000,
+};
 
-const ACCEPT =
-  "image/*,video/mp4,video/3gpp,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,application/pdf";
+/** What the file picker offers, per channel's own rules (lib/channels/wa-media.ts). */
+const ACCEPT: Readonly<Record<MediaChannel, string>> = {
+  whatsapp: "image/*,video/mp4,video/3gpp,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,application/pdf",
+  instagram: "image/*,video/mp4,video/quicktime,video/webm,audio/aac,audio/mp4,audio/x-m4a,audio/wav,.m4a,.aac,.wav,.pdf,application/pdf",
+  facebook:
+    "image/*,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/aac,audio/wav,.mp3,.m4a,.wav,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip",
+};
+
+function mediaChannel(channel: string): MediaChannel {
+  return channel === "instagram" || channel === "facebook" ? channel : "whatsapp";
+}
 
 interface Props {
   conversationId: string;
-  /** Live WhatsApp thread with its reply window open. */
+  /** Which channel the conversation is on: its rules decide what may be sent. */
+  channel: string;
+  /** Live thread with its reply window open. */
   enabled: boolean;
   /** Why it is not, in words, for the buttons' titles. */
   disabledReason: string;
@@ -50,7 +68,17 @@ const MIC = "M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z M19 10v2a7 7 0
 const BIN = "M3 6h18 M8 6V4h8v2 M19 6l-1 14H6L5 6";
 const SEND = "M22 2L11 13 M22 2l-7 20-4-9-9-4z";
 
-export default function MediaComposer({ conversationId, enabled, disabledReason, dropped, onDroppedTaken, onSent, onNote }: Props) {
+export default function MediaComposer({
+  conversationId,
+  channel: channelName,
+  enabled,
+  disabledReason,
+  dropped,
+  onDroppedTaken,
+  onSent,
+  onNote,
+}: Props) {
+  const channel = mediaChannel(channelName);
   const inputRef = useRef<HTMLInputElement>(null);
   const [picked, setPicked] = useState<{ file: ReadyFile; preview: string | null } | null>(null);
   const [caption, setCaption] = useState("");
@@ -87,7 +115,7 @@ export default function MediaComposer({ conversationId, enabled, disabledReason,
         return;
       }
       setStage("preparing");
-      const r = await prepareFile(file);
+      const r = await prepareFile(file, channel);
       setStage(null);
       if (!r.ok) {
         onNote(r.problem);
@@ -98,7 +126,7 @@ export default function MediaComposer({ conversationId, enabled, disabledReason,
       setCaption("");
       setProblem(null);
     },
-    [enabled, disabledReason, onNote]
+    [enabled, disabledReason, onNote, channel]
   );
 
   useEffect(() => {
@@ -130,7 +158,7 @@ export default function MediaComposer({ conversationId, enabled, disabledReason,
     const t = setInterval(() => {
       const ms = Date.now() - recording;
       setClock(ms);
-      if (ms >= MAX_RECORDING_MS) finish(true);
+      if (ms >= MAX_RECORDING_MS[channel]) finish(true);
     }, 250);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- finish reads refs only
@@ -160,7 +188,7 @@ export default function MediaComposer({ conversationId, enabled, disabledReason,
         const blob = new Blob(chunks.current, { type: r.mimeType || type });
         void (async () => {
           setStage("preparing");
-          const ready = await prepareRecording(blob, r.mimeType || type);
+          const ready = await prepareRecording(blob, r.mimeType || type, channel);
           if (!ready.ok) {
             setStage(null);
             onNote(ready.problem);
@@ -213,7 +241,7 @@ export default function MediaComposer({ conversationId, enabled, disabledReason,
         ref={inputRef}
         type="file"
         hidden
-        accept={ACCEPT}
+        accept={ACCEPT[channel]}
         onChange={(e) => {
           const f = e.target.files?.[0];
           e.target.value = "";
@@ -285,7 +313,7 @@ export default function MediaComposer({ conversationId, enabled, disabledReason,
                 className="ibx-sheet-caption"
                 rows={2}
                 maxLength={MAX_CAPTION}
-                placeholder="Add a caption…"
+                placeholder={channel === "whatsapp" ? "Add a caption…" : "Add a message — sent right after the file…"}
                 value={caption}
                 disabled={busy}
                 onChange={(e) => setCaption(e.target.value)}

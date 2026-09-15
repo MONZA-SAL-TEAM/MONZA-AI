@@ -34,9 +34,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import DraftDock from "./DraftDock";
 import MediaComposer from "./MediaComposer";
-import { Attachments, Lightbox, Ticks } from "./MediaBubble";
+import { Attachments, LinkEmbeds, Lightbox, Ticks } from "./MediaBubble";
 import { carryUrls, isMetaCdn, previewText, waWebChatLink, withoutLinks } from "@/lib/inbox/media";
-import type { Conversation, InboxMessage } from "@/lib/inbox/types";
+import type { Conversation, CustomerProfile, InboxMessage } from "@/lib/inbox/types";
 import {
   CHANNEL_LABEL,
   VEHICLE_STATUS_LABEL,
@@ -97,7 +97,13 @@ type PageResult =
   | { ok: false; message: string };
 
 type ThreadResponse =
-  | { ok: true; messages: InboxMessage[]; window: { open: boolean; text: string } }
+  | {
+      ok: true;
+      messages: InboxMessage[];
+      window: { open: boolean; text: string };
+      /** Instagram and Facebook: who the customer is, as Meta shows them. */
+      profile?: CustomerProfile | null;
+    }
   | { ok: false; message?: string };
 
 interface ThreadState {
@@ -245,17 +251,126 @@ function Avatar({
   brand,
   channel,
   large = false,
+  picture,
 }: {
   name: string;
   brand: string | null;
   channel: string;
   large?: boolean;
+  /** Their Instagram/Facebook picture — drawn only from Meta's own hosts. */
+  picture?: string | null;
 }) {
+  const [broken, setBroken] = useState(false);
+  const show = !!picture && isMetaCdn(picture) && !broken;
   return (
     <span className={`ibx-av${large ? " ibx-av-lg" : ""}`} data-brand={brand ?? "none"} aria-hidden="true">
       <span className="ibx-av-txt">{initialsOf(name)}</span>
+      {show && (
+        // eslint-disable-next-line @next/next/no-img-element -- Meta's own short-lived link
+        <img className="ibx-av-img" src={picture ?? undefined} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(true)} />
+      )}
       <ChannelMark channel={channel} />
     </span>
+  );
+}
+
+/**
+ * Who the customer is (Samer, 2026-09-15: "their profile picture, their name
+ * and everything I can see"). Instagram: picture, name, @username, followers,
+ * follows. WhatsApp: the name WhatsApp shares and the number — Meta gives
+ * businesses no WhatsApp picture. Facebook: the name, and the picture once
+ * Meta approves profile access.
+ */
+function ProfileCard({ conv, profile }: { conv: Conversation; profile: CustomerProfile | null | undefined }) {
+  const [copied, setCopied] = useState(false);
+  if (conv.channel === "whatsapp") {
+    const chat = waWebChatLink(conv.peerPhone);
+    return (
+      <div className="ibx-card">
+        <p className="ibx-card-title">WhatsApp profile</p>
+        <dl className="ibx-facts">
+          <dt>Name</dt>
+          <dd>{conv.customerName}</dd>
+          <dt>Number</dt>
+          <dd>
+            {conv.peerPhone || "—"}
+            {conv.peerPhone && (
+              <button
+                type="button"
+                className="ibx-mini"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(conv.peerPhone ?? "");
+                  setCopied(true);
+                }}
+              >
+                {copied ? "Copied" : "Copy"}
+              </button>
+            )}
+          </dd>
+        </dl>
+        {chat && (
+          <a className="ibx-link" href={chat} target="_blank" rel="noreferrer">
+            Open the chat in WhatsApp Web
+          </a>
+        )}
+        <p className="ibx-card-text">WhatsApp does not share customers&apos; profile pictures with businesses.</p>
+      </div>
+    );
+  }
+
+  const picture = profile?.pictureUrl && isMetaCdn(profile.pictureUrl) ? profile.pictureUrl : null;
+  const name = profile?.name ?? conv.customerName;
+  const handle = profile?.username ?? (conv.customerName.startsWith("@") ? conv.customerName.slice(1) : null);
+  return (
+    <div className="ibx-card">
+      <p className="ibx-card-title">{conv.channel === "instagram" ? "Instagram profile" : "Facebook profile"}</p>
+      <div className="ibx-profile-head">
+        {picture ? (
+          // eslint-disable-next-line @next/next/no-img-element -- Meta's own short-lived link
+          <img className="ibx-profile-pic" src={picture} alt="" referrerPolicy="no-referrer" />
+        ) : (
+          <span className="ibx-profile-pic">{initialsOf(name)}</span>
+        )}
+        <div>
+          <p className="ibx-profile-name">
+            {name}
+            {profile?.verified ? " ✔" : ""}
+          </p>
+          {handle && <p className="ibx-profile-user">@{handle}</p>}
+        </div>
+      </div>
+      {profile && (profile.followers !== null || profile.followsYou !== null || profile.youFollow !== null) && (
+        <dl className="ibx-facts">
+          {profile.followers !== null && (
+            <>
+              <dt>Followers</dt>
+              <dd>{count(profile.followers)}</dd>
+            </>
+          )}
+          {profile.followsYou !== null && (
+            <>
+              <dt>Follows you</dt>
+              <dd>{profile.followsYou ? "Yes" : "No"}</dd>
+            </>
+          )}
+          {profile.youFollow !== null && (
+            <>
+              <dt>You follow them</dt>
+              <dd>{profile.youFollow ? "Yes" : "No"}</dd>
+            </>
+          )}
+        </dl>
+      )}
+      {conv.channel === "instagram" && handle && /^[A-Za-z0-9._]{1,30}$/.test(handle) && (
+        <a className="ibx-link" href={`https://www.instagram.com/${handle}/`} target="_blank" rel="noreferrer">
+          Open their profile on Instagram
+        </a>
+      )}
+      {profile === undefined && <p className="ibx-card-text">Loading their profile…</p>}
+      {conv.channel === "facebook" && !picture && profile !== undefined && (
+        <p className="ibx-card-text">Facebook profile pictures appear once Meta approves profile access for this app.</p>
+      )}
+    </div>
   );
 }
 
@@ -315,6 +430,13 @@ export default function InboxClient(props: Props) {
   const [dropped, setDropped] = useState<File | null>(null);
   /** The thread's photos, open full screen. */
   const [viewer, setViewer] = useState<{ images: string[]; index: number } | null>(null);
+  /**
+   * Instagram and Facebook profiles by thread id — in page memory only, never
+   * in the browser's saved copy (Meta's picture links expire within days).
+   * `null` = asked, nothing usable; absent = not asked yet.
+   */
+  const [profiles, setProfiles] = useState<Record<string, CustomerProfile | null>>({});
+  const profilesAsked = useRef(new Set<string>());
 
   const [alerts, setAlerts] = useState<AlertsState>("unsupported");
   const alertsRef = useRef<AlertsState>("unsupported");
@@ -707,6 +829,10 @@ export default function InboxClient(props: Props) {
           }));
           // Links expire; the saved copy keeps everything else.
           void cacheRef.current?.putThread(id, withoutLinks(json.messages));
+          if (json.profile !== undefined) {
+            profilesAsked.current.add(id);
+            setProfiles((p) => ({ ...p, [id]: json.profile ?? null }));
+          }
           // The thread is newer news than the list row: bring the row up to date.
           const last = json.messages[json.messages.length - 1];
           const row = convRef.current.get(id);
@@ -822,8 +948,49 @@ export default function InboxClient(props: Props) {
     if (composerRef.current) composerRef.current.style.height = "";
   }, [openId]);
 
-  /** Files and voice notes: live WhatsApp threads only, for now. */
-  const canAttach = !!open && live && open.channel === "whatsapp";
+  /** Files and voice notes: any live thread, within its channel's own rules. */
+  const canAttach = !!open && live;
+  const openProfile = open ? profiles[open.id] : undefined;
+
+  // Pictures for the Instagram and Facebook rows on screen, asked for as they
+  // scroll into view, a dozen at a time, each person once per visit.
+  useEffect(() => {
+    if (!live || typeof IntersectionObserver === "undefined") return;
+    const queue = new Set<string>();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let alive = true;
+    const flush = async () => {
+      timer = null;
+      const ids = [...queue].slice(0, 12);
+      ids.forEach((id) => queue.delete(id));
+      if (ids.length === 0) return;
+      try {
+        const res = await fetch(`/api/channels/profiles?ids=${ids.map(encodeURIComponent).join(",")}`, { cache: "no-store" });
+        const json = (await res.json().catch(() => null)) as { profiles?: Record<string, CustomerProfile | null> } | null;
+        if (alive && res.ok && json?.profiles) setProfiles((p) => ({ ...p, ...json.profiles }));
+      } catch {
+        // A picture is a nicety; initials stay.
+      }
+      if (alive && queue.size > 0) timer = setTimeout(() => void flush(), 1_200);
+    };
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        const id = (e.target as HTMLElement).dataset.profileId;
+        if (id && !profilesAsked.current.has(id)) {
+          profilesAsked.current.add(id);
+          queue.add(id);
+        }
+      }
+      if (queue.size > 0 && !timer) timer = setTimeout(() => void flush(), 400);
+    });
+    document.querySelectorAll<HTMLElement>("[data-profile-id]").forEach((el) => io.observe(el));
+    return () => {
+      alive = false;
+      io.disconnect();
+      if (timer) clearTimeout(timer);
+    };
+  }, [live, shown]);
 
   const anchorMessageId = useMemo(() => {
     const last = messages[messages.length - 1];
@@ -1243,10 +1410,11 @@ export default function InboxClient(props: Props) {
                             type="button"
                             className="ibx-row"
                             data-unread={unread}
+                            data-profile-id={live && c.channel !== "whatsapp" ? c.id : undefined}
                             aria-current={openId === c.id ? "true" : undefined}
                             onClick={() => openConversation(c)}
                           >
-                            <Avatar name={c.customerName} brand={brand} channel={c.channel} />
+                            <Avatar name={c.customerName} brand={brand} channel={c.channel} picture={profiles[c.id]?.pictureUrl} />
                             <span className="ibx-row-main">
                               <span className="ibx-row-top">
                                 <span className="ibx-row-name">{c.customerName}</span>
@@ -1361,9 +1529,18 @@ export default function InboxClient(props: Props) {
                 >
                   <Icon d={I.back} />
                 </button>
-                <Avatar name={open.customerName} brand={openBrand} channel={open.channel} large />
+                <Avatar
+                  name={open.customerName}
+                  brand={openBrand}
+                  channel={open.channel}
+                  large
+                  picture={openProfile?.pictureUrl}
+                />
                 <div className="ibx-conv-who">
-                  <h2 className="ibx-conv-name">{open.customerName}</h2>
+                  <h2 className="ibx-conv-name">
+                    {openProfile?.name ?? open.customerName}
+                    {openProfile?.verified ? " ✔" : ""}
+                  </h2>
                   <p className="ibx-conv-sub">
                     {openBrand && (
                       <span className="ibx-tag" data-brand={openBrand}>
@@ -1374,6 +1551,12 @@ export default function InboxClient(props: Props) {
                       {CHANNEL_LABEL[open.channel]}
                       {openAccount ? ` · to ${openAccount.handle}` : ""}
                     </span>
+                    {open.channel === "whatsapp" && open.peerPhone && open.peerPhone !== open.customerName && (
+                      <span className="ibx-conv-num">{open.peerPhone}</span>
+                    )}
+                    {openProfile?.username && openProfile.name && <span>@{openProfile.username}</span>}
+                    {openProfile?.followers != null && <span>{count(openProfile.followers)} followers</span>}
+                    {openProfile?.followsYou && <span className="ibx-follows">Follows you</span>}
                   </p>
                 </div>
                 {live && (
@@ -1438,6 +1621,7 @@ export default function InboxClient(props: Props) {
                           <Attachments items={m.attachments} onOpenImage={openImage} />
                         )}
                         {m.text !== "" && <p className="ibx-bubble-text">{m.text}</p>}
+                        {m.text !== "" && <LinkEmbeds text={m.text} />}
                         <p className="ibx-bubble-meta">
                           {m.author === "automation"
                             ? `Automatic · ${m.automationId ?? ""}`
@@ -1521,6 +1705,7 @@ export default function InboxClient(props: Props) {
                     {canAttach && (
                       <MediaComposer
                         conversationId={open.id}
+                        channel={open.channel}
                         enabled={thread.windowOpen && !sending}
                         disabledReason={
                           thread.windowOpen
@@ -1593,6 +1778,8 @@ export default function InboxClient(props: Props) {
                   </button>
                 </div>
 
+                {live && <ProfileCard key={open.id} conv={open} profile={openProfile} />}
+
                 <div className="ibx-card">
                   <p className="ibx-card-title">Conversation</p>
                   <dl className="ibx-facts">
@@ -1611,7 +1798,9 @@ export default function InboxClient(props: Props) {
                   <div className="ibx-card">
                     <p className="ibx-card-title">Not linked to a customer yet</p>
                     <p className="ibx-card-text">
-                      Instagram and Facebook do not share phone numbers, so this person is matched once they give one.
+                      {open.channel === "whatsapp"
+                        ? "No CRM customer is linked to this number yet."
+                        : "Instagram and Facebook do not share phone numbers, so this person is matched once they give one."}
                     </p>
                   </div>
                 )}

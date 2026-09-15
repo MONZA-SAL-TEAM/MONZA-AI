@@ -18,7 +18,7 @@ import { NextResponse } from "next/server";
 import { cronSecret } from "@/lib/env";
 import { isCronAuthorized, retentionCutoff } from "@/lib/channels/retention";
 import { purgeWhatsApp } from "@/lib/channels/store";
-import { purgeWhatsAppMedia, sweepPendingMedia } from "@/lib/channels/wa-media-store";
+import { purgeSentFiles, purgeWhatsAppMedia, sweepPendingMedia } from "@/lib/channels/wa-media-store";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -50,13 +50,24 @@ export async function GET(request: Request): Promise<NextResponse> {
     return NextResponse.json({ ok: false, message: "The clean-up could not run." }, { status: 500, headers: NO_STORE });
   }
 
+  // Files staff sent on Instagram and Facebook (migration 011), same 12 months.
+  const sent = await purgeSentFiles(before);
+  if (!sent.ok) console.error(`[channels/retention] old Instagram/Facebook files could not be deleted: ${sent.error}`);
+
   // Counts only — never what was deleted.
   console.info(
     `[channels/retention] removed ${result.value} WhatsApp message(s) and ${files.removed} file(s) sent before ${before}; ` +
-      `kept ${sweep.saved} waiting file(s), ${sweep.left} still waiting`
+      `${sent.ok ? sent.removed : 0} Instagram/Facebook file(s); kept ${sweep.saved} waiting file(s), ${sweep.left} still waiting`
   );
   return NextResponse.json(
-    { ok: true, removed: result.value, files: files.removed, kept: sweep.saved, before },
-    { headers: NO_STORE }
+    {
+      ok: sent.ok,
+      removed: result.value,
+      files: files.removed,
+      sentFiles: sent.ok ? sent.removed : null,
+      kept: sweep.saved,
+      before,
+    },
+    { status: sent.ok ? 200 : 500, headers: NO_STORE }
   );
 }

@@ -17,8 +17,9 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { AI_ANON_KEY, AI_URL } from "@/lib/env-public";
-import { OUTBOUND, classifyFile, type OutboundKind } from "@/lib/channels/wa-media";
+import { classifyFile, rulesFor, type MediaChannel, type OutboundKind } from "@/lib/channels/wa-media";
 import { isOgg, webmToOgg } from "@/lib/media/ogg-opus";
+import { voiceWav } from "@/lib/media/wav";
 
 export interface ReadyFile {
   blob: Blob;
@@ -31,8 +32,8 @@ export interface ReadyFile {
 
 type Prepared = { ok: true; file: ReadyFile } | { ok: false; problem: string };
 
-/** A photo redrawn as a JPG under WhatsApp's 5 MB, or null when the browser cannot read it. */
-async function toJpeg(file: Blob): Promise<Blob | null> {
+/** A photo redrawn as a JPG under the channel's limit, or null when the browser cannot read it. */
+async function toJpeg(file: Blob, maxBytes: number): Promise<Blob | null> {
   try {
     const bitmap = await createImageBitmap(file);
     let longest = 2560;
@@ -47,7 +48,7 @@ async function toJpeg(file: Blob): Promise<Blob | null> {
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
-      if (blob && blob.size <= OUTBOUND.image.maxBytes) return blob;
+      if (blob && blob.size <= maxBytes) return blob;
       longest = Math.round(longest * 0.8);
     }
     return null;
@@ -61,13 +62,13 @@ function renamed(name: string, ext: string): string {
   return `${base}.${ext}`;
 }
 
-/** A file somebody picked, dropped or pasted, made ready — or why it cannot go. */
-export async function prepareFile(file: File): Promise<Prepared> {
-  const c = classifyFile(file);
+/** A file somebody picked, dropped or pasted, made ready for that channel — or why it cannot go. */
+export async function prepareFile(file: File, channel: MediaChannel = "whatsapp"): Promise<Prepared> {
+  const c = classifyFile(file, channel);
   if (!c.ok) return c;
   if (c.convert) {
-    const jpg = await toJpeg(file);
-    if (!jpg) return { ok: false, problem: "This photo could not be prepared for WhatsApp — save it as a JPG and try again." };
+    const jpg = await toJpeg(file, rulesFor(channel).image.maxBytes);
+    if (!jpg) return { ok: false, problem: "This photo could not be prepared — save it as a JPG and try again." };
     return { ok: true, file: { blob: jpg, kind: "image", mime: "image/jpeg", filename: renamed(file.name, "jpg"), voice: false } };
   }
   return { ok: true, file: { blob: file, kind: c.kind, mime: c.mime, filename: file.name || "Monza", voice: false } };
@@ -82,10 +83,44 @@ export function recorderMimeType(): string | null {
   return null;
 }
 
-/** A finished recording, as WhatsApp wants it. */
-export async function prepareRecording(blob: Blob, recordedAs: string): Promise<Prepared> {
+/**
+ * Instagram and Facebook take no Ogg: the browser decodes the recording and it
+ * goes as a one-channel 16 kHz WAV (lib/media/wav.ts). Safari's MP4 goes as is.
+ */
+async function recordingForMeta(blob: Blob, recordedAs: string, channel: MediaChannel): Promise<Prepared> {
+  const limit = rulesFor(channel).audio.maxBytes;
+  if (recordedAs.includes("mp4") || recordedAs.includes("aac")) {
+    if (blob.size > limit) return { ok: false, problem: "That recording is too long to send." };
+    return { ok: true, file: { blob, kind: "audio", mime: "audio/mp4", filename: "Voice message.m4a", voice: false } };
+  }
+  let ctx: AudioContext | null = null;
+  try {
+    ctx = new AudioContext();
+    const sound = await ctx.decodeAudioData(await blob.arrayBuffer());
+    const channels: Float32Array[] = [];
+    for (let c = 0; c < sound.numberOfChannels; c++) channels.push(sound.getChannelData(c));
+    const wav = voiceWav(channels, sound.sampleRate);
+    if (wav.length > limit) return { ok: false, problem: "That recording is too long to send." };
+    return {
+      ok: true,
+      file: { blob: new Blob([new Uint8Array(wav)], { type: "audio/wav" }), kind: "audio", mime: "audio/wav", filename: "Voice message.wav", voice: false },
+    };
+  } catch {
+    return { ok: false, problem: "This recording could not be prepared for sending." };
+  } finally {
+    void ctx?.close();
+  }
+}
+
+/** A finished recording, as the channel wants it. */
+export async function prepareRecording(
+  blob: Blob,
+  recordedAs: string,
+  channel: MediaChannel = "whatsapp"
+): Promise<Prepared> {
   if (blob.size === 0) return { ok: false, problem: "Nothing was recorded." };
-  if (blob.size > OUTBOUND.audio.maxBytes) return { ok: false, problem: "That recording is too long to send." };
+  if (channel !== "whatsapp") return recordingForMeta(blob, recordedAs, channel);
+  if (blob.size > rulesFor("whatsapp").audio.maxBytes) return { ok: false, problem: "That recording is too long to send." };
   const bytes = new Uint8Array(await blob.arrayBuffer());
   const voice = (ogg: Uint8Array): Prepared => ({
     ok: true,
@@ -111,7 +146,7 @@ function bucketClient(): SupabaseClient {
 
 type Sent = { ok: true } | { ok: false; message: string };
 
-/** Upload and send one file on a WhatsApp conversation. `onStage` drives the button's words. */
+/** Upload and send one file on a conversation. `onStage` drives the button's words. */
 export async function sendFile(
   conversationId: string,
   file: ReadyFile,

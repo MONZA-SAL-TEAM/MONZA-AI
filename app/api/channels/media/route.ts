@@ -1,6 +1,7 @@
 /**
- * POST /api/channels/media — permission to upload ONE file for a WhatsApp
- * reply: a photo, video, voice note or document (Samer, 2026-09-15).
+ * POST /api/channels/media — permission to upload ONE file for a reply on
+ * WhatsApp, Instagram or Facebook: a photo, video, voice note or document
+ * (Samer, 2026-09-15), within that channel's own rules (lib/channels/wa-media.ts).
  *
  * The file itself never passes through here (Vercel refuses request bodies
  * over 4.5 MB): this answers with a one-time signed upload, the browser puts
@@ -19,7 +20,7 @@ import { requireRealStaff, type StaffAccess } from "@/lib/auth";
 import { MEDIA_CAPABILITIES } from "@/lib/permissions/media";
 import { channelsSendLive } from "@/lib/env";
 import { decodeThreadId } from "@/lib/channels/live-map";
-import { prepareWhatsAppUpload } from "@/lib/channels/live";
+import { prepareUpload } from "@/lib/channels/live";
 import { WA_MEDIA_BUCKET } from "@/lib/channels/wa-media";
 
 export const dynamic = "force-dynamic";
@@ -51,7 +52,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   const ids = decodeThreadId(body.conversationId);
   if (!ids) return fail("No conversation.", 400, "badRequest");
 
-  const grant = await prepareWhatsAppUpload(
+  const grant = await prepareUpload(
     body.conversationId,
     { kind: body.kind, mime: body.mime, size: body.size },
     channelsSendLive()

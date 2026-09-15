@@ -17,7 +17,7 @@
  */
 
 import type { ChannelKey } from "@/lib/domain/types";
-import type { Conversation, InboxAttachment, InboxMessage } from "@/lib/inbox/types";
+import type { Conversation, CustomerProfile, InboxAttachment, InboxMessage } from "@/lib/inbox/types";
 
 /** What the live layer needs to know about a connected account. */
 export interface LiveAccount {
@@ -296,6 +296,35 @@ export function metaAttachmentsOf(message: unknown, nowMs: number = Date.now()):
   if (sticker) out.push(ready("sticker", sticker));
 
   return out;
+}
+
+/** The profile fields asked of Meta per channel (Instagram and Messenger user-profile APIs). */
+export const PROFILE_FIELDS = {
+  instagram: "name,username,profile_pic,follower_count,is_user_follow_business,is_business_follow_user,is_verified_user",
+  /** Needs Meta's "Business Asset User Profile Access"; refused until it is approved. */
+  facebook: "first_name,last_name,name,profile_pic",
+} as const;
+
+/**
+ * GET /{person-id}?fields=… → what the inbox shows about them. Null when Meta
+ * said nothing usable. Only an https picture link is kept; the screen draws it
+ * only from Meta's own hosts (lib/inbox/media.ts isMetaCdn).
+ */
+export function mapCustomerProfile(json: unknown): CustomerProfile | null {
+  const o = obj(json);
+  if (!o) return null;
+  const full = [str(o.first_name), str(o.last_name)].filter(Boolean).join(" ");
+  const flag = (v: unknown) => (typeof v === "boolean" ? v : null);
+  const profile: CustomerProfile = {
+    name: str(o.name) ?? (full || null),
+    username: str(o.username),
+    pictureUrl: httpsUrl(o.profile_pic),
+    followers: typeof o.follower_count === "number" && Number.isFinite(o.follower_count) ? o.follower_count : null,
+    followsYou: flag(o.is_user_follow_business),
+    youFollow: flag(o.is_business_follow_user),
+    verified: flag(o.is_verified_user),
+  };
+  return Object.values(profile).some((v) => v !== null) ? profile : null;
 }
 
 function mapMessage(

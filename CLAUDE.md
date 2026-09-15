@@ -801,6 +801,33 @@ WhatsApp" flow again** — that is the step that locked the phone out on
     `/embed/captioned/`, sandboxed iframe). A server-side fetch of that address
     answers `X-Frame-Options: DENY`, but in a real browser it renders (proven in
     Chrome the same day) — do not "fix" it from a curl result.
+  - Facebook posts, videos and reels shared in Messenger use Facebook's own
+    embed (`facebookEmbedUrl` → `plugins/post.php` / `plugins/video.php`), and
+    Instagram/Facebook post links pasted INTO THE WORDS (WhatsApp mostly) are
+    shown the same way (`embeddableLinks`, max 3). Any other link stays text —
+    MONZA AI never fetches a site a customer names.
+- **Files and voice notes out on Instagram and Facebook (2026-09-15).** Same
+  flow as WhatsApp (`/api/channels/media` → signed upload → `/api/channels/send`),
+  with each channel's own rules (`rulesFor`): Instagram JPG/PNG 8 MB,
+  MP4/MOV/WEBM 25 MB, AAC/M4A/WAV 25 MB, **PDF only**; Messenger 8 MB photos,
+  25 MB for video, audio and most files incl. ZIP. Meta takes files BY LINK:
+  a 10-minute signed link, on the route the thread was read on. No OGG on
+  either, so a recording goes as a 16 kHz mono WAV made in the browser
+  (`lib/media/wav.ts`); no voice-note flag, it shows as audio. Words go as a
+  second message (no captions there).
+  - **Kept 12 months (Samer's choice)** in `channel_sent_files` (migration
+    011) — a deliberate, narrow exception to the no-copy rule: ONLY what
+    MONZA AI sends. Customers' words and files on Instagram/Facebook are still
+    never stored. The daily clean-up deletes files, then rows.
+- **Who the customer is (2026-09-15).** Instagram: `GET /{IGSID}` for name,
+  username, picture, followers, follows — works with the permissions we have.
+  Facebook: the same call is REFUSED until Meta approves "Business Asset User
+  Profile Access" (Advanced); the refusal is remembered 6 h per account and
+  the screen shows initials (Samer is applying). WhatsApp: Meta gives no
+  picture — the name and the number are shown, with Copy. Profiles are read
+  live, cached 6 h in server memory and page memory, NEVER written to the
+  database or the browser's saved copy (picture links expire in days); list
+  pictures are fetched only for rows scrolled into view, a dozen at a time.
 
 ## General
 

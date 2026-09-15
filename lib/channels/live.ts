@@ -29,9 +29,11 @@ import {
   readDeliveries,
   readWhatsAppConversations,
   readWhatsAppMessages,
+  recordSentFile,
   recordWhatsAppSent,
   type StoredAccount,
 } from "@/lib/channels/store";
+import type { CustomerProfile } from "@/lib/inbox/types";
 import {
   mapWhatsAppConversation,
   mapWhatsAppMessage,
@@ -55,6 +57,7 @@ import {
   mediaJobsFromRows,
   readUploaded,
   removeMedia,
+  signFor,
   signLinks,
   signUpload,
 } from "@/lib/channels/wa-media-store";
@@ -73,6 +76,8 @@ import {
   isTooMuchData,
   lastCustomerAt,
   mapConversations,
+  mapCustomerProfile,
+  PROFILE_FIELDS,
   mapThread,
   metaErrorDetail,
   nextCursor,
@@ -783,18 +788,18 @@ export type UploadGrant =
   | { kind: "refused"; status: number; problem: string };
 
 /**
- * Permission to upload one file for a WhatsApp reply. Every gate the send
- * itself has is checked FIRST — nobody waits for a 16 MB upload that could
- * never be sent — and the place it goes is chosen here, under this
- * conversation, never by the browser.
+ * Permission to upload one file for a reply, on WhatsApp, Instagram or
+ * Facebook. Every gate the send itself has is checked FIRST — nobody waits for
+ * a 25 MB upload that could never be sent — and the place it goes is chosen
+ * here, under this conversation, never by the browser.
  */
-export async function prepareWhatsAppUpload(
+export async function prepareUpload(
   threadId: unknown,
   file: { kind: unknown; mime: unknown; size: unknown },
   live: boolean
 ): Promise<UploadGrant> {
   const wa = await whatsappAccountOf(threadId);
-  if (!wa) return { kind: "refused", status: 400, problem: "Files can be sent on WhatsApp conversations only, for now." };
+  if (!wa) return prepareMetaUpload(threadId, file, live);
   const check = checkOutbound(file.kind, file.mime, file.size);
   if (!check.ok) return { kind: "refused", status: 400, problem: check.problem };
 
@@ -809,6 +814,32 @@ export async function prepareWhatsAppUpload(
   }
 
   const path = outboundMediaPath(wa.account.id, wa.id, crypto.randomUUID(), check.ext);
+  const signed = await signUpload(path);
+  if (!signed.ok) {
+    return { kind: "refused", status: 503, problem: "Could not prepare the upload — the file store may not be set up yet." };
+  }
+  return { kind: "ok", path, token: signed.token };
+}
+
+/** The same, for Instagram and Facebook: the window as Meta has it right now, and that channel's rules. */
+async function prepareMetaUpload(
+  threadId: unknown,
+  file: { kind: unknown; mime: unknown; size: unknown },
+  live: boolean
+): Promise<UploadGrant> {
+  const ids = decodeThreadId(threadId);
+  if (!ids) return { kind: "refused", status: 400, problem: "That conversation link is not valid." };
+  const t = await openThread(threadId, new Date());
+  if (!t.ok) return { kind: "refused", status: t.status, problem: t.problem };
+  const check = checkOutbound(file.kind, file.mime, file.size, t.account.channel);
+  if (!check.ok) return { kind: "refused", status: 400, problem: check.problem };
+  if (!t.peer) return { kind: "refused", status: 409, problem: "Could not tell who the customer is in this conversation." };
+  if (!t.window.open) {
+    return { kind: "window_closed", explanation: windowExplanation(t.window, t.account.channel as ChannelKey) };
+  }
+  if (!live) return { kind: "switched_off" };
+
+  const path = outboundMediaPath(t.account.id, ids.metaConversationId, crypto.randomUUID(), check.ext);
   const signed = await signUpload(path);
   if (!signed.ok) {
     return { kind: "refused", status: 503, problem: "Could not prepare the upload — the file store may not be set up yet." };
@@ -831,6 +862,8 @@ type OpenThread =
       ok: true;
       account: StoredAccount;
       token: string;
+      /** The route's own reader, for asking more of the same person (their profile). */
+      get: GraphFn;
       /** Which route the thread was read on — a reply goes back on the same one. */
       via: "instagram-login" | "facebook-login";
       messages: InboxMessage[];
@@ -894,6 +927,7 @@ async function openThread(threadId: unknown, now: Date): Promise<OpenThread> {
     ok: true,
     account,
     token: route.token,
+    get: route.get,
     via: route.via,
     messages,
     peer: peerOf(r.json, route.selfIds),
@@ -902,8 +936,112 @@ async function openThread(threadId: unknown, now: Date): Promise<OpenThread> {
 }
 
 export type ThreadView =
-  | { ok: true; messages: InboxMessage[]; window: { open: boolean; text: string } }
+  | {
+      ok: true;
+      messages: InboxMessage[];
+      window: { open: boolean; text: string };
+      /** Instagram and Facebook: who the customer is, as Meta shows them. */
+      profile?: CustomerProfile | null;
+    }
   | { ok: false; status: number; problem: string };
+
+/* ── Who the customer is (Samer, 2026-09-15) ─────────────────────────────── */
+
+/** A person's profile is remembered this long; Meta's picture links last days. */
+const PROFILE_MEMORY_MS = 6 * 60 * 60_000;
+/** Nothing usable came back: ask again sooner. */
+const NO_PROFILE_MEMORY_MS = 30 * 60_000;
+const profileMemory = new Map<string, { profile: CustomerProfile | null; until: number }>();
+/** Facebook refuses profiles until "Business Asset User Profile Access" is approved — remembered per account. */
+const facebookProfilesRefused = new Map<string, number>();
+/** Which person a conversation is with — it never changes. */
+const peerMemory = new Map<string, string>();
+
+/**
+ * Their name, username, picture, followers and follow state, from Meta —
+ * never stored (the picture link expires within days). Instagram answers with
+ * the permissions MONZA AI already has; Facebook needs Meta's "Business Asset
+ * User Profile Access", and until that is approved the refusal is remembered
+ * and the screen shows initials (rule 21: a refusal, not an empty profile).
+ */
+async function readProfile(
+  account: StoredAccount,
+  get: GraphFn,
+  token: string,
+  personId: string
+): Promise<CustomerProfile | null> {
+  const key = `${account.id}:${personId}`;
+  const hit = profileMemory.get(key);
+  if (hit && hit.until > Date.now()) return hit.profile;
+
+  let profile: CustomerProfile | null = null;
+  if (account.channel === "facebook") {
+    const refusedUntil = facebookProfilesRefused.get(account.id);
+    if (refusedUntil && refusedUntil > Date.now()) return null;
+    const r = await get(personId, { fields: PROFILE_FIELDS.facebook }, token, TIMEOUT_MS);
+    if (r.ok) {
+      profile = mapCustomerProfile(r.json);
+    } else {
+      facebookProfilesRefused.set(account.id, Date.now() + PROFILE_MEMORY_MS);
+      console.warn(`[channels/profile] ${account.id}: Meta refused Facebook profiles — ${r.meta ?? r.problem}`);
+    }
+  } else {
+    const r = await get(personId, { fields: PROFILE_FIELDS.instagram }, token, TIMEOUT_MS);
+    if (r.ok) {
+      profile = mapCustomerProfile(r.json);
+    } else {
+      // Some accounts refuse the follow fields; the basics are worth a second ask.
+      const basic = await get(personId, { fields: "name,username,profile_pic" }, token, TIMEOUT_MS);
+      if (basic.ok) profile = mapCustomerProfile(basic.json);
+      else console.warn(`[channels/profile] ${account.id}: Meta refused the Instagram profile — ${basic.meta ?? basic.problem}`);
+    }
+  }
+  profileMemory.set(key, { profile, until: Date.now() + (profile ? PROFILE_MEMORY_MS : NO_PROFILE_MEMORY_MS) });
+  return profile;
+}
+
+/** Profiles asked for at once, from the conversation list. */
+export const PROFILES_PER_REQUEST = 12;
+
+/**
+ * Profiles for the conversation rows on screen. Each id must be one of OUR
+ * thread ids; the person is read from the conversation ON META, never taken
+ * from the browser. WhatsApp threads have no profile (Meta shares none).
+ */
+export async function readProfilesForStaff(threadIds: readonly unknown[]): Promise<Record<string, CustomerProfile | null>> {
+  const out: Record<string, CustomerProfile | null> = {};
+  const all = await listAccounts();
+  const wanted = threadIds.filter((id): id is string => typeof id === "string").slice(0, PROFILES_PER_REQUEST);
+  await Promise.all(
+    wanted.map(async (threadId) => {
+      const ids = decodeThreadId(threadId);
+      const account = ids ? all.find((a) => a.id === ids.accountId) : undefined;
+      if (!ids || !account || !isMetaChannel(account)) return;
+      try {
+        const route = await readRoute(account, all);
+        if (!route.ok) {
+          out[threadId] = null;
+          return;
+        }
+        let personId = peerMemory.get(threadId);
+        if (!personId) {
+          const r = await route.get(ids.metaConversationId, { fields: "participants" }, route.token, TIMEOUT_MS);
+          const peer = r.ok ? peerOf(r.json, route.selfIds) : null;
+          if (!peer) {
+            out[threadId] = null;
+            return;
+          }
+          personId = peer.id;
+          peerMemory.set(threadId, personId);
+        }
+        out[threadId] = await readProfile(account, route.get, route.token, personId);
+      } catch {
+        out[threadId] = null;
+      }
+    })
+  );
+  return out;
+}
 
 /** What the screen needs for one open thread. The token never leaves here. */
 export async function readThreadForStaff(threadId: unknown): Promise<ThreadView> {
@@ -911,8 +1049,11 @@ export async function readThreadForStaff(threadId: unknown): Promise<ThreadView>
   if (wa) return readWhatsAppThread(wa.account, wa.id, new Date());
   const t = await openThread(threadId, new Date());
   if (!t.ok) return t;
+  if (t.peer && typeof threadId === "string") peerMemory.set(threadId, t.peer.id);
+  const profile = t.peer ? await readProfile(t.account, t.get, t.token, t.peer.id).catch(() => null) : null;
   return {
     ok: true,
+    profile,
     messages: t.messages,
     window: {
       open: t.window.open,
@@ -1394,14 +1535,13 @@ export async function sendOnThread(
   live: boolean,
   /** Who pressed Send — shown under the reply in the thread. */
   staffName = "Monza",
-  /** A file already uploaded for this conversation. WhatsApp only, for now. */
-  attachment?: OutgoingAttachment
+  /** A file already uploaded for this conversation (POST /api/channels/media). */
+  attachment?: OutgoingAttachment,
+  /** Who pressed Send, for the record of a kept Instagram/Facebook file. */
+  staffId?: string
 ): Promise<SendOutcome> {
   const wa = await whatsappAccountOf(threadId);
   if (wa) return sendOnWhatsApp(wa.account, wa.id, text, live, staffName, attachment);
-  if (attachment) {
-    return { kind: "refused", status: 400, problem: "Files can be sent on WhatsApp conversations only, for now." };
-  }
   const t = await openThread(threadId, new Date());
   if (!t.ok) return { kind: "refused", status: t.status, problem: t.problem };
   if (!t.peer) {
@@ -1420,8 +1560,70 @@ export async function sendOnThread(
       : t.via === "instagram-login"
         ? sendInstagramLogin
         : instagramAdapter.send;
-  const result = await send({ accountId: t.account.id, toExternalId: t.peer.id, text }, t.token);
-  return result.ok
-    ? { kind: "sent" }
-    : { kind: "refused", status: 502, problem: `Meta did not accept it: ${result.error}` };
+  if (!attachment) {
+    const result = await send({ accountId: t.account.id, toExternalId: t.peer.id, text }, t.token);
+    return result.ok
+      ? { kind: "sent" }
+      : { kind: "refused", status: 502, problem: `Meta did not accept it: ${result.error}` };
+  }
+
+  // A file: only one uploaded for THIS conversation, checked again against the
+  // channel's own rules, handed to Meta by a link that lives ten minutes.
+  const ids = decodeThreadId(threadId);
+  if (!ids || !isOutboundPathFor(attachment.path, t.account.id, ids.metaConversationId)) {
+    return { kind: "refused", status: 400, problem: "That file does not belong to this conversation." };
+  }
+  const file = await readUploaded(attachment.path);
+  if (!file.ok) return { kind: "refused", status: 404, problem: "The file did not finish uploading — attach it again." };
+  const check = checkOutbound(attachment.kind, verifiedType(file.mime, file.bytes), file.bytes.length, t.account.channel);
+  if (!check.ok) {
+    await removeMedia([attachment.path]);
+    return { kind: "refused", status: 400, problem: check.problem };
+  }
+  const link = await signFor(attachment.path, META_FILE_LINK_SECONDS);
+  if (!link) {
+    await removeMedia([attachment.path]);
+    return { kind: "refused", status: 503, problem: "Could not prepare the file for Meta — nothing was sent." };
+  }
+
+  const sent = await send(
+    {
+      accountId: t.account.id,
+      toExternalId: t.peer.id,
+      text: "",
+      attachment: { type: check.kind === "document" ? "file" : check.kind, url: link },
+    },
+    t.token
+  );
+  if (!sent.ok) {
+    await removeMedia([attachment.path]);
+    return { kind: "refused", status: 502, problem: `Meta did not accept the file: ${sent.error}` };
+  }
+
+  // Kept 12 months like WhatsApp (Samer, 2026-09-15; migration 011). It WENT:
+  // failing to record the copy must not report a failure.
+  const recorded = await recordSentFile({
+    accountId: t.account.id,
+    brand: t.account.brand,
+    conversationRef: ids.metaConversationId,
+    externalMessageId: /-unknown-/.test(sent.externalMessageId) ? null : sent.externalMessageId,
+    path: attachment.path,
+    kind: check.kind,
+    mime: check.mime,
+    size: file.bytes.length,
+    staffId: staffId ?? null,
+  });
+  if (!recorded) console.error("[channels/send] file sent, but its record could not be written");
+
+  // Instagram and Messenger files carry no caption: the words follow as their own message.
+  if (text !== "") {
+    const words = await send({ accountId: t.account.id, toExternalId: t.peer.id, text }, t.token);
+    if (!words.ok) {
+      return { kind: "refused", status: 502, problem: `The file was sent, but the words were not: ${words.error}` };
+    }
+  }
+  return { kind: "sent" };
 }
+
+/** How long Meta has to fetch a file staff send on Instagram or Facebook. */
+const META_FILE_LINK_SECONDS = 10 * 60;

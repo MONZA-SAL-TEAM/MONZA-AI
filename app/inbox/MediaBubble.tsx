@@ -12,7 +12,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { InboxAttachment } from "@/lib/inbox/types";
-import { formatBytes, formatClock, instagramEmbedUrl, isMetaCdn, mapsLink, mediaLabel } from "@/lib/inbox/media";
+import {
+  embeddableLinks,
+  facebookEmbedUrl,
+  formatBytes,
+  formatClock,
+  instagramEmbedUrl,
+  isMetaCdn,
+  mapsLink,
+  mediaLabel,
+} from "@/lib/inbox/media";
 import "./media.css";
 
 const NOT_READY: Readonly<Record<Exclude<InboxAttachment["state"], "ready">, string>> = {
@@ -114,31 +123,52 @@ function VoicePlayer({ url, voice }: { url: string; voice: boolean }) {
   );
 }
 
-/** A shared post, reel or story: its picture when Meta hosts one, else a link. */
+/**
+ * An Instagram or Facebook post, drawn by Instagram or Facebook itself inside
+ * the chat — the picture or video with its caption — and a link to open it.
+ */
+function PostEmbed({ network, embed, link, title }: { network: "instagram" | "facebook"; embed: string; link: string; title: string }) {
+  const video = embed.includes("/plugins/video.php");
+  return (
+    <div className="ibx-att-share">
+      <iframe
+        className={network === "instagram" ? "ibx-att-embed" : video ? "ibx-att-embed ibx-att-embed-fbv" : "ibx-att-embed ibx-att-embed-fb"}
+        src={embed}
+        title={title}
+        loading="lazy"
+        scrolling="no"
+        allow="encrypted-media; picture-in-picture; autoplay; clipboard-write"
+        sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+      />
+      <a className="ibx-att-share-label" href={link} target="_blank" rel="noreferrer noopener">
+        {network === "instagram" ? "Open in Instagram" : "Open in Facebook"}
+      </a>
+    </div>
+  );
+}
+
+/** Instagram and Facebook post links inside the words, shown as the posts (like WhatsApp's link preview). */
+export function LinkEmbeds({ text }: { text: string }) {
+  const links = embeddableLinks(text);
+  if (links.length === 0) return null;
+  return (
+    <div className="ibx-att ibx-link-embeds">
+      {links.map((l) => (
+        <PostEmbed key={l.embed} network={l.network} embed={l.embed} link={l.link} title="Shared post" />
+      ))}
+    </div>
+  );
+}
+
+/** A shared post, reel or story: the post itself, its picture when Meta hosts one, else a link. */
 function Share({ a, onOpenImage }: { a: InboxAttachment; onOpenImage: (url: string) => void }) {
   const [broken, setBroken] = useState(false);
   const url = a.url ?? "";
   const label = a.label ?? "Shared post";
-  // An Instagram post or reel: the post itself, drawn by Instagram.
-  const embed = instagramEmbedUrl(url);
-  if (embed) {
-    return (
-      <div className="ibx-att-share">
-        <iframe
-          className="ibx-att-embed"
-          src={embed}
-          title={label}
-          loading="lazy"
-          scrolling="no"
-          allow="encrypted-media; picture-in-picture"
-          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-        />
-        <a className="ibx-att-share-label" href={url} target="_blank" rel="noreferrer noopener">
-          Open in Instagram
-        </a>
-      </div>
-    );
-  }
+  const ig = instagramEmbedUrl(url);
+  if (ig) return <PostEmbed network="instagram" embed={ig} link={url} title={label} />;
+  const fb = facebookEmbedUrl(url);
+  if (fb) return <PostEmbed network="facebook" embed={fb} link={url} title={label} />;
   if (isMetaCdn(url) && !broken) {
     return (
       <div className="ibx-att-share">

@@ -34,6 +34,7 @@ import type {
   OutboundMessage,
   SendResult,
 } from "@/lib/channels/types";
+import { outboundMessagePart } from "@/lib/channels/types";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
@@ -221,8 +222,13 @@ export function parseInstagram(
 /** Instagram's own host — the "Instagram API with Instagram login" route. */
 const IG_LOGIN_GRAPH = "https://graph.instagram.com/v21.0";
 
-async function sendInstagram(message: OutboundMessage, token: string): Promise<SendResult> {
-  return sendVia(GRAPH, message, token);
+/** The reply for an account read through Facebook login (graph.facebook.com, the Page's key). */
+export async function sendInstagram(
+  message: OutboundMessage,
+  token: string,
+  fetchFn: typeof fetch = fetch
+): Promise<SendResult> {
+  return sendVia(GRAPH, message, token, fetchFn);
 }
 
 /**
@@ -230,16 +236,25 @@ async function sendInstagram(message: OutboundMessage, token: string): Promise<S
  * graph.instagram.com with that route's own key. A thread opened on one route
  * is always answered on the same route — its token and customer id belong to it.
  */
-export async function sendInstagramLogin(message: OutboundMessage, token: string): Promise<SendResult> {
-  return sendVia(IG_LOGIN_GRAPH, message, token);
+export async function sendInstagramLogin(
+  message: OutboundMessage,
+  token: string,
+  fetchFn: typeof fetch = fetch
+): Promise<SendResult> {
+  return sendVia(IG_LOGIN_GRAPH, message, token, fetchFn);
 }
 
-async function sendVia(host: string, message: OutboundMessage, token: string): Promise<SendResult> {
+async function sendVia(
+  host: string,
+  message: OutboundMessage,
+  token: string,
+  fetchFn: typeof fetch
+): Promise<SendResult> {
   const account = message.accountId;
   if (!account) return { ok: false, error: "No account.", retryable: false };
 
   try {
-    const res = await fetch(`${host}/me/messages`, {
+    const res = await fetchFn(`${host}/me/messages`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -247,8 +262,11 @@ async function sendVia(host: string, message: OutboundMessage, token: string): P
       },
       body: JSON.stringify({
         recipient: { id: message.toExternalId },
-        message: { text: message.text },
+        // Words, or one file Instagram fetches from a short-lived link.
+        message: outboundMessagePart(message),
       }),
+      // Instagram fetches the file before it answers; a video takes a while.
+      signal: AbortSignal.timeout(message.attachment ? 90_000 : 20_000),
     });
 
     const payload = (await res.json().catch(() => null)) as {

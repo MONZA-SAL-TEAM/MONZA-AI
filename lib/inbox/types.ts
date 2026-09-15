@@ -144,6 +144,26 @@ export interface Conversation {
   peerPhone?: string;
 }
 
+/**
+ * What Meta lets MONZA AI see about the person in an Instagram or Facebook
+ * conversation (Samer, 2026-09-15: "their profile picture, their name and
+ * everything I can see"). Read live from Meta and never stored: the picture
+ * link expires within days. WhatsApp has none of this — Meta shares only the
+ * profile name and the number, which the conversation already carries.
+ */
+export interface CustomerProfile {
+  name: string | null;
+  username: string | null;
+  /** Meta's own short-lived picture link. */
+  pictureUrl: string | null;
+  followers: number | null;
+  /** They follow our account. */
+  followsYou: boolean | null;
+  /** Our account follows them. */
+  youFollow: boolean | null;
+  verified: boolean | null;
+}
+
 /* ── Filters ─────────────────────────────────────────────────────────────── */
 
 /**

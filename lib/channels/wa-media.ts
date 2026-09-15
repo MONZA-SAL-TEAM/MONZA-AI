@@ -258,7 +258,11 @@ const ALIASES: Readonly<Record<string, string>> = {
   "audio/mp3": "audio/mpeg",
   "audio/x-aac": "audio/aac",
   "audio/opus": "audio/ogg",
+  "audio/x-wav": "audio/wav",
+  "audio/wave": "audio/wav",
+  "audio/vnd.wave": "audio/wav",
   "application/x-pdf": "application/pdf",
+  "application/x-zip-compressed": "application/zip",
 };
 
 /** "audio/ogg; codecs=opus" → "audio/ogg"; common aliases folded. */
@@ -286,12 +290,18 @@ const AUDIO_TYPES: Readonly<Record<string, string>> = {
   "audio/amr": "amr",
 };
 
-/** What each kind of attachment may be, per WhatsApp (Meta's media reference). */
+/** What each kind of attachment may be, per channel (Meta's own references, 2026-09-15). */
 export type OutboundKind = "image" | "video" | "audio" | "document";
 
-export const OUTBOUND: Readonly<
+/** The three channels files can be sent on. */
+export type MediaChannel = "whatsapp" | "instagram" | "facebook";
+
+type Rules = Readonly<
   Record<OutboundKind, { types: Readonly<Record<string, string>>; maxBytes: number; words: string }>
-> = {
+>;
+
+/** WhatsApp's rules (Cloud API media reference). */
+export const OUTBOUND: Rules = {
   image: { types: { "image/jpeg": "jpg", "image/png": "png" }, maxBytes: 5 * MB, words: "JPG or PNG photos up to 5 MB" },
   video: { types: { "video/mp4": "mp4", "video/3gpp": "3gp" }, maxBytes: 16 * MB, words: "MP4 videos up to 16 MB" },
   audio: { types: AUDIO_TYPES, maxBytes: 16 * MB, words: "MP3, M4A, AAC, AMR or OGG audio up to 16 MB" },
@@ -302,28 +312,85 @@ export const OUTBOUND: Readonly<
   },
 };
 
+/**
+ * Instagram's rules — the same on both Instagram routes. No OGG and no MP3
+ * (a voice recording goes as WAV), and PDF is the only document it takes.
+ */
+const INSTAGRAM_OUT: Rules = {
+  image: { types: { "image/jpeg": "jpg", "image/png": "png" }, maxBytes: 8 * MB, words: "JPG or PNG photos up to 8 MB" },
+  video: {
+    types: { "video/mp4": "mp4", "video/quicktime": "mov", "video/webm": "webm" },
+    maxBytes: 25 * MB,
+    words: "MP4, MOV or WEBM videos up to 25 MB",
+  },
+  audio: {
+    types: { "audio/aac": "aac", "audio/mp4": "m4a", "audio/wav": "wav" },
+    maxBytes: 25 * MB,
+    words: "M4A, AAC or WAV audio up to 25 MB",
+  },
+  document: { types: { "application/pdf": "pdf" }, maxBytes: 25 * MB, words: "PDF files up to 25 MB" },
+};
+
+/** Messenger's rules: 25 MB for everything, 8 MB for a photo sent by link. */
+const MESSENGER_OUT: Rules = {
+  image: { types: { "image/jpeg": "jpg", "image/png": "png" }, maxBytes: 8 * MB, words: "JPG or PNG photos up to 8 MB" },
+  video: {
+    types: { "video/mp4": "mp4", "video/quicktime": "mov", "video/webm": "webm" },
+    maxBytes: 25 * MB,
+    words: "MP4, MOV or WEBM videos up to 25 MB",
+  },
+  audio: {
+    types: { "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/aac": "aac", "audio/wav": "wav" },
+    maxBytes: 25 * MB,
+    words: "MP3, M4A, AAC or WAV audio up to 25 MB",
+  },
+  document: {
+    types: { ...DOC_TYPES, "application/zip": "zip" },
+    maxBytes: 25 * MB,
+    words: "PDF, Word, Excel, PowerPoint, text or ZIP files up to 25 MB",
+  },
+};
+
+const CHANNEL_WORDS: Readonly<Record<MediaChannel, string>> = {
+  whatsapp: "WhatsApp",
+  instagram: "Instagram",
+  facebook: "Facebook",
+};
+
+function channelOf(channel: unknown): MediaChannel {
+  return channel === "instagram" || channel === "facebook" ? channel : "whatsapp";
+}
+
+/** The rules for one channel. Anything unknown gets WhatsApp's. */
+export function rulesFor(channel: unknown): Rules {
+  const c = channelOf(channel);
+  return c === "instagram" ? INSTAGRAM_OUT : c === "facebook" ? MESSENGER_OUT : OUTBOUND;
+}
+
 export function isOutboundKind(kind: unknown): kind is OutboundKind {
   return kind === "image" || kind === "video" || kind === "audio" || kind === "document";
 }
 
-/** One attachment about to be sent, checked against WhatsApp's own rules. */
+/** One attachment about to be sent, checked against that channel's own rules. */
 export function checkOutbound(
   kind: unknown,
   mime: unknown,
-  size: unknown
+  size: unknown,
+  channel: unknown = "whatsapp"
 ): { ok: true; kind: OutboundKind; mime: string; ext: string } | { ok: false; problem: string } {
   if (!isOutboundKind(kind)) return { ok: false, problem: "That kind of attachment cannot be sent." };
-  const rule = OUTBOUND[kind];
+  const who = CHANNEL_WORDS[channelOf(channel)];
+  const rule = rulesFor(channel)[kind];
   const m = typeof mime === "string" ? baseMime(mime) : "";
   const ext = rule.types[m];
-  if (!ext) return { ok: false, problem: `WhatsApp only accepts ${rule.words} here.` };
+  if (!ext) return { ok: false, problem: `${who} only accepts ${rule.words} here.` };
   if (typeof size !== "number" || !Number.isFinite(size) || size <= 0) {
     return { ok: false, problem: "That file is empty." };
   }
   if (size > rule.maxBytes) {
     return {
       ok: false,
-      problem: `That file is ${formatBytes(size)}; WhatsApp allows ${formatBytes(rule.maxBytes)} for this kind.`,
+      problem: `That file is ${formatBytes(size)}; ${who} allows ${formatBytes(rule.maxBytes)} for this kind.`,
     };
   }
   return { ok: true, kind, mime: m, ext };
@@ -339,6 +406,9 @@ const EXT_TYPES: Readonly<Record<string, string>> = {
   mp4: "video/mp4",
   "3gp": "video/3gpp",
   mov: "video/quicktime",
+  webm: "video/webm",
+  wav: "audio/wav",
+  zip: "application/zip",
   mp3: "audio/mpeg",
   m4a: "audio/mp4",
   aac: "audio/aac",
@@ -384,45 +454,64 @@ export const MAX_IMAGE_INPUT_BYTES = 40 * MB;
  * What a file someone picked should be sent as, before anything is uploaded.
  * `convert` means the browser redraws it as a JPG first (lib/inbox/send-media.ts).
  */
-export function classifyFile(file: {
-  name: string;
-  type: string;
-  size: number;
-}): { ok: true; kind: OutboundKind; mime: string; convert: boolean } | { ok: false; problem: string } {
+export function classifyFile(
+  file: {
+    name: string;
+    type: string;
+    size: number;
+  },
+  channel: unknown = "whatsapp"
+): { ok: true; kind: OutboundKind; mime: string; convert: boolean } | { ok: false; problem: string } {
+  const rules = rulesFor(channel);
+  const who = CHANNEL_WORDS[channelOf(channel)];
   const mime = (file.type ? baseMime(file.type) : "") || mimeFromFilename(file.name) || "";
   if (file.size <= 0) return { ok: false, problem: "That file is empty." };
 
   if (mime.startsWith("image/")) {
-    if (!CONVERTIBLE_IMAGES.has(mime)) return { ok: false, problem: "WhatsApp cannot send that kind of image." };
+    if (!CONVERTIBLE_IMAGES.has(mime)) return { ok: false, problem: `${who} cannot send that kind of image.` };
     if (file.size > MAX_IMAGE_INPUT_BYTES) {
       return { ok: false, problem: `That photo is ${formatBytes(file.size)} — too large to send.` };
     }
-    const asIs = OUTBOUND.image.types[mime] !== undefined && file.size <= OUTBOUND.image.maxBytes;
+    const asIs = rules.image.types[mime] !== undefined && file.size <= rules.image.maxBytes;
     return { ok: true, kind: "image", mime: asIs ? mime : "image/jpeg", convert: !asIs };
   }
-  if (mime === "video/quicktime") {
-    return { ok: false, problem: "iPhone .MOV videos cannot be sent — WhatsApp needs an MP4 video up to 16 MB." };
+  if (mime === "video/quicktime" && !rules.video.types[mime]) {
+    return { ok: false, problem: `iPhone .MOV videos cannot be sent — ${who} needs ${rules.video.words}.` };
   }
   const kind: OutboundKind | null = mime.startsWith("video/")
     ? "video"
     : mime.startsWith("audio/")
       ? "audio"
-      : DOC_TYPES[mime]
+      : DOC_TYPES[mime] || rules.document.types[mime]
         ? "document"
         : null;
   if (!kind) {
     return {
       ok: false,
-      problem: "WhatsApp cannot send that kind of file. Photos, MP4 videos, audio, PDF, Word, Excel, PowerPoint and text files can be sent.",
+      problem: `${who} cannot send that kind of file. It takes ${rules.image.words}, ${rules.video.words}, ${rules.audio.words} and ${rules.document.words}.`,
     };
   }
-  const check = checkOutbound(kind, mime, file.size);
+  const check = checkOutbound(kind, mime, file.size, channel);
   return check.ok ? { ok: true, kind, mime: check.mime, convert: false } : check;
 }
 
 /* ── Checking a file is what it says ─────────────────────────────────────── */
 
-type Family = "jpeg" | "png" | "webp" | "gif" | "ogg" | "isobmff" | "mp3" | "amr" | "aac" | "pdf" | "zip" | "ole";
+type Family =
+  | "jpeg"
+  | "png"
+  | "webp"
+  | "gif"
+  | "ogg"
+  | "isobmff"
+  | "webm"
+  | "wav"
+  | "mp3"
+  | "amr"
+  | "aac"
+  | "pdf"
+  | "zip"
+  | "ole";
 
 function at(b: Uint8Array, offset: number, text: string): boolean {
   if (b.length < offset + text.length) return false;
@@ -435,9 +524,12 @@ export function sniff(b: Uint8Array): Family | null {
   if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "jpeg";
   if (b.length >= 4 && b[0] === 0x89 && at(b, 1, "PNG")) return "png";
   if (at(b, 0, "RIFF") && at(b, 8, "WEBP")) return "webp";
+  if (at(b, 0, "RIFF") && at(b, 8, "WAVE")) return "wav";
   if (at(b, 0, "GIF8")) return "gif";
   if (at(b, 0, "OggS")) return "ogg";
-  if (at(b, 4, "ftyp")) return "isobmff";
+  if (b.length >= 4 && b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return "webm";
+  // MP4 and its family; older QuickTime .MOV files open with a moov/wide/mdat atom instead.
+  if (at(b, 4, "ftyp") || at(b, 4, "moov") || at(b, 4, "wide") || at(b, 4, "mdat") || at(b, 4, "free")) return "isobmff";
   if (at(b, 0, "#!AMR")) return "amr";
   if (at(b, 0, "%PDF")) return "pdf";
   if (b.length >= 4 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04) return "zip";
@@ -454,6 +546,10 @@ const EXPECT: Readonly<Record<string, readonly Family[] | "any">> = {
   "image/webp": ["webp"],
   "video/mp4": ["isobmff"],
   "video/3gpp": ["isobmff"],
+  "video/quicktime": ["isobmff"],
+  "video/webm": ["webm"],
+  "audio/wav": ["wav"],
+  "application/zip": ["zip"],
   "audio/mp4": ["isobmff"],
   "audio/aac": ["aac", "isobmff"],
   "audio/ogg": ["ogg"],
@@ -510,6 +606,10 @@ const STORED_EXT: Readonly<Record<string, string>> = {
   "image/webp": "webp",
   "video/mp4": "mp4",
   "video/3gpp": "3gp",
+  "video/quicktime": "mov",
+  "video/webm": "webm",
+  "audio/wav": "wav",
+  "application/zip": "zip",
   ...AUDIO_TYPES,
   ...DOC_TYPES,
 };

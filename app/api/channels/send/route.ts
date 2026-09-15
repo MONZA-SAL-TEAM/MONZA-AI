@@ -97,12 +97,14 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const whatsapp = ids.accountId.startsWith("wa-");
   if (attachment) {
-    if (!whatsapp) return fail("Files can be sent on WhatsApp conversations only, for now.", 400, "badRequest");
     if (attachment.kind === "audio" && text !== "") {
       return fail("A voice note or audio file cannot carry words — send them as a separate message.", 400, "badRequest");
     }
-    if (text.length > WHATSAPP_MAX_CAPTION) {
-      return fail(`That caption is too long (${WHATSAPP_MAX_CAPTION.toLocaleString("en-US")} characters at most).`, 400, "badRequest");
+    // WhatsApp carries a caption under the file; Instagram and Facebook send
+    // the words as their own message, within their own 1,000.
+    const max = whatsapp ? WHATSAPP_MAX_CAPTION : MAX_LENGTH;
+    if (text.length > max) {
+      return fail(`Those words are too long (${max.toLocaleString("en-US")} characters at most).`, 400, "badRequest");
     }
   } else {
     // Instagram's own limit is 1,000 characters, WhatsApp's 4,096 (our WhatsApp
@@ -116,7 +118,14 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   // Shown under the reply in a WhatsApp thread: the part of the email before "@".
   const staffName = access.user.email?.split("@")[0] || "Monza";
-  const outcome = await sendOnThread(conversationId, text, channelsSendLive(), staffName, attachment ?? undefined);
+  const outcome = await sendOnThread(
+    conversationId,
+    text,
+    channelsSendLive(),
+    staffName,
+    attachment ?? undefined,
+    access.user.userId
+  );
 
   // Counts and ids only — never the text or a file name (customer-facing content).
   console.info(

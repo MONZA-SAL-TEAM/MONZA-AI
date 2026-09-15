@@ -432,6 +432,39 @@ export async function recordWhatsAppSent(input: {
   return true;
 }
 
+/**
+ * Record a file staff sent on Instagram or Facebook and that MONZA AI keeps
+ * (Samer, 2026-09-15: kept 12 months like WhatsApp — migration 011). Only what
+ * MONZA AI sends; customers' words and files on those channels are not kept.
+ */
+export async function recordSentFile(input: {
+  accountId: string;
+  brand: string;
+  conversationRef: string;
+  externalMessageId: string | null;
+  path: string;
+  kind: string;
+  mime: string;
+  size: number;
+  staffId: string | null;
+}): Promise<boolean> {
+  const sb = client();
+  if (!sb) return false;
+  const { error } = await sb.from("channel_sent_files").insert({
+    account_id: input.accountId,
+    brand: input.brand,
+    conversation_ref: input.conversationRef,
+    external_message_id: input.externalMessageId,
+    path: input.path,
+    kind: input.kind,
+    mime: input.mime,
+    size_bytes: input.size,
+    staff_id: input.staffId,
+  });
+  if (error) console.error(`[channels/sent-files] could not record a sent file: ${error.message}`);
+  return !error;
+}
+
 /** Delete WhatsApp messages sent before `before` (the 12-month rule). */
 export async function purgeWhatsApp(before: string): Promise<Read<number>> {
   const sb = client();
