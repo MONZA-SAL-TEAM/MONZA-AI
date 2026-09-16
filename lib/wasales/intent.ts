@@ -612,18 +612,35 @@ const SYSTEM_NOTICE = /\b(?:created this chat because|this chat was created beca
 const INTERNAL_TEST =
   /^(?:(?:hi|hello|hey)\s)?(?:test|testing|tst|test message|test msg|this is a test|just testing|testing testing)(?:\s\d{1,3})?(?:\s(?:please ignore|ignore))?$/;
 
+export interface ReadOptions {
+  /**
+   * A REHEARSAL chat (lib/wasales/rehearsal-chats.ts): Samer's own number,
+   * testing the product as a client. The INTERNAL_TEST filter is the one rule
+   * that would silence exactly the person testing on purpose, so it is off
+   * there — "test" reads as an ordinary message with nothing in it.
+   *
+   * Nothing else changes: a scam, a vendor pitch and Meta's own notice are
+   * still excluded, because a client's chat excludes them too.
+   */
+  rehearsal?: boolean;
+}
+
 /**
  * Messages that must never reach the engine as a customer's words. Each rule
  * needs TWO independent signals (or an exact whole-message form), because
  * filtering a real customer is worse than letting a scam through to a
  * person: a person can ignore a scam, nobody answers a filtered customer.
  */
-export function detectExclusion(raw: string, normalized: string): Exclusion | null {
+export function detectExclusion(
+  raw: string,
+  normalized: string,
+  opts: ReadOptions = {}
+): Exclusion | null {
   if (SYSTEM_NOTICE.test(normalized)) {
     return { kind: "SYSTEM_NOTICE", reason: "Meta's own chat notice, not a customer message." };
   }
 
-  if (INTERNAL_TEST.test(normalized)) {
+  if (!opts.rehearsal && INTERNAL_TEST.test(normalized)) {
     return { kind: "INTERNAL_TEST", reason: "A test message — the whole message is \"test\"." };
   }
 
@@ -674,7 +691,11 @@ export interface MessageReading {
  * tapped a choice; a message typed in exactly that shape counts too (it is
  * no more powerful than typing the model's name).
  */
-export function readMessage(text: string, payload?: string | null): MessageReading {
+export function readMessage(
+  text: string,
+  payload?: string | null,
+  opts: ReadOptions = {}
+): MessageReading {
   const raw = typeof text === "string" ? text : "";
   const normalized = normalize(raw);
   const tokens = normalized === "" ? [] : normalized.split(" ");
@@ -698,7 +719,7 @@ export function readMessage(text: string, payload?: string | null): MessageReadi
     hits,
     intents: intentsOf(hits),
     confidence,
-    exclusion: parsedPayload ? null : detectExclusion(raw, normalized),
+    exclusion: parsedPayload ? null : detectExclusion(raw, normalized, opts),
     payload: parsedPayload,
     choiceNumber: parsedPayload ? null : readChoiceNumber(tokens),
   };

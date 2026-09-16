@@ -1,99 +1,98 @@
-# Test numbers — our own chats, not customers'
+# The test number — rehearsed as a client
 
-**The list is `lib/channels/test-chats.ts`. Adding to it is a code change on
-purpose; nothing reads it from a database or a dashboard.**
+**Samer, 2026-09-16: "any time that number sends a message to 70708585 always
+treat it as a client so that i can test all the questions."**
 
-| Channel | Identity | Who | Since |
+| Channel | Identity | Account | Who |
 |---|---|---|---|
-| WhatsApp | `+961 3 195 955` → `9613195955` | Samer's own phone, writing to `wa-monza` (+961 70 708 585) | 2026-09-16 |
+| WhatsApp | `+961 3 195 955` → `9613195955` | `wa-monza` (+961 70 708 585) | Samer's own phone |
 
-## What "a test number" means here
+The list is `lib/wasales/rehearsal-chats.ts`. It is code, not a setting.
+
+## What it means
+
+The number is **not special-cased**. A message from it takes the same path a
+stranger's does, and that is the point — a rehearsal that skipped the real path
+would rehearse nothing.
 
 | | |
 |---|---|
-| Still arrives, is signature-checked, deduplicated and **stored** | yes — a test that is invisible proves nothing |
-| Still shown in the Inbox, still answerable by a person | yes |
-| Still answered by the autoreply pilot | yes, **but only because that chat is separately on the pilot list** |
-| Opens a `leads` row | **no** |
-| Records a `lead_touchpoints` row (attribution) | **no** |
-| Records a `lead_interests` row (which car was named) | **no** |
-| Auto-links to a CRM customer by phone | **no** — it cannot, there is no lead to link |
+| Stored, deduplicated, routed to the brand, shown in the Inbox | yes |
+| Opens a `leads` row, a `lead_touchpoints` row, a `lead_interests` row | **yes** |
+| Auto-links to a CRM customer by phone | **yes** — a Lebanese mobile is the one identifier allowed to link without a person |
+| Counted on the dashboard | **yes** — see the cost below |
+| Answered by the autoreply pilot | yes, because that chat is *separately* on the pilot list |
 
-The point is the dashboard. A Lebanese mobile is the one identifier allowed to
-join records without a person looking (`lib/leads/phone.ts`), so without this
-list every test message put Samer's own phone into the lead table, under a
-brand, with a car interest — and "where do customers come from" answered with a
-number we dialled ourselves. Attribution is the figure somebody spends money
-against.
+**The one difference.** `detectExclusion` (`lib/wasales/intent.ts`) refuses to
+answer a message whose whole text is `test`, `testing`, `hi test`, `test 2`.
+That rule exists so somebody poking the system does not get a brochure — and it
+is the exact rule that would silence the person poking it on purpose. In a
+rehearsal chat that one filter is off, so "test" reads as an ordinary message
+with nothing in it, and the engine answers the way it answers any message it
+did not understand.
+
+**Every other exclusion still applies**, because a client gets them too: a fake
+Meta-support message, a vendor pitch and Meta's own chat notice are still
+excluded here. "Treat it as a client" is the whole rule, not a licence.
+
+Nothing about *understanding* changes. `tests/sales-rehearsal.test.ts` asserts
+that the intents, language and confidence of a real question are identical with
+the flag on and off — otherwise the rehearsal would be testing a different
+product from the one customers get.
+
+## The cost, stated plainly
+
+**The dashboard counts these messages as demand.** Every test opens or touches
+a lead carrying `9613195955`, under whichever brand received it, with whatever
+car the message named. That is the price of the rehearsal being real, and it is
+a decision rather than an oversight.
+
+Two ways to keep a figure honest when it matters:
+
+```sql
+-- What our own testing has contributed.
+select l.id, l.first_seen_at, l.last_seen_at,
+       (select count(*) from lead_touchpoints t where t.lead_id = l.id) as touchpoints,
+       (select count(*) from lead_interests  i where i.lead_id = l.id) as interests
+from leads l
+where l.phone = '9613195955';
+
+-- Any figure, with the rehearsal excluded.
+--   ... where lead_id not in (select id from leads where phone = '9613195955')
+```
+
+If the number ever becomes noisy enough to distort a real decision, the fix is
+a `is_test` column on `leads` set at capture time and excluded in
+`lib/leads/analytics.ts` — a migration, so Samer's call, and not worth it for
+one number.
 
 ## Two lists, and the direction between them
 
-`lib/channels/test-chats.ts` says **"not a customer"**.
+`lib/wasales/rehearsal-chats.ts` says **"this chat is ours to test in"**.
 `lib/wasales/autoreply-pilot.ts` says **"a machine may answer this by itself"**
 — the one named exception to CLAUDE.md rule 24, and Samer's decision every time
 it widens.
 
-They are separate files because listing a number as a test must never switch
-automation on for it. The dependency runs one way, and
-`tests/channels-test-chats.test.ts` asserts it: **every pilot chat must be a
-test chat**; a test chat is not thereby a pilot chat. If that assertion ever
-fails, the pilot was pointed at a real customer — the failure is the warning,
-not the problem.
+They are separate files so that listing a chat as a rehearsal can never switch
+automation on for it. `tests/sales-rehearsal.test.ts` asserts the direction:
+**every pilot chat must be a rehearsal chat**, never the reverse. If that
+assertion fails, the pilot is pointed at a real customer.
 
 ## Identity per channel
 
-- **WhatsApp is a phone.** Compared through `samePhone`, so `03195955`,
-  `+961 3 195 955` and `9613195955` are one number, and it is the same person on
-  any WhatsApp account of ours. A number that cannot be normalised matches
-  nothing — never a raw string compare.
-- **Instagram and Messenger ids are scoped to the account they wrote to.** An
-  entry must name the account, and the id is compared exactly. The same digits
-  as a phone number on Instagram are a stranger, not the test number.
+- **WhatsApp is a phone**, compared through `samePhone`, so `03195955`,
+  `+961 3 195 955` and `9613195955` are one number. A number that cannot be
+  normalised matches nothing — never a raw-string compare.
+- **Instagram and Messenger ids are opaque and scoped to the account** they
+  wrote to, so they are compared exactly. The same digits as a phone number on
+  Instagram are a stranger.
+- **Every entry names the account**, because Samer named one: "that number …
+  to 70708585". The same phone writing to another account of ours is not a
+  rehearsal there until somebody says so.
 
-## Rows recorded BEFORE a number was listed
+## Adding another rehearsal chat
 
-Skipping capture does not remove what is already in the database. Samer's test
-phone has been writing to `wa-monza` since 2026-09-15, so lead rows for it very
-likely exist.
-
-**This has NOT been run.** It deletes production rows, it needs Samer's yes, and
-it should be run as a `select` first to see what it would take:
-
-```sql
--- 1. LOOK FIRST. Which leads are the test phone's?
-select l.id, l.phone, l.display_name, l.first_seen_at, l.last_seen_at
-from leads l
-where l.phone = '9613195955';
-
--- 2. What hangs off them.
-select 'conversations' as what, count(*) from lead_conversations
-  where lead_id in (select id from leads where phone = '9613195955')
-union all select 'touchpoints', count(*) from lead_touchpoints
-  where lead_id in (select id from leads where phone = '9613195955')
-union all select 'interests', count(*) from lead_interests
-  where lead_id in (select id from leads where phone = '9613195955')
-union all select 'suggestions', count(*) from lead_match_suggestions
-  where lead_id in (select id from leads where phone = '9613195955');
-
--- 3. Only then, and only with Samer's yes. Children first.
---    This removes LEAD records only. The conversation and its messages in
---    channel_conversations / channel_messages stay — the chat itself is real
---    and Samer needs to see it.
--- delete from lead_match_suggestions where lead_id in (select id from leads where phone = '9613195955');
--- delete from lead_interests        where lead_id in (select id from leads where phone = '9613195955');
--- delete from lead_touchpoints      where lead_id in (select id from leads where phone = '9613195955');
--- delete from lead_conversations    where lead_id in (select id from leads where phone = '9613195955');
--- delete from leads                 where phone   = '9613195955';
-```
-
-`testPhonesE164()` prints the numbers in the form the `phone` column holds, so
-the list and the SQL cannot drift apart silently.
-
-## Adding another test number
-
-1. Add the entry to `TEST_CHATS` with a note saying whose it is.
+1. Add the entry to `REHEARSAL_CHATS` with a note saying whose it is.
 2. `npm run verify`.
-3. If that number has already been messaging, run the look-first queries above
-   and decide about the rows it already left.
-4. Listing it does **not** make it auto-reply. That is a separate, deliberate
+3. Listing it does **not** make it auto-reply. That is a separate, deliberate
    change to the pilot list.

@@ -111,6 +111,14 @@ export interface EngineInput {
   conversationIsNew: boolean;
   /** When the customer sent it — from the payload, never the clock (rule 18). */
   now: string;
+  /**
+   * This chat is a REHEARSAL (lib/wasales/rehearsal-chats.ts): our own number,
+   * testing the product as a client. Everything is decided exactly as it would
+   * be for a customer; the single difference is that a message reading "test"
+   * is not filtered out as an internal test. Absent means a real customer,
+   * which is what every other caller is.
+   */
+  rehearsal?: boolean;
 }
 
 export interface EngineDeps {
@@ -439,7 +447,7 @@ export function decide(
   deps: EngineDeps
 ): EngineDecision {
   const k = deps.knowledge;
-  const reading = readMessage(input.text, input.payload);
+  const reading = readMessage(input.text, input.payload, { rehearsal: input.rehearsal === true });
   const eventKind = input.eventKind ?? "message";
 
   const bare = (reason: string, outcome: EngineDecision["outcome"]): EngineDecision => ({

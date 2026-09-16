@@ -64,6 +64,12 @@ export interface ThreadFacts {
   channel: SalesChannel;
   messages: readonly InboxMessage[];
   windowOpen: boolean;
+  /**
+   * Our own chat, rehearsing the client experience (Samer's test number). Read
+   * from the ACCOUNT and the customer id, never from the words. Only the
+   * internal-test filter changes; see lib/wasales/rehearsal-chats.ts.
+   */
+  rehearsal?: boolean;
 }
 
 export type Suggestion =
@@ -158,6 +164,7 @@ export function suggestForThread(
       text: answered.map(customerWords).filter((t) => t !== "").join("\n"),
       hasMedia: answered.some(carriesMedia),
       brand: facts.brand,
+      rehearsal: facts.rehearsal === true,
       conversationIsNew: outs.length === 0,
       now: latest.at,
     },

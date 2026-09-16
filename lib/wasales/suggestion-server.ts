@@ -20,6 +20,7 @@ import { channelsSendLive } from "@/lib/env";
 import { decodeThreadId } from "@/lib/channels/live-map";
 import { listAccounts, recordWhatsAppSent, type StoredAccount } from "@/lib/channels/store";
 import { isPilotAccount, isPilotChat } from "@/lib/wasales/autoreply-pilot";
+import { isRehearsalChat } from "@/lib/wasales/rehearsal-chats";
 import { readThreadForStaff, suggestionTarget, threadPeerId } from "@/lib/channels/live";
 import { libraryMedia, loadCatalog, type LibraryFile } from "@/lib/wasales/catalog";
 import { listLibraryFiles } from "@/lib/wasales/library-server";
@@ -84,14 +85,24 @@ type Reply = { status: number; body: unknown };
  * ONLY for the pilot chat (Samer, 2026-09-16: "i dont want it live for all the
  * clients"). Every other chat sees nothing new: no card, no send, no reply.
  */
-async function inPilot(threadId: unknown): Promise<boolean> {
+/**
+ * The pilot check, keeping the customer id it had to resolve.
+ *
+ * `load()` needs the same id to tell a rehearsal chat from a customer's, and
+ * reading it costs a Meta call on Instagram and Messenger. Resolving it once
+ * and carrying it is the difference between one call and two per request.
+ */
+async function pilotGate(threadId: unknown): Promise<{ allowed: boolean; peer: string | null }> {
   const ids = decodeThreadId(threadId);
   // No pilot chat on this account: answered without a single Meta call.
-  if (!ids || !isPilotAccount(ids.accountId)) return false;
+  if (!ids || !isPilotAccount(ids.accountId)) return { allowed: false, peer: null };
   const account = (await listAccounts()).find((a) => a.id === ids.accountId);
-  if (!account) return false;
+  if (!account) return { allowed: false, peer: null };
   const peer = await threadPeerId(threadId);
-  return peer !== null && isPilotChat({ accountId: account.id, channel: account.channel, peerExternalId: peer });
+  const allowed =
+    peer !== null &&
+    isPilotChat({ accountId: account.id, channel: account.channel, peerExternalId: peer });
+  return { allowed, peer };
 }
 
 const NOT_IN_PILOT: Reply = {
@@ -121,7 +132,7 @@ function withLibraryColours(catalog: WaCar[], files: readonly LibraryFile[]): Wa
   });
 }
 
-async function load(threadId: unknown): Promise<Loaded | Failure> {
+async function load(threadId: unknown, peer: string | null = null): Promise<Loaded | Failure> {
   const ids = decodeThreadId(threadId);
   if (!ids) return { ok: false, status: 400, problem: "That conversation link is not valid." };
   const account = (await listAccounts()).find((a) => a.id === ids.accountId);
@@ -149,7 +160,17 @@ async function load(threadId: unknown): Promise<Loaded | Failure> {
     brand,
     channel,
     ref: ids.metaConversationId,
-    facts: { brand, channel, messages: view.messages, windowOpen: view.window.open },
+    facts: {
+      brand,
+      channel,
+      messages: view.messages,
+      windowOpen: view.window.open,
+      // Our own number, testing as a client (Samer, 2026-09-16). Read from the
+      // ACCOUNT and the customer's id, never from what was written (rule 1).
+      rehearsal:
+        peer !== null &&
+        isRehearsalChat({ accountId: account.id, channel: account.channel, peerExternalId: peer }),
+    },
     saved: memory.ok ? memory.saved : freshSaved(),
     memoryOk: memory.ok,
     deps: {
@@ -193,8 +214,9 @@ function viewOf(s: Suggestion, memoryOk: boolean, notes: string[]): SuggestionVi
 }
 
 export async function suggestionFor(threadId: unknown): Promise<Reply> {
-  if (!(await inPilot(threadId))) return NOT_IN_PILOT;
-  const c = await load(threadId);
+  const gate = await pilotGate(threadId);
+  if (!gate.allowed) return NOT_IN_PILOT;
+  const c = await load(threadId, gate.peer);
   if (!c.ok) return { status: c.status, body: { ok: false, message: c.problem } };
   const s = suggestForThread(c.facts, c.saved, c.deps, { liveSending: channelsSendLive() });
   return { status: 200, body: viewOf(s, c.memoryOk, c.notes) };
@@ -308,10 +330,11 @@ async function deliver(
 }
 
 export async function sendSuggestion(threadId: unknown, version: unknown, staffName: string): Promise<Reply> {
-  if (!(await inPilot(threadId))) {
+  const gate = await pilotGate(threadId);
+  if (!gate.allowed) {
     return { status: 403, body: { ok: false, message: "Sales suggestions are switched on only for the test chat." } };
   }
-  const c = await load(threadId);
+  const c = await load(threadId, gate.peer);
   if (!c.ok) return { status: c.status, body: { ok: false, message: c.problem } };
   if (!c.memoryOk) {
     return {
@@ -333,8 +356,9 @@ export async function sendSuggestion(threadId: unknown, version: unknown, staffN
 }
 
 export async function resumeSuggestions(threadId: unknown): Promise<Reply> {
-  if (!(await inPilot(threadId))) return NOT_IN_PILOT;
-  const c = await load(threadId);
+  const gate = await pilotGate(threadId);
+  if (!gate.allowed) return NOT_IN_PILOT;
+  const c = await load(threadId, gate.peer);
   if (!c.ok) return { status: c.status, body: { ok: false, message: c.problem } };
   if (!c.memoryOk) {
     return { status: 503, body: { ok: false, message: "The suggestion memory is not set up yet (migration 012)." } };
@@ -379,9 +403,10 @@ export async function autoreplyThread(
   deadlineMs: number
 ): Promise<AutoreplyOutcome> {
   let sent = 0;
-  if (!(await inPilot(threadId))) return { rounds: 0, sent, stopped: "not the pilot chat" };
+  const gate = await pilotGate(threadId);
+  if (!gate.allowed) return { rounds: 0, sent, stopped: "not the pilot chat" };
   for (let round = 1; round <= MAX_ROUNDS; round++) {
-    const c = await load(threadId);
+    const c = await load(threadId, gate.peer);
     if (!c.ok) return { rounds: round, sent, stopped: `could not read the chat (${c.status})` };
     if (!c.memoryOk) return { rounds: round, sent, stopped: "memory not set up (migration 012)" };
 

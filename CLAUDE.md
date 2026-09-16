@@ -603,18 +603,22 @@ find us" WITHOUT asking them.
   strangers. Only WhatsApp may supply one — see the `phone:` argument in
   `storeInbound`.
 
-**Our own test numbers are stored but never counted (Samer, 2026-09-16:
-"treat the following number as a test number 03195955").**
-`lib/channels/test-chats.ts` lists the chats that are OURS — today only
-`+961 3 195 955` on WhatsApp. Their messages still arrive, are stored and are
-shown in the Inbox, and the pilot still answers them; they open no lead, no
-touchpoint and no car interest, so our own testing never appears on the
-dashboard as demand and never auto-links to a CRM customer by phone. It is a
-SEPARATE list from `lib/wasales/autoreply-pilot.ts`, one way: every pilot chat
-must be a test chat (asserted in `tests/channels-test-chats.test.ts`), but
-listing a number as a test never switches automation on for it. Rows recorded
-before a number was listed are NOT removed by the code — the look-first queries
-are in `docs/TEST-NUMBERS.md` and need Samer's yes.
+**The test number is rehearsed AS A CLIENT, not exempted (Samer, 2026-09-16:
+"always treat it as a client so that i can test all the questions").**
+`+961 3 195 955` writing to `wa-monza` is listed in
+`lib/wasales/rehearsal-chats.ts` and is special-cased NOWHERE else: it opens a
+lead, records a touchpoint and a car interest, and auto-links to a CRM customer
+by phone exactly as a stranger would. A rehearsal that skipped the real path
+would rehearse nothing. **The single difference** is that the INTERNAL_TEST
+filter (`detectExclusion`) is off there, so a message reading "test" is
+answered instead of being silenced — every other exclusion (scam, vendor pitch,
+Meta's notice) still applies, and nothing about UNDERSTANDING changes, which
+`tests/sales-rehearsal.test.ts` asserts. **The cost is accepted, not hidden:**
+the dashboard counts these as demand; `docs/TEST-NUMBERS.md` holds the SQL to
+exclude `9613195955` from a figure, and the `is_test` column that would do it
+properly is a migration and therefore Samer's call. Separate from
+`lib/wasales/autoreply-pilot.ts`, one way: every pilot chat must be a rehearsal
+chat, never the reverse.
 
 **Attribution is captured at the moment of arrival, or never.** Meta attaches a
 referral to the FIRST message of a thread and to no other, and no endpoint
