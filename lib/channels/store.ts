@@ -38,6 +38,12 @@
  * lead is noted only when that insert actually inserted — otherwise every
  * retry would count the same person, and the same ad, again.
  *
+ * ── Our own test chats are stored, but never counted ───────────────────────
+ * A message from a number listed in lib/channels/test-chats.ts is recorded and
+ * shown like any other — Samer must be able to see his own test — but it opens
+ * no lead, no touchpoint and no car interest, so our own testing never appears
+ * on the dashboard as demand and never auto-links to a CRM customer.
+ *
  * ── Brand comes from the account, never from the payload ────────────────────
  * A message's brand is looked up from the account it arrived at. It is never
  * read from the message, inferred from its text, or passed in by a caller. The
@@ -58,6 +64,7 @@ import {
   type WhatsAppStatusUpdate,
 } from "@/lib/channels/whatsapp";
 import type { StoredAttachment } from "@/lib/channels/wa-media";
+import { isTestChat } from "@/lib/channels/test-chats";
 import { noteInboundLead } from "@/lib/leads/store";
 
 export interface StoredAccount {
@@ -318,6 +325,17 @@ export async function storeInbound(events: readonly InboundEvent[]): Promise<Sto
       });
     }
 
+    // A test chat is OURS (lib/channels/test-chats.ts). It is stored, shown and
+    // answerable like any other — Samer has to see his own test — but it never
+    // becomes a lead: that would put our own phone in the attribution figures
+    // and auto-link it to a CRM customer, because a Lebanese mobile is the one
+    // identifier allowed to link without a person.
+    const ours = isTestChat({
+      channel: account.channel,
+      accountId: account.id,
+      peerExternalId: event.fromExternalId,
+    });
+
     // Attribution is captured HERE, at the moment of arrival, because Meta
     // attaches a referral to the first message of a thread and to no other and
     // no endpoint returns it afterwards. The text is read in memory for a car
@@ -325,16 +343,18 @@ export async function storeInbound(events: readonly InboundEvent[]): Promise<Sto
     //
     // Best-effort: failing the whole delivery would make Meta retry for seven
     // days and then disable the endpoint for every brand.
-    await noteInboundLead(sb, {
-      conversationId,
-      brand: account.brand,
-      channel: account.channel,
-      event,
-      // Instagram and Messenger peer ids are NOT phone numbers, however
-      // numeric they look. Only a channel that genuinely carries one may pass
-      // it, and passing an IG id here would auto-link strangers to each other.
-      phone: account.channel === "whatsapp" ? event.fromExternalId : null,
-    });
+    if (!ours) {
+      await noteInboundLead(sb, {
+        conversationId,
+        brand: account.brand,
+        channel: account.channel,
+        event,
+        // Instagram and Messenger peer ids are NOT phone numbers, however
+        // numeric they look. Only a channel that genuinely carries one may pass
+        // it, and passing an IG id here would auto-link strangers to each other.
+        phone: account.channel === "whatsapp" ? event.fromExternalId : null,
+      });
+    }
   }
 
   return { ok: true, stored, duplicates, unmatched, media, fresh };

@@ -603,6 +603,19 @@ find us" WITHOUT asking them.
   strangers. Only WhatsApp may supply one — see the `phone:` argument in
   `storeInbound`.
 
+**Our own test numbers are stored but never counted (Samer, 2026-09-16:
+"treat the following number as a test number 03195955").**
+`lib/channels/test-chats.ts` lists the chats that are OURS — today only
+`+961 3 195 955` on WhatsApp. Their messages still arrive, are stored and are
+shown in the Inbox, and the pilot still answers them; they open no lead, no
+touchpoint and no car interest, so our own testing never appears on the
+dashboard as demand and never auto-links to a CRM customer by phone. It is a
+SEPARATE list from `lib/wasales/autoreply-pilot.ts`, one way: every pilot chat
+must be a test chat (asserted in `tests/channels-test-chats.test.ts`), but
+listing a number as a test never switches automation on for it. Rows recorded
+before a number was listed are NOT removed by the code — the look-first queries
+are in `docs/TEST-NUMBERS.md` and need Samer's yes.
+
 **Attribution is captured at the moment of arrival, or never.** Meta attaches a
 referral to the FIRST message of a thread and to no other, and no endpoint
 returns it afterwards. Read on all four shapes: `event.referral`,
