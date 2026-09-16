@@ -138,7 +138,15 @@ export function suggestForThread(
   const byPerson = outs.filter(
     (m) => !isOurs(m, saved) && !(Number.isFinite(resumed) && timeOf(m) <= resumed)
   );
-  if (byPerson.length > 0) {
+  // A REHEARSAL chat does not hand over (Samer, 2026-09-16: "i want it to keep
+  // replying till i finish testing"). Handover exists so a machine never talks
+  // over a person who has taken a real customer on — and in our own test chat
+  // it is the one thing that would silently end a testing session: a single
+  // line typed on the business phone, by anyone, stops every later answer, and
+  // the only way back is "Suggest again" in the inbox. There is no customer
+  // here to talk over. The brakes that still work: SALES_AUTOREPLY_MODE=off,
+  // and the pilot list itself.
+  if (byPerson.length > 0 && facts.rehearsal !== true) {
     return {
       kind: "handed_over",
       reason: "A person has replied in this chat, so suggestions stop here.",

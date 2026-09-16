@@ -609,11 +609,16 @@ find us" WITHOUT asking them.
 `lib/wasales/rehearsal-chats.ts` and is special-cased NOWHERE else: it opens a
 lead, records a touchpoint and a car interest, and auto-links to a CRM customer
 by phone exactly as a stranger would. A rehearsal that skipped the real path
-would rehearse nothing. **The single difference** is that the INTERNAL_TEST
+would rehearse nothing. **Two differences, both narrow.** The INTERNAL_TEST
 filter (`detectExclusion`) is off there, so a message reading "test" is
 answered instead of being silenced — every other exclusion (scam, vendor pitch,
 Meta's notice) still applies, and nothing about UNDERSTANDING changes, which
-`tests/sales-rehearsal.test.ts` asserts. **The cost is accepted, not hidden:**
+`tests/sales-rehearsal.test.ts` asserts. And the chat does NOT hand over
+(Samer, 2026-09-16: "i want it to keep replying till i finish testing"): a
+reply typed on the business phone would otherwise stop every later answer
+silently, and there is no customer in that chat to talk over. Handover is
+unchanged for everybody else, asserted in the same test. The brakes remain
+`SALES_AUTOREPLY_MODE=off` and the pilot list. **The cost is accepted, not hidden:**
 the dashboard counts these as demand; `docs/TEST-NUMBERS.md` holds the SQL to
 exclude `9613195955` from a figure, and the `is_test` column that would do it
 properly is a migration and therefore Samer's call. Separate from

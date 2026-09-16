@@ -18,6 +18,11 @@ import {
 import { AUTOREPLY_PILOT } from "@/lib/wasales/autoreply-pilot";
 import { detectExclusion, readMessage } from "@/lib/wasales/intent";
 import { normalize } from "@/lib/wasales/matcher";
+import { freshSaved, suggestForThread } from "@/lib/wasales/suggest";
+import { MONZA_KNOWLEDGE } from "@/lib/wasales/knowledge";
+import { libraryMedia } from "@/lib/wasales/catalog";
+import type { EngineDeps } from "@/lib/wasales/engine";
+import type { InboxMessage } from "@/lib/inbox/types";
 
 const chat = (peer: string, accountId = "wa-monza", channel = "whatsapp") => ({
   channel,
@@ -120,6 +125,56 @@ describe("what a rehearsal changes, and what it must not", () => {
       assert.equal(asRehearsal.language, asCustomer.language, text);
       assert.equal(asRehearsal.confidence, asCustomer.confidence, text);
     }
+  });
+});
+
+describe("a rehearsal chat keeps answering", () => {
+  const T0 = Date.parse("2026-09-16T09:00:00.000Z");
+  const msg = (id: string, direction: "in" | "out", text: string, minutes: number): InboxMessage => ({
+    id,
+    conversationId: "wa-monza~t1",
+    direction,
+    author: direction === "in" ? "customer" : "staff",
+    text,
+    at: new Date(T0 + minutes * 60_000).toISOString(),
+    status: direction === "in" ? "received" : "sent",
+  });
+  const deps: EngineDeps = {
+    knowledge: MONZA_KNOWLEDGE,
+    catalog: [],
+    media: libraryMedia([]),
+    ttlHours: 72,
+  };
+  const run = (rehearsal: boolean) =>
+    suggestForThread(
+      {
+        brand: "monza",
+        channel: "whatsapp",
+        windowOpen: true,
+        rehearsal,
+        messages: [
+          msg("c1", "in", "hi", 0),
+          // Somebody typed this on the business phone — an smb_message_echo.
+          msg("o1", "out", "one second", 1),
+          msg("c2", "in", "what is the range", 2),
+        ],
+      },
+      freshSaved(),
+      deps,
+      { liveSending: true }
+    );
+
+  test("a reply typed on the business phone does NOT stop it", () => {
+    // Samer, 2026-09-16: "i want it to keep replying till i finish testing".
+    // One line typed on the business phone would otherwise end the session
+    // silently, recoverable only by "Suggest again" in the inbox.
+    assert.notEqual(run(true).kind, "handed_over");
+  });
+
+  test("in a customer's chat the same reply still hands over", () => {
+    // The rule this relaxes is load-bearing everywhere else: a machine must
+    // never talk over a person who has taken a real customer on.
+    assert.equal(run(false).kind, "handed_over");
   });
 });
 

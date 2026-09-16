@@ -31,6 +31,17 @@ rehearsal chat that one filter is off, so "test" reads as an ordinary message
 with nothing in it, and the engine answers the way it answers any message it
 did not understand.
 
+**The second difference (Samer, 2026-09-16: "i want it to keep replying till i
+finish testing"): a rehearsal chat does not HAND OVER.** Everywhere else, one
+reply typed by a person stops the engine for the rest of the chat, so a machine
+never talks over somebody who has taken a real customer on. In the test chat
+that rule is the one thing that would end a testing session silently — a single
+line typed on the business phone, by anyone, and every later message goes
+unanswered with no error, recoverable only by pressing "Suggest again" in the
+inbox. There is no customer here to talk over, so it is off. The brakes that
+still work: `SALES_AUTOREPLY_MODE=off` in Vercel (plus a redeploy), and taking
+the chat off the pilot list.
+
 **Every other exclusion still applies**, because a client gets them too: a fake
 Meta-support message, a vendor pitch and Meta's own chat notice are still
 excluded here. "Treat it as a client" is the whole rule, not a licence.
