@@ -1,16 +1,19 @@
 /**
  * The server side of sales suggestions in the inbox — SERVER ONLY.
  *
- *   suggestionFor(thread)       read the chat, run the engine, say what it
- *                               would send and whether it could
- *   sendSuggestion(thread, v)   a PERSON pressed Send on version v: check it is
- *                               still the same suggestion, claim it, send it
- *                               part by part, remember what went
- *   resumeSuggestions(thread)   "Suggest again" after a person replied
+ *   suggestionFor(thread)         read the chat, run the engine, say what it
+ *                                 would send and whether it could
+ *   sendSuggestion(thread, v)     a PERSON pressed Send on version v: check it
+ *                                 is still the same suggestion, claim it, send
+ *                                 it part by part, remember what went
+ *   resumeSuggestions(thread)     "Suggest again" after a person replied
+ *   autoreplyThread(thread, …)    the sales autoreply PILOT: the same send with
+ *                                 no person, for the chats named in
+ *                                 lib/wasales/autoreply-pilot.ts and no others
  *
- * Nothing here runs from the webhook. Every entry point is called by a staff
- * route (app/api/sales/suggestion), so an inbound message can never cause an
- * outbound one without a person (CLAUDE.md rule 24).
+ * Outside that pilot every entry point is called by a staff route
+ * (app/api/sales/suggestion), so an inbound message cannot cause an outbound
+ * one without a person (CLAUDE.md rule 24 and its one named exception).
  */
 
 import { channelsSendLive } from "@/lib/env";
@@ -29,6 +32,7 @@ import type { WaCar } from "@/lib/wasales/matcher";
 import { executePlan } from "@/lib/wasales/executor";
 import {
   afterSend,
+  AUTOREPLY_AUTOMATION_PREFIX,
   freshSaved,
   suggestForThread,
   SUGGESTION_AUTOMATION_PREFIX,
@@ -71,6 +75,8 @@ interface Loaded {
   deps: EngineDeps;
   notes: string[];
 }
+
+type Reply = { status: number; body: unknown };
 
 function channelOf(channel: string): SalesChannel | null {
   return channel === "instagram" || channel === "facebook" || channel === "whatsapp" ? channel : null;
@@ -165,34 +171,32 @@ function viewOf(s: Suggestion, memoryOk: boolean, notes: string[]): SuggestionVi
   };
 }
 
-export async function suggestionFor(threadId: unknown): Promise<{ status: number; body: unknown }> {
+export async function suggestionFor(threadId: unknown): Promise<Reply> {
   const c = await load(threadId);
   if (!c.ok) return { status: c.status, body: { ok: false, message: c.problem } };
   const s = suggestForThread(c.facts, c.saved, c.deps, { liveSending: channelsSendLive() });
   return { status: 200, body: viewOf(s, c.memoryOk, c.notes) };
 }
 
-export async function sendSuggestion(
+/** Who a send is recorded as. */
+interface Sender {
+  author: "staff" | "automation";
+  name: string;
+  prefix: string;
+}
+
+/**
+ * Claim the suggestion, send it part by part, record the WhatsApp copies and
+ * remember what went — shared by a person's Send and the autoreply pilot, so
+ * the two can never differ in what they check or what they keep.
+ */
+async function deliver(
   threadId: unknown,
-  version: unknown,
-  staffName: string
-): Promise<{ status: number; body: unknown }> {
-  const c = await load(threadId);
-  if (!c.ok) return { status: c.status, body: { ok: false, message: c.problem } };
-  if (!c.memoryOk) {
-    return { status: 503, body: { ok: false, message: "The suggestion memory is not set up yet (migration 011) — nothing was sent." } };
-  }
-
-  const live = channelsSendLive();
-  const s = suggestForThread(c.facts, c.saved, c.deps, { liveSending: live });
-  const view = viewOf(s, c.memoryOk, c.notes);
-  if (s.kind !== "suggestion" || s.version !== version) {
-    return { status: 409, body: { ok: false, message: "The chat changed — here is the new suggestion. Nothing was sent.", view } };
-  }
-  if (!view.canSend) {
-    return { status: 409, body: { ok: false, message: "This suggestion cannot be sent as it is.", view } };
-  }
-
+  c: Loaded,
+  s: Extract<Suggestion, { kind: "suggestion" }>,
+  live: boolean,
+  sender: Sender
+): Promise<Reply> {
   const target = await suggestionTarget(threadId, live);
   if (target.kind === "switched_off") {
     return { status: 409, body: { ok: false, message: "Sending is switched off for now, so nothing was sent." } };
@@ -200,7 +204,7 @@ export async function sendSuggestion(
   if (target.kind === "window_closed") return { status: 409, body: { ok: false, message: target.explanation } };
   if (target.kind === "refused") return { status: target.status, body: { ok: false, message: target.problem } };
 
-  // Claim it first: a second person pressing Send now gets a conflict, not a duplicate.
+  // Claim it first: a second send of the same suggestion gets a conflict, not a duplicate.
   const claimed = afterSend(c.saved, null, []);
   const claim = await saveSuggestion({
     accountId: c.account.id,
@@ -214,7 +218,10 @@ export async function sendSuggestion(
       status: 409,
       body: {
         ok: false,
-        message: claim === "conflict" ? "Someone else is sending this suggestion — nothing was sent twice." : "Could not save the suggestion memory — nothing was sent.",
+        message:
+          claim === "conflict"
+            ? "This suggestion is already being sent — nothing was sent twice."
+            : "Could not save the suggestion memory — nothing was sent.",
       },
     };
   }
@@ -232,8 +239,9 @@ export async function sendSuggestion(
         externalMessageId: part.externalMessageId,
         text: part.record,
         at,
-        staffName,
-        automationId: `${SUGGESTION_AUTOMATION_PREFIX}:${s.version}:${part.index}`,
+        staffName: sender.name,
+        author: sender.author,
+        automationId: `${sender.prefix}:${s.version}:${part.index}`,
       });
       if (!recorded) console.error("[sales/suggestion] sent, but the copy could not be recorded");
     }
@@ -256,7 +264,8 @@ export async function sendSuggestion(
 
   // Counts and ids only — never the words.
   console.info(
-    `[sales/suggestion] ${result.failed ? "partial" : "sent"} ${result.sent.length}/${s.turn.plan.length} on ${c.account.id}`
+    `[sales/${sender.author === "automation" ? "autoreply" : "suggestion"}] ` +
+      `${result.failed ? "partial" : "sent"} ${result.sent.length}/${s.turn.plan.length} on ${c.account.id}`
   );
 
   if (result.failed) {
@@ -276,11 +285,33 @@ export async function sendSuggestion(
   return { status: 200, body: { ok: true, sent: result.sent.length, total: s.turn.plan.length } };
 }
 
-export async function resumeSuggestions(threadId: unknown): Promise<{ status: number; body: unknown }> {
+export async function sendSuggestion(threadId: unknown, version: unknown, staffName: string): Promise<Reply> {
   const c = await load(threadId);
   if (!c.ok) return { status: c.status, body: { ok: false, message: c.problem } };
   if (!c.memoryOk) {
-    return { status: 503, body: { ok: false, message: "The suggestion memory is not set up yet (migration 011)." } };
+    return {
+      status: 503,
+      body: { ok: false, message: "The suggestion memory is not set up yet (migration 012) — nothing was sent." },
+    };
+  }
+
+  const live = channelsSendLive();
+  const s = suggestForThread(c.facts, c.saved, c.deps, { liveSending: live });
+  const view = viewOf(s, c.memoryOk, c.notes);
+  if (s.kind !== "suggestion" || s.version !== version) {
+    return { status: 409, body: { ok: false, message: "The chat changed — here is the new suggestion. Nothing was sent.", view } };
+  }
+  if (!view.canSend) {
+    return { status: 409, body: { ok: false, message: "This suggestion cannot be sent as it is.", view } };
+  }
+  return deliver(threadId, c, s, live, { author: "staff", name: staffName, prefix: SUGGESTION_AUTOMATION_PREFIX });
+}
+
+export async function resumeSuggestions(threadId: unknown): Promise<Reply> {
+  const c = await load(threadId);
+  if (!c.ok) return { status: c.status, body: { ok: false, message: c.problem } };
+  if (!c.memoryOk) {
+    return { status: 503, body: { ok: false, message: "The suggestion memory is not set up yet (migration 012)." } };
   }
   const next: SavedSuggestion = { ...c.saved, resumedAt: new Date().toISOString(), rev: c.saved.rev + 1 };
   const r = await saveSuggestion({
@@ -292,4 +323,79 @@ export async function resumeSuggestions(threadId: unknown): Promise<{ status: nu
   });
   if (r !== "saved") return { status: 409, body: { ok: false, message: "Could not switch suggestions back on — try again." } };
   return suggestionFor(threadId);
+}
+
+export interface AutoreplyOutcome {
+  rounds: number;
+  sent: number;
+  /** Why it stopped, in words that carry no customer text. */
+  stopped: string;
+}
+
+/** Most answers a pilot run sends before stopping — a guard, not a target. */
+const MAX_ROUNDS = 3;
+
+/**
+ * THE SALES AUTOREPLY PILOT for one chat (lib/wasales/autoreply.ts decides
+ * which chats). Exactly what a person pressing "Send this" would send, sent
+ * without them, and only while every rule a person's send obeys still holds:
+ * the window, the send switch, the key, the handover, the whole-plan check.
+ *
+ * The first time it answers a chat it marks where the chat BEGINS, just before
+ * the message that woke it, so older tests and staff replies are not read as
+ * part of the conversation. It then answers, and looks again — a second
+ * message that arrived while it was sending is answered in the same run
+ * rather than lost to the claim that stopped a parallel run.
+ */
+export async function autoreplyThread(
+  threadId: string,
+  arrivedAt: string,
+  deadlineMs: number
+): Promise<AutoreplyOutcome> {
+  let sent = 0;
+  for (let round = 1; round <= MAX_ROUNDS; round++) {
+    const c = await load(threadId);
+    if (!c.ok) return { rounds: round, sent, stopped: `could not read the chat (${c.status})` };
+    if (!c.memoryOk) return { rounds: round, sent, stopped: "memory not set up (migration 012)" };
+
+    let saved = c.saved;
+    if (saved.rev === 0) {
+      const arrived = Date.parse(arrivedAt);
+      const start: SavedSuggestion = {
+        ...saved,
+        startedAt: new Date((Number.isFinite(arrived) ? arrived : Date.now()) - 1).toISOString(),
+        rev: 1,
+      };
+      const r = await saveSuggestion({
+        accountId: c.account.id,
+        brand: c.account.brand,
+        conversationRef: c.ref,
+        saved: start,
+        expectedRev: 0,
+      });
+      if (r !== "saved") return { rounds: round, sent, stopped: `could not start (${r})` };
+      saved = start;
+    }
+
+    const live = channelsSendLive();
+    const s = suggestForThread(c.facts, saved, c.deps, { liveSending: live });
+    if (s.kind !== "suggestion") return { rounds: round, sent, stopped: s.kind };
+    const view = viewOf(s, true, c.notes);
+    if (view.outcome !== "ACTIONS") return { rounds: round, sent, stopped: `no action (${view.outcome})` };
+    if (!view.canSend) {
+      // Policy and file wording only — no customer words.
+      return { rounds: round, sent, stopped: `blocked: ${(view.blocked ?? []).join(" | ").slice(0, 400)}` };
+    }
+
+    const d = await deliver(threadId, { ...c, saved }, s, live, {
+      author: "automation",
+      name: "Sales engine",
+      prefix: AUTOREPLY_AUTOMATION_PREFIX,
+    });
+    const body = d.body as { ok?: boolean; sent?: number; message?: string };
+    sent += body.sent ?? 0;
+    if (!body.ok) return { rounds: round, sent, stopped: `send ${d.status}: ${(body.message ?? "").slice(0, 200)}` };
+    if (Date.now() > deadlineMs) return { rounds: round, sent, stopped: "time budget used" };
+  }
+  return { rounds: MAX_ROUNDS, sent, stopped: "round limit" };
 }

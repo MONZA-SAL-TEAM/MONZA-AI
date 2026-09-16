@@ -89,8 +89,29 @@ export interface MediaJob {
   attachments: StoredAttachment[];
 }
 
+/**
+ * A customer's WhatsApp message that was NEW here — not a redelivery, not our
+ * own echo. Only these may reach the sales autoreply pilot
+ * (lib/wasales/autoreply.ts), so Meta retrying a delivery can never make it
+ * answer twice. No words: the pilot reads the thread itself.
+ */
+export interface FreshInbound {
+  accountId: string;
+  channel: string;
+  conversationId: string;
+  peerExternalId: string;
+  at: string;
+}
+
 export type StoreResult =
-  | { ok: true; stored: number; duplicates: number; unmatched: number; media: MediaJob[] }
+  | {
+      ok: true;
+      stored: number;
+      duplicates: number;
+      unmatched: number;
+      media: MediaJob[];
+      fresh: FreshInbound[];
+    }
   | { ok: false; error: string };
 
 function client(): SupabaseClient | null {
@@ -188,7 +209,7 @@ async function upsertConversation(
  * the exceptional one.
  */
 export async function storeInbound(events: readonly InboundEvent[]): Promise<StoreResult> {
-  if (events.length === 0) return { ok: true, stored: 0, duplicates: 0, unmatched: 0, media: [] };
+  if (events.length === 0) return { ok: true, stored: 0, duplicates: 0, unmatched: 0, media: [], fresh: [] };
 
   const sb = client();
   if (!sb) return { ok: false, error: "The database is not configured on this server." };
@@ -200,6 +221,7 @@ export async function storeInbound(events: readonly InboundEvent[]): Promise<Sto
   let duplicates = 0;
   let unmatched = 0;
   const media: MediaJob[] = [];
+  const fresh: FreshInbound[] = [];
 
   for (const event of events) {
     // A message for an account nobody has connected. Not an error — Meta
@@ -285,6 +307,16 @@ export async function storeInbound(events: readonly InboundEvent[]): Promise<Sto
       p_at: event.at,
     });
 
+    if (isWhatsApp) {
+      fresh.push({
+        accountId: account.id,
+        channel: account.channel,
+        conversationId,
+        peerExternalId: event.fromExternalId,
+        at: event.at,
+      });
+    }
+
     // Attribution is captured HERE, at the moment of arrival, because Meta
     // attaches a referral to the first message of a thread and to no other and
     // no endpoint returns it afterwards. The text is read in memory for a car
@@ -304,7 +336,7 @@ export async function storeInbound(events: readonly InboundEvent[]): Promise<Sto
     });
   }
 
-  return { ok: true, stored, duplicates, unmatched, media };
+  return { ok: true, stored, duplicates, unmatched, media, fresh };
 }
 
 /**
@@ -418,8 +450,10 @@ export async function recordWhatsAppSent(input: {
   staffName: string;
   /** The file that went with it, already kept in our bucket. */
   attachment?: StoredAttachment;
-  /** Sent from a sales suggestion ("sales-suggestion:…") — still a person's send. */
+  /** Sent from the sales engine ("sales-suggestion:…" or "sales-autoreply:…"). */
   automationId?: string;
+  /** "automation" only for the sales autoreply pilot. */
+  author?: "staff" | "automation";
 }): Promise<boolean> {
   const sb = client();
   if (!sb) return false;

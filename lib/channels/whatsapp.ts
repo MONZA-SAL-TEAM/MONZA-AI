@@ -825,15 +825,17 @@ export function whatsappSentRow(input: {
   at: string;
   staffName: string;
   attachment?: StoredAttachment;
-  /** A message sent from a sales suggestion: "sales-suggestion:…". Still a person's send. */
+  /** Sent from the sales engine: "sales-suggestion:…" (a person pressed Send) or "sales-autoreply:…". */
   automationId?: string;
+  /** "automation" only for the sales autoreply pilot, which no person pressed. */
+  author?: "staff" | "automation";
 }): Record<string, unknown> {
   return {
     conversation_id: input.conversationId,
     brand: input.brand,
     account_id: input.accountId,
     direction: "out",
-    author: "staff",
+    author: input.author ?? "staff",
     body: input.text,
     attachments: input.attachment ? [input.attachment] : [],
     external_message_id: input.externalMessageId,

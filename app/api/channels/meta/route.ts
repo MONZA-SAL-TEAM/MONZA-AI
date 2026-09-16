@@ -30,6 +30,7 @@ import { parseWhatsAppStatuses, whatsappAdapter, type WhatsAppStatusUpdate } fro
 import type { ChannelAccount, InboundEvent } from "@/lib/channels/types";
 import { applyWhatsAppStatuses, listAccounts, recordDelivery, storeInbound } from "@/lib/channels/store";
 import { captureMedia } from "@/lib/channels/wa-media-store";
+import { runAutoreply } from "@/lib/wasales/autoreply";
 import {
   accountsForApp,
   parseMetaAppSecrets,
@@ -52,6 +53,9 @@ const ADAPTERS = [instagramAdapter, messengerAdapter, whatsappAdapter];
  * the thread and the daily job (lib/channels/wa-media-store.ts).
  */
 const MEDIA_BUDGET_MS = 8_000;
+
+/** How long the sales autoreply pilot may spend answering, inside maxDuration. */
+const AUTOREPLY_BUDGET_MS = 12_000;
 
 export async function GET(request: Request): Promise<Response> {
   const params = new URL(request.url).searchParams;
@@ -164,6 +168,18 @@ export async function POST(request: Request): Promise<Response> {
       `duplicate ${result.duplicates}, unmatched ${result.unmatched}`
   );
   await recordDelivery(null, body, events.length, result.stored);
+
+  // THE SALES AUTOREPLY PILOT (Samer, 2026-09-16) — the one named exception to
+  // CLAUDE.md rule 24. Only for messages that are NEW here, and only in the
+  // chats lib/wasales/autoreply-pilot.ts lists; every other chat is untouched.
+  if (result.fresh.length > 0) {
+    try {
+      const a = await runAutoreply(result.fresh, AUTOREPLY_BUDGET_MS);
+      if (a.chats > 0) console.info(`[channels/meta] autoreply chats ${a.chats}, sent ${a.sent}`);
+    } catch (e) {
+      console.error("[channels/meta] autoreply failed:", e);
+    }
+  }
 
   // Photos, voice notes, videos and files: copied out of Meta now, while its
   // link is fresh. Whatever does not finish is picked up later.

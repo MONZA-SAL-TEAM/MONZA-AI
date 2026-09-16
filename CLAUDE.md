@@ -104,6 +104,11 @@ rule has a scar, the scar is named — a rule without its reason gets argued awa
 24. **Until receiving, storage, routing and human review are proven, sending is
     log-only.** No automatic customer-facing message during integration, and no
     path where an inbound message can trigger an outbound one without a person.
+    **One named exception (Samer, 2026-09-16):** the sales autoreply PILOT
+    answers by itself only in the chats listed in
+    `lib/wasales/autoreply-pilot.ts` (his own test phone writing to `wa-monza`).
+    Widening that list is Samer's decision, never a side effect.
+    `SALES_AUTOREPLY_MODE=off` in Vercel (plus a redeploy) stops it.
 25. **Respect the 24-hour window and show it.** All three channels refuse a free
     reply more than ~24h after the customer's last message. On WhatsApp the
     alternative is a paid template. A reply box that silently fails at hour 25 is
@@ -856,8 +861,8 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   signals, so a vague real customer is never filtered out.
 - The sales context expires after `SALES_CONTEXT_TTL_HOURS` (default 72) —
   separate from Meta's 24-hour window.
-- **Suggest only — a person always sends (Samer, 2026-09-15).** Nothing calls
-  the engine from the webhook. In the inbox, `app/inbox/SalesSuggestion.tsx`
+- **Suggest only — a person always sends (Samer, 2026-09-15)** — except the
+  autoreply pilot below. Outside it, nothing calls the engine from the webhook. In the inbox, `app/inbox/SalesSuggestion.tsx`
   shows the engine's suggested reply for the open chat (`GET
   /api/sales/suggestion`, worked out from the chat as read live). "Send this"
   (`POST /api/sales/suggestion/send`) works it out AGAIN server-side, refuses
@@ -875,7 +880,17 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   and, on WhatsApp, by `automation_id` `sales-suggestion:…`; any other
   outgoing message hands the chat to people. "Suggest again" forgives the
   replies written until then.
-- **Memory:** `database/migrations/011_sales_suggestion_state.sql` — engine
+- **Autoreply PILOT (Samer, 2026-09-16) — the one exception to rule 24.** The
+  webhook passes customer messages that were NEW (`StoreResult.fresh`, so a
+  Meta redelivery never answers twice) to `lib/wasales/autoreply.ts`, which
+  answers only chats in `lib/wasales/autoreply-pilot.ts` (`wa-monza` +
+  `9613195955`) through the SAME send as a person's Send (`autoreplyThread`):
+  window, send switch, key, handover, whole-plan check. Its first answer
+  marks `started_at` just before the message, so earlier tests and replies
+  are not part of the chat. Recorded as author `automation`,
+  `automation_id` `sales-autoreply:…`. A reply a person types in that chat
+  stops it (handover). Off: `SALES_AUTOREPLY_MODE=off`.
+- **Memory:** `database/migrations/012_sales_suggestion_state.sql` — engine
   state and our own sent ids per chat, never words. NOT applied until Samer
   says so: suggestions still show without it, but cannot be sent.
 

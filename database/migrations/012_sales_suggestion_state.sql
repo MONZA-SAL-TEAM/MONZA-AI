@@ -1,5 +1,5 @@
 -- =============================================================================
--- 011_sales_suggestion_state.sql — what the sales Search Engine remembers about
+-- 012_sales_suggestion_state.sql — what the sales Search Engine remembers about
 -- ONE chat, so its next suggestion follows on from the last one a person sent.
 --
 -- The inbox shows the engine's suggested reply (brochure, colour video, facts,
@@ -16,6 +16,9 @@
 --                     person, and suggestions stop for that chat.
 --   resumed_at        "Suggest again": replies a person wrote before this are
 --                     forgiven.
+--   started_at        where the chat the engine sees BEGINS (the autoreply
+--                     pilot's first answer); everything at or before it is
+--                     ignored, so old tests and replies are not part of it.
 --   rev               bumped on every save; a send that read an older row is
 --                     refused, so two people pressing at once send once.
 --
@@ -30,7 +33,8 @@
 -- account (rule 4).
 --
 -- Replaces the unapplied 008_conversation_sales_state.sql (the automatic design
--- Samer did not choose). 009 and 010 are WhatsApp's.
+-- Samer did not choose). 009-011 are taken (WhatsApp messages, WhatsApp
+-- media, sent files).
 -- =============================================================================
 
 create table if not exists public.sales_suggestion_state (
@@ -40,6 +44,7 @@ create table if not exists public.sales_suggestion_state (
   state             jsonb not null,
   sent_message_ids  text[] not null default '{}',
   resumed_at        timestamptz,
+  started_at        timestamptz,
   rev               integer not null default 1 check (rev >= 1),
   updated_at        timestamptz not null default now(),
 

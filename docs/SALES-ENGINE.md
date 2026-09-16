@@ -184,7 +184,7 @@ reply; small MP4 copies of the colour videos.
    the first failure. WhatsApp copies are recorded with `automation_id`
    `sales-suggestion:…`.
 4. The engine's next state and the Meta ids of what went are saved in
-   `sales_suggestion_state` (migration 011). An outgoing message that is
+   `sales_suggestion_state` (migration 012). An outgoing message that is
    neither of ours was written by a person: suggestions stop for that chat
    until "Suggest again".
 
@@ -200,7 +200,7 @@ reads like typed text.
 
 ## Persistence
 
-`database/migrations/011_sales_suggestion_state.sql` keeps one row per chat,
+`database/migrations/012_sales_suggestion_state.sql` keeps one row per chat,
 keyed by the account and the conversation's reference on it (Meta's
 conversation id, or our WhatsApp conversation id):
 - engine state
@@ -278,3 +278,30 @@ replies without a person are ever wanted, all of this comes first:
 | `tests/sales-catalog.test.ts` | The real catalogue |
 | `tests/sales-flow.test.ts` | The runner, and a log line that carries no customer text |
 | `tests/sales-words.test.ts` | Normalization and model words |
+
+## The autoreply pilot (2026-09-16)
+
+Samer: "begin automation only between the chat between those 2 numbers" — his
+test phone (+961 3 195 955, WhatsApp id `9613195955`) writing to the business
+WhatsApp (`wa-monza`, +961 70 708 585). It is the ONE exception to CLAUDE.md
+rule 24; every other chat keeps the suggestion card.
+
+- **Who:** `lib/wasales/autoreply-pilot.ts` — accounts and customers listed in
+  code, frozen. Nobody else is ever answered automatically.
+- **When:** the webhook stores a message; only a NEW customer message
+  (`StoreResult.fresh`) wakes `lib/wasales/autoreply.ts`. A Meta redelivery
+  is never new, so it cannot answer twice.
+- **What:** `autoreplyThread` in `suggestion-server.ts` sends exactly what the
+  suggestion card would show, through the same checks (24-hour window,
+  `CHANNELS_SEND_MODE`, the key, handover, whole-plan check, `rev` claim).
+  After sending it looks again, so a second message that arrived meanwhile is
+  answered in the same run (at most 3 rounds, 12 s).
+- **Where the chat begins:** the first answer saves `started_at` just before
+  the message that woke it. Older tests and replies typed on the phone are
+  ignored, so the engine treats it as a new conversation and welcomes.
+- **Recorded** as author `automation` with `automation_id` `sales-autoreply:…`
+  (the inbox shows "Automatic").
+- **Stops** when a person types a reply in that chat (handover, as for
+  suggestions), or everywhere with `SALES_AUTOREPLY_MODE=off` + a redeploy.
+- **Logs** counts and stop reasons only, never words or numbers:
+  `[sales/autoreply] wa-monza: rounds 1, sent 3, stopped: nothing_to_answer`.

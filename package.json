@@ -15,7 +15,9 @@
     "upload-sales:plan": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tests/_alias.mjs scripts/upload-sales-folder.mjs --plan",
     "sales-videos:plan": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tests/_alias.mjs scripts/sales-video-prep.mjs --plan",
     "sales-videos:encode": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tests/_alias.mjs scripts/sales-video-prep.mjs --encode",
-    "sales-videos:upload": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tests/_alias.mjs scripts/sales-video-prep.mjs --upload"
+    "sales-videos:upload": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tests/_alias.mjs scripts/sales-video-prep.mjs --upload",
+    "sales-videos:library-plan": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tests/_alias.mjs scripts/sales-video-prep.mjs --library --plan",
+    "sales-videos:library-upload": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tests/_alias.mjs scripts/sales-video-prep.mjs --library --upload"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

@@ -31,22 +31,31 @@ import { WA_ATTACHMENT_ONLY } from "@/lib/channels/whatsapp";
 /** The automation id a suggestion's WhatsApp messages are recorded with. */
 export const SUGGESTION_AUTOMATION_PREFIX = "sales-suggestion";
 
+/** …and the sales autoreply pilot's (lib/wasales/autoreply.ts). */
+export const AUTOREPLY_AUTOMATION_PREFIX = "sales-autoreply";
+
 /** How many of our sent message ids are remembered per chat. */
 export const MAX_REMEMBERED_IDS = 500;
 
-/** What is remembered about one chat (migration 011). */
+/** What is remembered about one chat (migration 012). */
 export interface SavedSuggestion {
   state: SearchEngineState;
   /** Meta's ids of the messages sent from suggestions in this chat. */
   sentMessageIds: string[];
   /** "Suggest again": replies a person wrote at or before this are forgiven. */
   resumedAt: string | null;
+  /**
+   * Where the conversation the engine sees BEGINS: every message at or before
+   * this is ignored, ours and theirs. Set when the autoreply pilot first
+   * answers a chat, so earlier tests and staff replies are not part of it.
+   */
+  startedAt: string | null;
   /** 0 = nothing saved yet. Bumped on every save. */
   rev: number;
 }
 
 export function freshSaved(): SavedSuggestion {
-  return { state: freshState(), sentMessageIds: [], resumedAt: null, rev: 0 };
+  return { state: freshState(), sentMessageIds: [], resumedAt: null, startedAt: null, rev: 0 };
 }
 
 export interface ThreadFacts {
@@ -71,11 +80,13 @@ export type Suggestion =
       version: string;
     };
 
-/** Was this outgoing message sent from a suggestion? */
+/** Was this outgoing message sent by the sales engine (a suggestion or the pilot)? */
 export function isOurs(m: InboxMessage, saved: SavedSuggestion): boolean {
+  const automation = m.automationId ?? "";
   return (
     saved.sentMessageIds.includes(m.id) ||
-    (m.automationId ?? "").startsWith(`${SUGGESTION_AUTOMATION_PREFIX}:`)
+    automation.startsWith(`${SUGGESTION_AUTOMATION_PREFIX}:`) ||
+    automation.startsWith(`${AUTOREPLY_AUTOMATION_PREFIX}:`)
   );
 }
 
@@ -111,7 +122,10 @@ export function suggestForThread(
   deps: EngineDeps,
   opts: { liveSending: boolean }
 ): Suggestion {
-  const ordered = [...facts.messages].sort((a, b) => timeOf(a) - timeOf(b));
+  const started = saved.startedAt ? Date.parse(saved.startedAt) : NaN;
+  const ordered = [...facts.messages]
+    .filter((m) => !(Number.isFinite(started) && timeOf(m) <= started))
+    .sort((a, b) => timeOf(a) - timeOf(b));
   const resumed = saved.resumedAt ? Date.parse(saved.resumedAt) : NaN;
 
   const outs = ordered.filter((m) => m.direction === "out");
@@ -182,6 +196,7 @@ export function afterSend(
       -MAX_REMEMBERED_IDS
     ),
     resumedAt: saved.resumedAt,
+    startedAt: saved.startedAt,
     rev: saved.rev + 1,
   };
 }

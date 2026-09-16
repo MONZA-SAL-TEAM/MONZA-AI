@@ -1,5 +1,5 @@
 /**
- * Where a chat's sales-suggestion memory is kept (migration 011,
+ * Where a chat's sales-suggestion memory is kept (migration 012,
  * sales_suggestion_state) — SERVER ONLY, through the service-role client in
  * lib/channels/store.ts. Engine state and our own sent message ids; never the
  * customer's words.
@@ -23,13 +23,13 @@ export function savedFromRow(row: unknown): SavedSuggestion {
   const ids = Array.isArray(r.sent_message_ids)
     ? r.sent_message_ids.filter((id): id is string => typeof id === "string" && id.length <= 200)
     : [];
-  const resumed =
-    typeof r.resumed_at === "string" && Number.isFinite(Date.parse(r.resumed_at)) ? r.resumed_at : null;
+  const time = (v: unknown) => (typeof v === "string" && Number.isFinite(Date.parse(v)) ? v : null);
   const rev = typeof r.rev === "number" && Number.isInteger(r.rev) && r.rev >= 0 ? r.rev : 0;
   return {
     state: parseState(r.state),
     sentMessageIds: ids.slice(-MAX_REMEMBERED_IDS),
-    resumedAt: resumed,
+    resumedAt: time(r.resumed_at),
+    startedAt: time(r.started_at),
     rev,
   };
 }
@@ -42,7 +42,7 @@ export async function loadSuggestion(accountId: string, conversationRef: string)
   if (!sb) return { ok: false, problem: "The database is not configured on this server." };
   const { data, error } = await sb
     .from(TABLE)
-    .select("state, sent_message_ids, resumed_at, rev")
+    .select("state, sent_message_ids, resumed_at, started_at, rev")
     .eq("account_id", accountId)
     .eq("conversation_ref", conversationRef)
     .maybeSingle();
@@ -50,7 +50,7 @@ export async function loadSuggestion(accountId: string, conversationRef: string)
     return {
       ok: false,
       problem: /does not exist|schema cache/i.test(error.message)
-        ? "The suggestion memory is not set up yet (migration 011)."
+        ? "The suggestion memory is not set up yet (migration 012)."
         : "Could not read the suggestion memory just now.",
     };
   }
@@ -75,6 +75,7 @@ export async function saveSuggestion(input: {
     state: input.saved.state,
     sent_message_ids: input.saved.sentMessageIds.slice(-MAX_REMEMBERED_IDS),
     resumed_at: input.saved.resumedAt,
+    started_at: input.saved.startedAt,
     rev: input.saved.rev,
     updated_at: new Date().toISOString(),
   };

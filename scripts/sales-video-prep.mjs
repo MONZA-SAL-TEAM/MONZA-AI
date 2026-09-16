@@ -1,39 +1,46 @@
 /**
- * Small MP4 copies of every colour video, so each one can actually be SENT
- * (Samer, 2026-09-15: "make small MP4 copies").
+ * Small MP4 copies of the colour videos that NEED one, so each can actually be
+ * SENT (Samer: "make small MP4 copies"; 2026-09-16: "if needed make the videos
+ * … smaller without affecting the videos").
  *
- *     npm run sales-videos:plan   -- "C:\\Users\\you\\Desktop\\Monza AI sales"
- *     npm run sales-videos:encode -- "C:\\Users\\you\\Desktop\\Monza AI sales"
- *     npm run sales-videos:upload -- "C:\\Users\\you\\Desktop\\Monza AI sales"
+ *   From the sales FOLDER on this computer:
+ *     npm run sales-videos:plan           -- "C:\\Users\\you\\Desktop\\Monza AI sales"
+ *     npm run sales-videos:encode         -- "C:\\Users\\you\\Desktop\\Monza AI sales"
+ *     npm run sales-videos:upload         -- "C:\\Users\\you\\Desktop\\Monza AI sales"
  *
- *   plan    what would be made, from which file — runs nothing, writes nothing
+ *   From the shared LIBRARY (what staff actually uploaded — the one to use):
+ *     npm run sales-videos:library-plan
+ *     npm run sales-videos:library-upload
+ *
+ *   plan    what would be made, and why — writes nothing
  *   encode  makes the copies in .sales-video-send/ (git-ignored), local only
  *   upload  makes any copy still missing, then uploads each to
- *           wasales-media/<carId>/video-send/<colourId>/ — the shared library
+ *           wasales-media/<carId>/video-send/<colourId>/
  *
- * THREE SCRIPTS RATHER THAN A FLAG, for the reason upload-sales-folder.mjs
- * gives: npm swallows a --flag passed after --, so the flag lives inside each
- * script string.
+ * THE FLAGS LIVE INSIDE EACH SCRIPT STRING, for the reason upload-sales-
+ * folder.mjs gives: npm swallows a --flag passed after --.
  *
- * WHY. WhatsApp takes MP4 up to 16 MB; Messenger and Instagram 25 MB. Several
- * of Monza's colour videos are 28–121 MB, and some are .mov, which WhatsApp
- * refuses outright. Each copy is H.264 (main profile) with AAC sound, at most
- * 720 lines high, `+faststart` so a phone plays it while it downloads, at a
- * bitrate worked out from the clip's own length so the file is at most 15 MB —
- * under every channel's limit with room to spare. A copy that still comes out
- * over is made again at a lower rate, up to three times.
+ * WHICH VIDEOS NEED A COPY. WhatsApp takes MP4 with H.264 video and AAC sound,
+ * up to 16 MB; Messenger and Instagram 25 MB. A video that is already an MP4 of
+ * H.264/AAC under 15 MB is sent as it is — re-encoding it would only lose
+ * quality. Everything else (too big, .mov, another codec) gets a copy: H.264
+ * main profile, AAC, at most 720 lines, `+faststart`, at a bitrate from the
+ * clip's own length so it is at most 15 MB — and never above the original's
+ * own rate, so a copy is never bigger than its source. A copy still over is
+ * made again lower, up to three times.
  *
  * The ORIGINALS are never touched or replaced: /sales keeps showing them, and
- * the inbox's suggestions send the copy (lib/wasales/library-server.ts lists
- * video-send/, and catalog.ts libraryMedia() prefers it).
+ * the engine sends the copy (lib/wasales/library-server.ts lists video-send/,
+ * catalog.ts libraryMedia() prefers it).
  *
- * THE KEY. Uploading needs AI_SUPABASE_SERVICE_ROLE_KEY, read from the
- * environment or a git-ignored .env.local in the folder this runs from —
- * never an argument. SAFE TO RE-RUN: a copy already made is reused, one
+ * THE KEY. Listing the library and uploading need AI_SUPABASE_SERVICE_ROLE_KEY,
+ * from the environment or a git-ignored .env.local in the folder this runs
+ * from — never an argument. SAFE TO RE-RUN: a copy already made is reused, one
  * already uploaded is skipped (object names are stable). Nothing is deleted.
  */
 
 import { createHash } from "node:crypto";
+import { createClient } from "@supabase/supabase-js";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
@@ -46,6 +53,7 @@ const run = promisify(execFile);
 const TARGET_BYTES = 15_000_000;
 const OUT_DIR = path.join(process.cwd(), ".sales-video-send");
 const MAX_TRIES = 3;
+const FOLDER_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 async function loadProjectModules() {
   const [paths, manifest, env] = await Promise.all([
@@ -70,6 +78,8 @@ function readSecret(name) {
   return "";
 }
 
+/* ── Sources ─────────────────────────────────────────────────────────────── */
+
 /** The "Car Models" directory, wherever it is nested. */
 async function findCarModels(root, depth = 0) {
   if (depth > 4) return null;
@@ -90,7 +100,6 @@ async function findCarModels(root, depth = 0) {
   return null;
 }
 
-/** Every file under a directory, by file name (the manifest records names). */
 async function indexFiles(dir, into = new Map(), depth = 0) {
   if (depth > 4) return into;
   let entries;
@@ -107,29 +116,93 @@ async function indexFiles(dir, into = new Map(), depth = 0) {
   return into;
 }
 
+/** Every colour video named in the imported catalogue, found on this computer. */
+async function folderSources(root, manifest, problems) {
+  const carModels = await findCarModels(path.resolve(root));
+  if (!carModels) throw new Error(`Could not find a "Car Models" folder under ${root}`);
+  const onDisk = await indexFiles(carModels);
+  const out = [];
+  for (const car of manifest.SALES_MANIFEST.cars) {
+    for (const colour of car.colours) {
+      for (const video of colour.videos) {
+        const src = onDisk.get(video.fileName);
+        if (!src) {
+          problems.push(`${car.id}/${colour.id}: "${video.fileName}" is in the catalogue but not on disk`);
+          continue;
+        }
+        out.push({ carId: car.id, colourId: colour.id, fileName: video.fileName, bytes: (await stat(src)).size, input: src });
+      }
+    }
+  }
+  return out;
+}
+
+async function listStorage(sb, bucket, prefix) {
+  const { data, error } = await sb.storage.from(bucket).list(prefix, { limit: 1000 });
+  if (error) throw new Error(`listing ${prefix} failed: ${error.message}`);
+  return Array.isArray(data) ? data : [];
+}
+
+/** Every colour video in the shared library, read by its public address. */
+async function librarySources(sb, base, bucket, paths, manifest) {
+  const out = [];
+  // The storage API refuses to list the bucket's top level, so the cars come
+  // from the catalogue; their colour folders still come from the library.
+  const cars = manifest.SALES_MANIFEST.cars.map((c) => c.id).filter((id) => FOLDER_ID.test(id));
+  for (const carId of cars) {
+    const colours = (await listStorage(sb, bucket, `${carId}/video`))
+      .filter((r) => r?.id == null && typeof r?.name === "string" && FOLDER_ID.test(r.name))
+      .map((r) => r.name);
+    for (const colourId of colours) {
+      for (const r of await listStorage(sb, bucket, `${carId}/video/${colourId}`)) {
+        if (r?.id == null || typeof r?.name !== "string" || r.name.startsWith(".")) continue;
+        const objectPath = `${carId}/video/${colourId}/${r.name}`;
+        out.push({
+          carId,
+          colourId,
+          fileName: paths.displayNameOf(r.name),
+          bytes: typeof r.metadata?.size === "number" ? r.metadata.size : 0,
+          input: `${base}/object/public/${bucket}/${objectPath.split("/").map(encodeURIComponent).join("/")}`,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/* ── Encoding ────────────────────────────────────────────────────────────── */
+
 function mb(bytes) {
   return `${(bytes / 1_000_000).toFixed(1)} MB`;
 }
 
-async function durationOf(file) {
-  const { stdout } = await run("ffprobe", [
-    "-v", "error",
-    "-show_entries", "format=duration",
-    "-of", "default=nw=1:nk=1",
-    file,
-  ]);
-  const seconds = Number.parseFloat(String(stdout).trim());
-  if (!Number.isFinite(seconds) || seconds <= 0) throw new Error(`could not read the length of ${file}`);
-  return seconds;
+async function probe(input) {
+  const { stdout } = await run(
+    "ffprobe",
+    ["-v", "error", "-show_entries", "format=duration,format_name:stream=codec_type,codec_name", "-of", "json", input],
+    { maxBuffer: 4 * 1024 * 1024 }
+  );
+  const j = JSON.parse(String(stdout));
+  const seconds = Number.parseFloat(j?.format?.duration);
+  const streams = Array.isArray(j?.streams) ? j.streams : [];
+  return {
+    seconds: Number.isFinite(seconds) && seconds > 0 ? seconds : null,
+    formats: String(j?.format?.format_name ?? "").split(","),
+    video: streams.find((s) => s.codec_type === "video")?.codec_name ?? null,
+    audio: streams.find((s) => s.codec_type === "audio")?.codec_name ?? null,
+  };
 }
 
-/**
- * One copy at a rate that should land under TARGET_BYTES, and never above the
- * original's own rate — a 3 MB clip must not come back as 11 MB; that is a
- * customer's mobile data. Retried lower if it still comes out over.
- */
-async function encode(src, out, srcBytes) {
-  const seconds = await durationOf(src);
+/** Why this video needs a copy — null when it can be sent as it is. */
+function whyCopy(source, info) {
+  if (source.bytes > TARGET_BYTES) return `${mb(source.bytes)} is over ${mb(TARGET_BYTES)}`;
+  if (!/\.mp4$/i.test(source.fileName) || !info.formats.includes("mp4")) return "not an MP4";
+  if (info.video !== "h264") return `video is ${info.video ?? "missing"}, not H.264`;
+  if (info.audio && info.audio !== "aac") return `sound is ${info.audio}, not AAC`;
+  return null;
+}
+
+async function encode(input, out, srcBytes, seconds) {
   const sourceKbps = Math.floor((srcBytes * 8) / 1000 / seconds);
   let factor = 0.9;
   for (let attempt = 1; attempt <= MAX_TRIES; attempt++) {
@@ -140,7 +213,7 @@ async function encode(src, out, srcBytes) {
       "ffmpeg",
       [
         "-y", "-v", "error",
-        "-i", src,
+        "-i", input,
         "-map", "0:v:0", "-map", "0:a:0?",
         "-c:v", "libx264", "-profile:v", "main", "-pix_fmt", "yuv420p", "-preset", "medium",
         "-b:v", `${videoKbps}k`, "-maxrate", `${Math.round(videoKbps * 1.2)}k`, "-bufsize", `${videoKbps * 2}k`,
@@ -152,7 +225,7 @@ async function encode(src, out, srcBytes) {
       { maxBuffer: 16 * 1024 * 1024 }
     );
     const size = (await stat(out)).size;
-    if (size <= TARGET_BYTES) return { size, attempt, videoKbps };
+    if (size <= TARGET_BYTES) return { size, attempt };
     factor *= 0.8;
   }
   throw new Error(`still over ${mb(TARGET_BYTES)} after ${MAX_TRIES} tries`);
@@ -163,123 +236,125 @@ function stableId(carId, colourId, fileName, bytes) {
   return createHash("sha256").update(`send/${carId}/${colourId}/${fileName}/${bytes}`).digest("hex").slice(0, 16);
 }
 
-async function listPrefix(base, bucket, key, prefix) {
-  const res = await fetch(`${base}/object/list/${bucket}`, {
-    method: "POST",
-    headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ prefix, limit: 1000, offset: 0 }),
-  });
-  if (!res.ok) return new Set();
-  const rows = await res.json();
-  return new Set(Array.isArray(rows) ? rows.map((r) => (typeof r?.name === "string" ? `${prefix}/${r.name}` : "")) : []);
-}
+/* ── The run ─────────────────────────────────────────────────────────────── */
 
 async function main() {
   const args = process.argv.slice(2);
   const mode = args.includes("--upload") ? "upload" : args.includes("--encode") ? "encode" : "plan";
+  const fromLibrary = args.includes("--library");
   const root = args.find((a) => !a.startsWith("--"));
-  if (!root) {
+  if (!fromLibrary && !root) {
     console.error(
       [
-        'Plan:    npm run sales-videos:plan   -- "<path to the Monza AI sales folder>"',
-        'Encode:  npm run sales-videos:encode -- "<path to the Monza AI sales folder>"',
-        'Upload:  npm run sales-videos:upload -- "<path to the Monza AI sales folder>"',
+        'Folder:   npm run sales-videos:plan|encode|upload -- "<path to the Monza AI sales folder>"',
+        "Library:  npm run sales-videos:library-plan | sales-videos:library-upload",
       ].join("\n")
     );
     process.exit(2);
   }
 
   const { paths, manifest, env } = await loadProjectModules();
-  const key = mode === "upload" ? readSecret("AI_SUPABASE_SERVICE_ROLE_KEY") : "";
-  if (mode === "upload" && key === "") {
-    console.error("No AI_SUPABASE_SERVICE_ROLE_KEY in the environment or .env.local — nothing was uploaded.");
+  const key = mode === "upload" || fromLibrary ? readSecret("AI_SUPABASE_SERVICE_ROLE_KEY") : "";
+  if ((mode === "upload" || fromLibrary) && key === "") {
+    console.error("No AI_SUPABASE_SERVICE_ROLE_KEY in the environment or .env.local — nothing was done.");
     process.exit(2);
   }
-
-  const carModels = await findCarModels(path.resolve(root));
-  if (!carModels) {
-    console.error(`Could not find a "Car Models" folder under ${root}`);
-    process.exit(2);
-  }
-  const onDisk = await indexFiles(carModels);
   const base = `${env.AI_URL}/storage/v1`;
   const bucket = paths.MEDIA_BUCKET;
+  const problems = [];
+  const sb = key ? createClient(env.AI_URL, key, { auth: { persistSession: false, autoRefreshToken: false } }) : null;
+
+  const sources = fromLibrary
+    ? await librarySources(sb, base, bucket, paths, manifest)
+    : await folderSources(root, manifest, problems);
 
   console.log(
-    mode === "plan"
-      ? "PLAN ONLY — nothing is encoded or uploaded.\n"
-      : mode === "encode"
-        ? `ENCODING into ${OUT_DIR} — nothing is uploaded.\n`
-        : "ENCODING AND UPLOADING to the shared library.\n"
+    `${sources.length} colour video(s) from the ${fromLibrary ? "shared library" : "sales folder"}. ` +
+      (mode === "plan"
+        ? "PLAN ONLY — nothing is made or uploaded.\n"
+        : mode === "encode"
+          ? `Copies go into ${OUT_DIR}; nothing is uploaded.\n`
+          : "Copies are made and UPLOADED to the shared library.\n")
   );
 
-  const problems = [];
+  let fine = 0;
   let made = 0;
   let reused = 0;
   let uploaded = 0;
   let skipped = 0;
+  const existing = new Map();
 
-  for (const car of manifest.SALES_MANIFEST.cars) {
-    for (const colour of car.colours) {
-      const existing =
-        mode === "upload" ? await listPrefix(base, bucket, key, `${car.id}/video-send/${colour.id}`) : new Set();
-      for (const video of colour.videos) {
-        const src = onDisk.get(video.fileName);
-        if (!src) {
-          problems.push(`${car.id}/${colour.id}: "${video.fileName}" is in the catalogue but not on disk`);
-          continue;
-        }
-        const srcSize = (await stat(src)).size;
-        const baseName = video.fileName.replace(/\.[^.]+$/, "");
-        const outName = paths.safeObjectName(`${baseName}.mp4`);
-        const out = path.join(OUT_DIR, car.id, colour.id, outName);
+  for (const source of sources) {
+    const label = `${source.carId} / ${source.colourId}: ${source.fileName} (${mb(source.bytes)})`;
+    let info;
+    try {
+      info = await probe(source.input);
+    } catch (err) {
+      problems.push(`${label}: could not be read (${err instanceof Error ? err.message.split("\n")[0] : err})`);
+      continue;
+    }
+    const why = whyCopy(source, info);
+    if (!why) {
+      fine++;
+      console.log(`  ${label} — fine as it is`);
+      continue;
+    }
+    if (!info.seconds) {
+      problems.push(`${label}: its length could not be read`);
+      continue;
+    }
 
-        if (mode === "plan") {
-          console.log(`  ${car.id} / ${colour.id}: ${video.fileName} (${mb(srcSize)}) → ${outName}`);
-          continue;
-        }
+    const outName = paths.safeObjectName(`${source.fileName.replace(/\.[^.]+$/, "")}.mp4`);
+    if (mode === "plan") {
+      console.log(`  ${label} — needs a copy (${why}) → ${outName}`);
+      continue;
+    }
 
-        await mkdir(path.dirname(out), { recursive: true });
-        let size;
-        if (existsSync(out) && (size = (await stat(out)).size) <= TARGET_BYTES) {
-          reused++;
-        } else {
-          process.stdout.write(`  ${car.id} / ${colour.id}: ${video.fileName} (${mb(srcSize)})… `);
-          try {
-            const r = await encode(src, out, srcSize);
-            size = r.size;
-            made++;
-            console.log(`${mb(r.size)}${r.attempt > 1 ? ` (try ${r.attempt})` : ""}`);
-          } catch (err) {
-            console.log("FAILED");
-            problems.push(`${car.id}/${colour.id}: ${err instanceof Error ? err.message : String(err)}`);
-            continue;
-          }
-        }
-
-        if (mode !== "upload") continue;
-        const objectPath = `${car.id}/video-send/${colour.id}/${stableId(car.id, colour.id, video.fileName, srcSize)}__${outName}`;
-        if (existing.has(objectPath)) {
-          skipped++;
-          continue;
-        }
-        const res = await fetch(`${base}/object/${bucket}/${objectPath}`, {
-          method: "POST",
-          headers: { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "video/mp4", "x-upsert": "false" },
-          body: await readFile(out),
-        });
-        if (res.ok) {
-          uploaded++;
-          console.log(`    uploaded ${objectPath} (${mb(size)})`);
-        } else {
-          problems.push(`${objectPath}: HTTP ${res.status}`);
-        }
+    const out = path.join(OUT_DIR, source.carId, source.colourId, outName);
+    await mkdir(path.dirname(out), { recursive: true });
+    let size;
+    if (existsSync(out) && (size = (await stat(out)).size) <= TARGET_BYTES) {
+      reused++;
+    } else {
+      process.stdout.write(`  ${label} — ${why} → `);
+      try {
+        const r = await encode(source.input, out, source.bytes, info.seconds);
+        size = r.size;
+        made++;
+        console.log(`${mb(r.size)}${r.attempt > 1 ? ` (try ${r.attempt})` : ""}`);
+      } catch (err) {
+        console.log("FAILED");
+        problems.push(`${label}: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
+        continue;
       }
+    }
+
+    if (mode !== "upload") continue;
+    const prefix = `${source.carId}/video-send/${source.colourId}`;
+    if (!existing.has(prefix)) {
+      const rows = await listStorage(sb, bucket, prefix).catch(() => []);
+      existing.set(prefix, new Set(rows.map((r) => `${prefix}/${r?.name}`)));
+    }
+    const objectPath = `${prefix}/${stableId(source.carId, source.colourId, source.fileName, source.bytes)}__${outName}`;
+    if (existing.get(prefix).has(objectPath)) {
+      skipped++;
+      continue;
+    }
+    const { error: upErr } = await sb.storage
+      .from(bucket)
+      .upload(objectPath, await readFile(out), { contentType: "video/mp4", upsert: false });
+    if (!upErr) {
+      uploaded++;
+      console.log(`    uploaded ${objectPath} (${mb(size)})`);
+    } else {
+      problems.push(`${objectPath}: ${upErr.message}`);
     }
   }
 
   console.log(
-    `\nMade ${made}, reused ${reused}` + (mode === "upload" ? `, uploaded ${uploaded}, already there ${skipped}` : "") + "."
+    `\nFine as they are ${fine}, copies made ${made}, reused ${reused}` +
+      (mode === "upload" ? `, uploaded ${uploaded}, already there ${skipped}` : "") +
+      "."
   );
   if (problems.length > 0) {
     console.log(`\n${problems.length} problem(s):`);
