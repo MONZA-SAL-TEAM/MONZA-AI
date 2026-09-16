@@ -18,7 +18,8 @@
 
 import { channelsSendLive } from "@/lib/env";
 import { decodeThreadId } from "@/lib/channels/live-map";
-import { listAccounts, recordWhatsAppSent, type StoredAccount } from "@/lib/channels/store";
+import { listAccounts, readWhatsAppMessages, recordWhatsAppSent, type StoredAccount } from "@/lib/channels/store";
+import { isPilotChat } from "@/lib/wasales/autoreply-pilot";
 import { readThreadForStaff, suggestionTarget } from "@/lib/channels/live";
 import { libraryMedia, loadCatalog, type LibraryFile } from "@/lib/wasales/catalog";
 import { listLibraryFiles } from "@/lib/wasales/library-server";
@@ -77,6 +78,26 @@ interface Loaded {
 }
 
 type Reply = { status: number; body: unknown };
+
+/**
+ * The whole sales engine — the suggestion card AND the autoreply — is switched on
+ * ONLY for the pilot chat (Samer, 2026-09-16: "i dont want it live for all the
+ * clients"). Every other chat sees nothing new: no card, no send, no reply.
+ */
+async function inPilot(threadId: unknown): Promise<boolean> {
+  const ids = decodeThreadId(threadId);
+  if (!ids) return false;
+  const account = (await listAccounts()).find((a) => a.id === ids.accountId);
+  if (!account || account.channel !== "whatsapp") return false;
+  const r = await readWhatsAppMessages(account.id, ids.metaConversationId, 1);
+  if (!r.ok || !r.value) return false;
+  return isPilotChat({ accountId: account.id, channel: account.channel, peerExternalId: r.value.peerExternalId });
+}
+
+const NOT_IN_PILOT: Reply = {
+  status: 200,
+  body: { kind: "nothing_to_answer", reason: "Sales suggestions are switched on only for the test chat." },
+};
 
 function channelOf(channel: string): SalesChannel | null {
   return channel === "instagram" || channel === "facebook" || channel === "whatsapp" ? channel : null;
@@ -172,6 +193,7 @@ function viewOf(s: Suggestion, memoryOk: boolean, notes: string[]): SuggestionVi
 }
 
 export async function suggestionFor(threadId: unknown): Promise<Reply> {
+  if (!(await inPilot(threadId))) return NOT_IN_PILOT;
   const c = await load(threadId);
   if (!c.ok) return { status: c.status, body: { ok: false, message: c.problem } };
   const s = suggestForThread(c.facts, c.saved, c.deps, { liveSending: channelsSendLive() });
@@ -286,6 +308,9 @@ async function deliver(
 }
 
 export async function sendSuggestion(threadId: unknown, version: unknown, staffName: string): Promise<Reply> {
+  if (!(await inPilot(threadId))) {
+    return { status: 403, body: { ok: false, message: "Sales suggestions are switched on only for the test chat." } };
+  }
   const c = await load(threadId);
   if (!c.ok) return { status: c.status, body: { ok: false, message: c.problem } };
   if (!c.memoryOk) {
@@ -308,6 +333,7 @@ export async function sendSuggestion(threadId: unknown, version: unknown, staffN
 }
 
 export async function resumeSuggestions(threadId: unknown): Promise<Reply> {
+  if (!(await inPilot(threadId))) return NOT_IN_PILOT;
   const c = await load(threadId);
   if (!c.ok) return { status: c.status, body: { ok: false, message: c.problem } };
   if (!c.memoryOk) {
@@ -353,6 +379,7 @@ export async function autoreplyThread(
   deadlineMs: number
 ): Promise<AutoreplyOutcome> {
   let sent = 0;
+  if (!(await inPilot(threadId))) return { rounds: 0, sent, stopped: "not the pilot chat" };
   for (let round = 1; round <= MAX_ROUNDS; round++) {
     const c = await load(threadId);
     if (!c.ok) return { rounds: round, sent, stopped: `could not read the chat (${c.status})` };
