@@ -908,8 +908,10 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   `automation_id` `sales-autoreply:…`. A reply a person types in that chat
   stops it (handover). Off: `SALES_AUTOREPLY_MODE=off`.
 - **Memory:** `database/migrations/012_sales_suggestion_state.sql` — engine
-  state and our own sent ids per chat, never words. NOT applied until Samer
-  says so: suggestions still show without it, but cannot be sent.
+  state and our own sent ids per chat, never words. **APPLIED** — read live
+  from the AI project `fpsgsgldepgcowyivoow` on 2026-09-16: migration
+  `20260916095842 sales_suggestion_state`. Without it suggestions still show
+  but cannot be sent, and the autoreply stops at "memory not set up".
 
 ## General
 
