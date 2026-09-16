@@ -83,6 +83,12 @@ export interface ParsedMediaPath {
   /** Which colour this video shows. Always null for a brochure. */
   colourId: string | null;
   objectName: string;
+  /**
+   * True for a small copy made for SENDING (scripts/sales-video-prep.mjs),
+   * filed under <carId>/video-send/<colourId>/ so the originals and /sales
+   * stay untouched. Absent otherwise.
+   */
+  sendCopy?: true;
 }
 
 /** Lowercased extension without the dot, or "" when the name has none. */
@@ -159,8 +165,12 @@ export function parseMediaPath(path: unknown): ParsedMediaPath | null {
   const parts = path.split("/");
   if (parts.length < 3 || parts.length > 4) return null;
 
-  const [carId, kind] = parts;
+  const [carId, folder] = parts;
   if (!isValidCarId(carId)) return null;
+  // "video-send" holds the small copies made for sending: a video in every
+  // respect (colour required, video types only), filed apart from the original.
+  const sendCopy = folder === "video-send";
+  const kind = sendCopy ? "video" : folder;
   if (kind !== "video" && kind !== "brochure") return null;
 
   // A video names its colour; a brochure covers every colour and names none.
@@ -176,7 +186,7 @@ export function parseMediaPath(path: unknown): ParsedMediaPath | null {
   if (objectName.startsWith(".")) return null;
   if (/^\.+$/.test(objectName)) return null;
 
-  return { carId, kind, colourId, objectName };
+  return { carId, kind, colourId, objectName, ...(sendCopy ? { sendCopy: true as const } : {}) };
 }
 
 /**
