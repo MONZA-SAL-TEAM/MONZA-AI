@@ -128,20 +128,29 @@ export async function POST(request: Request): Promise<NextResponse> {
    * every sweep answered 400 and old brochures were never retired. */
   if (action === "sweep-brochure") {
     const keep = parseMediaPath(body.keepPath);
-    if (!keep || keep.kind !== "brochure") {
+    // Only a new ORIGINAL retires brochures: kept as a copy, it would sweep
+    // away every original.
+    if (!keep || keep.kind !== "brochure" || keep.sendCopy) {
       return fail("badRequest", "Invalid file path.", 400);
     }
     const keepPath = body.keepPath as string;
     try {
-      const { data: existing, error } = await svc.storage
-        .from(MEDIA_BUCKET)
-        .list(mediaPrefix(keep.carId, "brochure"), { limit: 100 });
-      if (error) throw error;
-      const olds = (existing ?? [])
-        .map((e) => (typeof e.name === "string" ? e.name : ""))
-        .filter((n) => n !== "" && !n.startsWith("."))
-        .map((n) => `${keep.carId}/brochure/${n}`)
-        .filter((p) => p !== keepPath);
+      const olds: string[] = [];
+      // The small copy of the old brochure goes too, or the sales engine would
+      // keep sending it in place of the new one (libraryMedia prefers copies).
+      for (const folder of ["brochure", "brochure-send"]) {
+        const { data: existing, error } = await svc.storage
+          .from(MEDIA_BUCKET)
+          .list(`${keep.carId}/${folder}`, { limit: 100 });
+        if (error) throw error;
+        olds.push(
+          ...(existing ?? [])
+            .map((e) => (typeof e.name === "string" ? e.name : ""))
+            .filter((n) => n !== "" && !n.startsWith("."))
+            .map((n) => `${keep.carId}/${folder}/${n}`)
+            .filter((p) => p !== keepPath)
+        );
+      }
       if (olds.length > 0) {
         const { error: rmError } = await svc.storage
           .from(MEDIA_BUCKET)

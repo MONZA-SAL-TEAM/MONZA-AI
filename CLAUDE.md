@@ -875,6 +875,12 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   a file over the channel's limit goes as a link in the sentence. Choices are
   WhatsApp reply buttons / list or Messenger/Instagram quick replies; each
   carries its payload (`MODEL:X`, `COLOUR:X:Y`).
+- **Small send copies are preferred over the originals** (Samer, 2026-09-16:
+  "send me the video", a file and not a link): colour videos under
+  `<car>/video-send/<colour>/` (≤15 MB MP4), brochures under
+  `<car>/brochure-send/` (under Instagram's and Messenger's 25 MB; Courage,
+  Passion and MHERO 1). /sales keeps showing the originals. A new brochure
+  uploaded on /sales retires the old copy too, so a stale copy is never sent.
 - **Quiet for the rest of the chat once a person writes their own reply.**
   Suggestion sends are recognised by the Meta message ids saved when they went
   and, on WhatsApp, by `automation_id` `sales-suggestion:…`; any other

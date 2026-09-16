@@ -6,6 +6,8 @@
  *
  * Paths, as media-paths.ts defines them:
  *   <carId>/brochure/<file>
+ *   <carId>/brochure-send/<file>           a brochure shrunk under 25 MB,
+ *                                          preferred by libraryMedia()
  *   <carId>/video/<colourId>/<file>
  *   <carId>/video-send/<colourId>/<file>   small copies made for sending
  *                                          (scripts/sales-video-prep.mjs),
@@ -77,16 +79,22 @@ export async function listLibraryFiles(
     const perCar = await Promise.all(
       carIds.filter((id) => FOLDER.test(id)).map(async (carId) => {
         const out: LibraryFile[] = [];
-        for (const e of filesIn(await list(`${carId}/brochure`))) {
-          const path = `${carId}/brochure/${nameOf(e)}`;
-          out.push({
-            carId,
-            kind: "brochure",
-            colourId: null,
-            name: displayNameOf(nameOf(e)),
-            size: sizeOf(e),
-            url: publicUrl(path),
-          });
+        for (const [folder, sendCopy] of [
+          ["brochure", false],
+          ["brochure-send", true],
+        ] as const) {
+          for (const e of filesIn(await list(`${carId}/${folder}`))) {
+            const path = `${carId}/${folder}/${nameOf(e)}`;
+            out.push({
+              carId,
+              kind: "brochure",
+              colourId: null,
+              name: displayNameOf(nameOf(e)),
+              size: sizeOf(e),
+              url: publicUrl(path),
+              ...(sendCopy ? { sendCopy: true } : {}),
+            });
+          }
         }
         for (const [folder, sendCopy] of [
           ["video", false],

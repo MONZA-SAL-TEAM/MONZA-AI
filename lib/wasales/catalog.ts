@@ -212,8 +212,9 @@ export interface LibraryFile {
   /** The library's public address — what a channel fetches when it is sent. */
   url?: string | null;
   /**
-   * A small copy made for sending (scripts/sales-video-prep.mjs: MP4, 15 MB
-   * at most, so every channel takes it). Preferred over the original.
+   * A small copy made for sending (a video: scripts/sales-video-prep.mjs, MP4,
+   * 15 MB at most; a brochure: under 25 MB), so every channel takes it.
+   * Preferred over the original.
    */
   sendCopy?: boolean;
 }
@@ -228,18 +229,20 @@ export interface LibraryFile {
 export function libraryMedia(files: readonly LibraryFile[]): ModelMediaLookup {
   return (carId) => {
     let brochure: MediaRef | null = null;
+    let brochureCopy: MediaRef | null = null;
     const originals: Record<string, MediaRef[]> = {};
     const copies: Record<string, MediaRef[]> = {};
     for (const f of files) {
       if (f.carId !== carId) continue;
       const ref: MediaRef = { name: f.name, bytes: f.size, ...(f.url ? { url: f.url } : {}) };
       if (f.kind === "brochure") {
-        brochure ??= ref;
+        if (f.sendCopy) brochureCopy ??= ref;
+        else brochure ??= ref;
       } else if (f.colourId) {
         ((f.sendCopy ? copies : originals)[f.colourId] ??= []).push(ref);
       }
     }
     const videosByColour: Record<string, MediaRef[]> = { ...originals, ...copies };
-    return { brochure, videosByColour };
+    return { brochure: brochureCopy ?? brochure, videosByColour };
   };
 }

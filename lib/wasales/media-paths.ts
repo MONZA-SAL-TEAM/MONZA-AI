@@ -84,9 +84,10 @@ export interface ParsedMediaPath {
   colourId: string | null;
   objectName: string;
   /**
-   * True for a small copy made for SENDING (scripts/sales-video-prep.mjs),
-   * filed under <carId>/video-send/<colourId>/ so the originals and /sales
-   * stay untouched. Absent otherwise.
+   * True for a small copy made for SENDING, so the originals and /sales stay
+   * untouched: a video (scripts/sales-video-prep.mjs) under
+   * <carId>/video-send/<colourId>/, or a brochure shrunk under Instagram's and
+   * Messenger's 25 MB under <carId>/brochure-send/. Absent otherwise.
    */
   sendCopy?: true;
 }
@@ -167,10 +168,11 @@ export function parseMediaPath(path: unknown): ParsedMediaPath | null {
 
   const [carId, folder] = parts;
   if (!isValidCarId(carId)) return null;
-  // "video-send" holds the small copies made for sending: a video in every
-  // respect (colour required, video types only), filed apart from the original.
-  const sendCopy = folder === "video-send";
-  const kind = sendCopy ? "video" : folder;
+  // "video-send" and "brochure-send" hold the small copies made for sending: a
+  // video or a brochure in every respect (a video's colour required, a
+  // brochure's refused, same file types), filed apart from the original.
+  const sendCopy = folder === "video-send" || folder === "brochure-send";
+  const kind = folder === "video-send" ? "video" : folder === "brochure-send" ? "brochure" : folder;
   if (kind !== "video" && kind !== "brochure") return null;
 
   // A video names its colour; a brochure covers every colour and names none.
