@@ -18,9 +18,9 @@
 
 import { channelsSendLive } from "@/lib/env";
 import { decodeThreadId } from "@/lib/channels/live-map";
-import { listAccounts, readWhatsAppMessages, recordWhatsAppSent, type StoredAccount } from "@/lib/channels/store";
-import { isPilotChat } from "@/lib/wasales/autoreply-pilot";
-import { readThreadForStaff, suggestionTarget } from "@/lib/channels/live";
+import { listAccounts, recordWhatsAppSent, type StoredAccount } from "@/lib/channels/store";
+import { isPilotAccount, isPilotChat } from "@/lib/wasales/autoreply-pilot";
+import { readThreadForStaff, suggestionTarget, threadPeerId } from "@/lib/channels/live";
 import { libraryMedia, loadCatalog, type LibraryFile } from "@/lib/wasales/catalog";
 import { listLibraryFiles } from "@/lib/wasales/library-server";
 import { colourNameFrom } from "@/lib/wasales/media-paths";
@@ -86,12 +86,12 @@ type Reply = { status: number; body: unknown };
  */
 async function inPilot(threadId: unknown): Promise<boolean> {
   const ids = decodeThreadId(threadId);
-  if (!ids) return false;
+  // No pilot chat on this account: answered without a single Meta call.
+  if (!ids || !isPilotAccount(ids.accountId)) return false;
   const account = (await listAccounts()).find((a) => a.id === ids.accountId);
-  if (!account || account.channel !== "whatsapp") return false;
-  const r = await readWhatsAppMessages(account.id, ids.metaConversationId, 1);
-  if (!r.ok || !r.value) return false;
-  return isPilotChat({ accountId: account.id, channel: account.channel, peerExternalId: r.value.peerExternalId });
+  if (!account) return false;
+  const peer = await threadPeerId(threadId);
+  return peer !== null && isPilotChat({ accountId: account.id, channel: account.channel, peerExternalId: peer });
 }
 
 const NOT_IN_PILOT: Reply = {

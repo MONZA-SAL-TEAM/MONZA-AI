@@ -34,10 +34,11 @@ import { runAutoreply } from "@/lib/wasales/autoreply";
 import {
   accountsForApp,
   parseMetaAppSecrets,
+  withInstagramLoginSecrets,
   verifyMetaSignatureForApps,
   verifySubscription,
 } from "@/lib/channels/meta-signature";
-import { metaAppSecret, metaAppSecretsMap, metaVerifyToken } from "@/lib/env";
+import { metaAppSecret, metaAppSecretsMap, metaInstagramAppSecretVoyah, metaVerifyToken } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 /** Room to copy a customer's photo or voice note out of Meta before answering. */
@@ -85,7 +86,9 @@ export async function POST(request: Request): Promise<Response> {
   const check = verifyMetaSignatureForApps(
     raw,
     request.headers.get("x-hub-signature-256"),
-    parseMetaAppSecrets(metaAppSecretsMap(), metaAppSecret())
+    withInstagramLoginSecrets(parseMetaAppSecrets(metaAppSecretsMap(), metaAppSecret()), {
+      "2636993883137857": metaInstagramAppSecretVoyah(),
+    })
   );
   if (!check.ok) {
     console.warn(`[channels/meta] signature refused: ${check.reason}`);

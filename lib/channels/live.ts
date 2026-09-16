@@ -1682,3 +1682,40 @@ export async function suggestionTarget(threadId: unknown, live: boolean): Promis
     conversationId: decodeThreadId(threadId)?.metaConversationId ?? "",
   };
 }
+
+/**
+ * The Meta conversation for one customer of one Instagram or Facebook account.
+ * A webhook names the customer (their scoped id), not the conversation, and the
+ * sales autoreply pilot needs the thread to read and answer it.
+ */
+export async function metaThreadFor(accountId: string, peerId: string): Promise<string | null> {
+  if (!/^\d{3,40}$/.test(peerId)) return null;
+  const all = await listAccounts();
+  const account = all.find((a) => a.id === accountId);
+  if (!account || !isMetaChannel(account)) return null;
+  const route = await readRoute(account, all);
+  if (!route.ok) return null;
+  const r = await route.get(
+    route.listPath,
+    { platform: account.channel === "instagram" ? "instagram" : "messenger", user_id: peerId, fields: "id" },
+    route.token,
+    THREAD_TIMEOUT_MS
+  );
+  if (!r.ok) return null;
+  const data = r.json && typeof r.json === "object" ? (r.json as { data?: unknown }).data : null;
+  const first = Array.isArray(data) ? (data[0] as { id?: unknown } | undefined) : undefined;
+  if (typeof first?.id !== "string") return null;
+  const threadId = encodeThreadId(account.id, first.id);
+  return decodeThreadId(threadId) ? threadId : null;
+}
+
+/** The customer's id in a thread: ours for WhatsApp, Meta's participants otherwise. */
+export async function threadPeerId(threadId: unknown): Promise<string | null> {
+  const wa = await whatsappAccountOf(threadId);
+  if (wa) {
+    const r = await readWhatsAppMessages(wa.account.id, wa.id, 1);
+    return r.ok && r.value ? r.value.peerExternalId : null;
+  }
+  const t = await openThread(threadId, new Date());
+  return t.ok && t.peer ? t.peer.id : null;
+}

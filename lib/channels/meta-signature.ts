@@ -196,10 +196,43 @@ export function verifyMetaSignatureForApps(
  *
  * Unbound (the legacy single secret): every account, exactly as before.
  */
-export function accountsForApp<T extends { appId: string | null }>(
+/**
+ * Instagram-login apps, and the Facebook app whose INSTAGRAM accounts they may
+ * speak for. With "Instagram API with Instagram login" (rule 37) Meta signs
+ * webhook deliveries with the separate Instagram app's own secret (rule 39: "TWO
+ * app ids, TWO app secrets"). Bound here to Instagram accounts of the same
+ * brand's app only, so that secret can never speak for a Page or another brand.
+ */
+export const INSTAGRAM_LOGIN_APPS: Readonly<Record<string, string>> = Object.freeze({
+  // VOYAH: the Instagram app of "Monza SAL CHAT BOT" (912301501380919).
+  "2636993883137857": "912301501380919",
+});
+
+/**
+ * Add the Instagram-login app secrets, each kept in its own setting, bound to its
+ * Instagram app id. Separate from META_APP_SECRETS so a mistake in one can only
+ * affect that Instagram app. An empty or missing setting adds nothing.
+ */
+export function withInstagramLoginSecrets(
+  secrets: readonly MetaAppSecret[],
+  byApp: Readonly<Record<string, string | null>>
+): MetaAppSecret[] {
+  const out = [...secrets];
+  for (const [appId, secret] of Object.entries(byApp)) {
+    if (!/^\d+$/.test(appId) || !secret || secret.trim() === "") continue;
+    if (out.some((s) => s.appId === appId)) continue;
+    out.push({ appId, secret: secret.trim() });
+  }
+  return out;
+}
+
+export function accountsForApp<T extends { appId: string | null; channel?: string }>(
   accounts: readonly T[],
-  appId: string | null
+  appId: string | null,
+  instagramApps: Readonly<Record<string, string>> = INSTAGRAM_LOGIN_APPS
 ): T[] {
   if (appId === null) return [...accounts];
+  const parent = Object.prototype.hasOwnProperty.call(instagramApps, appId) ? instagramApps[appId] : null;
+  if (parent) return accounts.filter((a) => a.appId === parent && a.channel === "instagram");
   return accounts.filter((a) => a.appId === appId);
 }

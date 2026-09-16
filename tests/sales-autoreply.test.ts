@@ -7,7 +7,8 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { AUTOREPLY_PILOT, autoreplyMode, isPilotChat } from "@/lib/wasales/autoreply-pilot";
+import { AUTOREPLY_PILOT, autoreplyMode, isPilotAccount, isPilotChat } from "@/lib/wasales/autoreply-pilot";
+import { accountsForApp, INSTAGRAM_LOGIN_APPS, withInstagramLoginSecrets } from "@/lib/channels/meta-signature";
 import {
   AUTOREPLY_AUTOMATION_PREFIX,
   freshSaved,
@@ -24,31 +25,57 @@ import type { WaCar } from "@/lib/wasales/matcher";
 describe("who the pilot may answer", () => {
   const samer = { accountId: "wa-monza", channel: "whatsapp", peerExternalId: "9613195955" };
 
-  test("only Samer's test phone, on the business WhatsApp", () => {
-    assert.deepEqual([...AUTOREPLY_PILOT.accounts], ["wa-monza"]);
-    assert.deepEqual([...AUTOREPLY_PILOT.peers], ["9613195955"]);
+  test("only listed chats: an account AND its customer", () => {
+    assert.deepEqual(AUTOREPLY_PILOT.chats.map((c) => `${c.accountId}:${c.peer}`), ["wa-monza:9613195955"]);
     assert.equal(isPilotChat(samer), true);
-    assert.equal(isPilotChat({ ...samer, peerExternalId: "+961 3 195 955".replace(/\s/g, "").replace("+961", "961") }), true);
+    assert.equal(isPilotChat({ ...samer, peerExternalId: "+961 3 195 955" }), true);
   });
 
   test("any other customer, account or channel is never answered", () => {
     assert.equal(isPilotChat({ ...samer, peerExternalId: "96170123456" }), false);
     assert.equal(isPilotChat({ ...samer, peerExternalId: "3195955" }), false, "a partial number is not the number");
     assert.equal(isPilotChat({ ...samer, peerExternalId: "19613195955" }), false);
-    assert.equal(isPilotChat({ ...samer, accountId: "ig-voyah" }), false);
-    assert.equal(isPilotChat({ ...samer, channel: "instagram" }), false);
+    assert.equal(isPilotChat({ accountId: "ig-voyah", channel: "instagram", peerExternalId: "9613195955" }), false, "the same id on another account is someone else");
     assert.equal(isPilotChat({ ...samer, peerExternalId: "" }), false);
+  });
+
+  test("an Instagram chat is matched on its scoped id, exactly", () => {
+    const pilot = { chats: [{ accountId: "ig-voyah", peer: "1234567890123456" }] };
+    assert.equal(isPilotChat({ accountId: "ig-voyah", channel: "instagram", peerExternalId: "1234567890123456" }, pilot), true);
+    assert.equal(isPilotChat({ accountId: "ig-voyah", channel: "instagram", peerExternalId: "123456789012345" }, pilot), false);
+    assert.equal(isPilotChat({ accountId: "ig-mhero", channel: "instagram", peerExternalId: "1234567890123456" }, pilot), false);
+    assert.equal(isPilotAccount("ig-voyah", pilot), true);
+    assert.equal(isPilotAccount("fb-voyah", pilot), false);
   });
 
   test("the list cannot be changed at run time", () => {
     assert.ok(Object.isFrozen(AUTOREPLY_PILOT));
-    assert.ok(Object.isFrozen(AUTOREPLY_PILOT.peers));
+    assert.ok(Object.isFrozen(AUTOREPLY_PILOT.chats));
+    assert.ok(Object.isFrozen(AUTOREPLY_PILOT.chats[0]));
   });
 
   test("SALES_AUTOREPLY_MODE=off stops it; anything else leaves it to the list", () => {
     assert.equal(autoreplyMode("off"), "off");
     assert.equal(autoreplyMode(" OFF "), "off");
     for (const v of [undefined, null, "", "pilot", "on", "live"]) assert.equal(autoreplyMode(v), "pilot", String(v));
+  });
+});
+
+describe("the Instagram app speaks only for Instagram accounts of its brand", () => {
+  const accounts = [
+    { id: "ig-voyah", channel: "instagram", appId: "912301501380919" },
+    { id: "fb-voyah", channel: "facebook", appId: "912301501380919" },
+    { id: "wa-monza", channel: "whatsapp", appId: "912301501380919" },
+    { id: "ig-mhero", channel: "instagram", appId: "1793221688521200" },
+  ];
+  test("VOYAH's Instagram app → only ig-voyah", () => {
+    assert.deepEqual(accountsForApp(accounts, "2636993883137857").map((a) => a.id), ["ig-voyah"]);
+    assert.equal(INSTAGRAM_LOGIN_APPS["2636993883137857"], "912301501380919");
+  });
+  test("the Facebook app is unchanged, and an unknown app speaks for nobody", () => {
+    assert.deepEqual(accountsForApp(accounts, "912301501380919").map((a) => a.id), ["ig-voyah", "fb-voyah", "wa-monza"]);
+    assert.deepEqual(accountsForApp(accounts, "999"), []);
+    assert.deepEqual(accountsForApp(accounts, "__proto__"), []);
   });
 });
 
@@ -116,5 +143,17 @@ describe("how the pilot's messages are recorded", () => {
     assert.equal(row.author, "automation");
     assert.equal(row.automation_id, "sales-autoreply:v:0");
     assert.equal(whatsappSentRow({ conversationId: "c", brand: "monza", accountId: "wa-monza", externalMessageId: "w", text: "t", at: "2026-09-16T09:00:00.000Z", staffName: "s" }).author, "staff");
+  });
+});
+
+describe("the Instagram app secret is its own setting", () => {
+  const base = [{ appId: "912301501380919", secret: "fb" }];
+  test("it is added, bound to the Instagram app", () => {
+    assert.deepEqual(withInstagramLoginSecrets(base, { "2636993883137857": " ig " }), [...base, { appId: "2636993883137857", secret: "ig" }]);
+  });
+  test("missing or empty adds nothing, and the existing secrets are untouched", () => {
+    assert.deepEqual(withInstagramLoginSecrets(base, { "2636993883137857": null }), base);
+    assert.deepEqual(withInstagramLoginSecrets(base, { "2636993883137857": "  " }), base);
+    assert.deepEqual(withInstagramLoginSecrets([], { "not-an-id": "x" }), []);
   });
 });

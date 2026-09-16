@@ -11,6 +11,7 @@
 
 import type { FreshInbound } from "@/lib/channels/store";
 import { encodeThreadId } from "@/lib/channels/live-map";
+import { metaThreadFor } from "@/lib/channels/live";
 import { autoreplyMode, isPilotChat } from "@/lib/wasales/autoreply-pilot";
 import { autoreplyThread } from "@/lib/wasales/suggestion-server";
 
@@ -32,7 +33,17 @@ export async function runAutoreply(
   const deadline = Date.now() + budgetMs;
   let sent = 0;
   for (const f of chats.values()) {
-    const r = await autoreplyThread(encodeThreadId(f.accountId, f.conversationId), f.at, deadline);
+    // WhatsApp threads are ours; an Instagram or Facebook thread is Meta's, found
+    // from the customer's id (a webhook does not name the conversation).
+    const threadId =
+      f.channel === "whatsapp"
+        ? encodeThreadId(f.accountId, f.conversationId)
+        : await metaThreadFor(f.accountId, f.peerExternalId);
+    if (!threadId) {
+      console.info(`[sales/autoreply] ${f.accountId}: could not find the conversation on Meta`);
+      continue;
+    }
+    const r = await autoreplyThread(threadId, f.at, deadline);
     sent += r.sent;
     // Counts and reasons only — no customer words, no phone number.
     console.info(`[sales/autoreply] ${f.accountId}: rounds ${r.rounds}, sent ${r.sent}, stopped: ${r.stopped}`);

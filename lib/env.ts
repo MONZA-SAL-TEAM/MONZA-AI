@@ -98,6 +98,16 @@ export function metaAppSecretsMap(): string | null {
 }
 
 /**
+ * VOYAH's INSTAGRAM app secret (app 2636993883137857), for Instagram-login
+ * webhook deliveries (rule 39). Its own setting on purpose: a typo here can only
+ * affect Instagram, whereas a broken META_APP_SECRETS map refuses every
+ * delivery, WhatsApp included.
+ */
+export function metaInstagramAppSecretVoyah(): string | null {
+  return read("META_IG_APP_SECRET_VOYAH");
+}
+
+/**
  * Whether a staff reply actually leaves the building.
  *
  *   "log_only"  (default) the reply is stored and shown in the thread, and

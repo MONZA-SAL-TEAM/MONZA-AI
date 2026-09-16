@@ -90,7 +90,7 @@ export interface MediaJob {
 }
 
 /**
- * A customer's WhatsApp message that was NEW here — not a redelivery, not our
+  * A customer's message (any channel) that was NEW here — not a redelivery, not our
  * own echo. Only these may reach the sales autoreply pilot
  * (lib/wasales/autoreply.ts), so Meta retrying a delivery can never make it
  * answer twice. No words: the pilot reads the thread itself.
@@ -307,7 +307,8 @@ export async function storeInbound(events: readonly InboundEvent[]): Promise<Sto
       p_at: event.at,
     });
 
-    if (isWhatsApp) {
+    // Every channel: the autoreply pilot decides which chats it may answer.
+    {
       fresh.push({
         accountId: account.id,
         channel: account.channel,
