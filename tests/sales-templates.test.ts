@@ -314,12 +314,19 @@ describe("the send policy", () => {
     const p = applySendPolicy([forged], LIVE, K);
     assert.equal(p.wouldSend, false, "470 km is not the workbook's value");
     assert.match(p.verdicts[0].blocked[0], /no longer approved/);
-    const real: EngineAction = {
+    // The workbook's 440 km is HELD (pending Samer's confirmation), so even that figure is blocked.
+    const held: EngineAction = {
       type: "SEND_FACTS",
       scope: "one",
       rows: [{ model: "COURAGE", fact: "RANGE", value: "440 km WLTP", confirmed: true }],
     };
-    assert.equal(applySendPolicy([real], LIVE, K).wouldSend, true, "the workbook's own value may go");
+    assert.equal(applySendPolicy([held], LIVE, K).wouldSend, false, "a held fact never goes, whatever the engine said");
+    const real: EngineAction = {
+      type: "SEND_FACTS",
+      scope: "one",
+      rows: [{ model: "COURAGE", fact: "HORSEPOWER", value: "320 kW / 435 PS", confirmed: true }],
+    };
+    assert.equal(applySendPolicy([real], LIVE, K).wouldSend, true, "the workbook's own confirmed value may go");
   });
 });
 

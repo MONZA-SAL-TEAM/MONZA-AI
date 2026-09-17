@@ -68,6 +68,21 @@ REWRITES = [
     (r"\s*·\s*trunk not published", " (trunk capacity not confirmed yet)"),
 ]
 
+# Facts the workbook gives that conflict with another source or repeat another
+# model's figure (docs/SALES-FACTS-DISCREPANCIES.md, 2026-09-17). Samer: "do not
+# silently choose between conflicting specifications". Until he confirms each,
+# the bot says the figure is not confirmed yet. Remove an entry once confirmed.
+PENDING_CONFIRMATION = {
+    ("VOYAH Courage", "RANGE"),        # workbook 440 km WLTP, Monza's video says 470 km
+    ("VOYAH Taishan", "HORSEPOWER"),   # workbook 657 hp, Monza's video says 670 hp; same as Passion L
+    ("VOYAH Taishan", "RANGE"),        # 1,400 km combined, same as Passion L
+    ("VOYAH Passion L", "HORSEPOWER"), # 657 hp, same as Taishan
+    ("VOYAH Passion L", "RANGE"),      # 1,400 km combined, same as Taishan
+    ("VOYAH Free 318", "BATTERY"),     # 43 kWh, same as Dream and Passion
+    ("VOYAH Dream", "BATTERY"),        # 43 kWh, same as Free 318 and Passion
+    ("VOYAH Passion", "BATTERY"),      # 43 kWh, same as Free 318 and Dream
+}
+
 # A value that is ONLY a statement that the figure is missing.
 UNCONFIRMED = re.compile(r"not (currently )?(stated|published|confirmed|mapped)", re.I)
 INTERNAL = re.compile(r"worksheet|lebanon (model )?page|specs page|not currently|not published", re.I)
@@ -80,6 +95,9 @@ def text(v):
 
 
 def clean_value(model, key, raw):
+    if (model, key) in PENDING_CONFIRMATION:
+        warnings.append(f"PENDING {model} {key}: {raw!r} awaits Samer's confirmation — the bot says not confirmed yet")
+        return {"value": "", "confirmed": False, "pending": raw}
     value = raw
     for pattern, replacement in REWRITES:
         value = re.sub(pattern, replacement, value, flags=re.I)

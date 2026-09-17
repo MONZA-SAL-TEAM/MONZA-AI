@@ -65,6 +65,9 @@ const KIND_LABEL: Readonly<Record<AlertKind, string>> = {
   DISCOUNT: "Asked about offers",
   TRADE_IN: "Trade-in",
   NEEDS_PERSON: "Needs a person",
+  CALLBACK: "Asked to be called",
+  HUMAN: "Asked for a person",
+  QUESTION: "Question for the team",
 };
 
 export function alertKindLabel(kind: AlertKind): string {
@@ -120,6 +123,20 @@ export async function bookTestDrive(
   if (error.code === "23505") return "taken";
   console.error(`[sales/booking] could not book (${error.code ?? "?"})`);
   return "unavailable";
+}
+
+/** Free this chat's booked test drive(s) from now on — the customer cancelled or rescheduled. */
+export async function cancelChatBookings(chat: ChatRef): Promise<boolean> {
+  const sb = channelDb();
+  if (!sb) return false;
+  const { error } = await sb
+    .from("test_drive_bookings")
+    .update({ status: "cancelled", cancelled_at: new Date().toISOString(), cancelled_by: "customer" })
+    .eq("account_id", chat.accountId)
+    .eq("conversation_ref", chat.conversationRef)
+    .eq("status", "booked")
+    .gte("slot_at", new Date().toISOString());
+  return !error;
 }
 
 export async function listBookings(fromIso: string): Promise<Booking[] | null> {
@@ -243,14 +260,25 @@ export async function recordAlert(
   const since = new Date(Date.now() - 6 * 3_600_000).toISOString();
   const { data: recent } = await sb
     .from("sales_alerts")
-    .select("id")
+    .select("id, customer_name, customer_phone")
     .eq("account_id", chat.accountId)
     .eq("conversation_ref", chat.conversationRef)
     .eq("kind", a.kind)
     .eq("status", "open")
     .gte("created_at", since)
     .limit(1);
-  if (Array.isArray(recent) && recent.length > 0 && !name && !a.slot) return true;
+  const open = Array.isArray(recent) && recent.length > 0 ? (recent[0] as { id: string; customer_name: string | null; customer_phone: string | null }) : null;
+  if (open && !a.slot) {
+    // The same follow-up, now with the name or the number the customer gave: one alert, completed.
+    const patch: Record<string, string> = {};
+    if (name && !open.customer_name) patch.customer_name = name;
+    if (phone && !open.customer_phone) patch.customer_phone = phone;
+    if (Object.keys(patch).length > 0) {
+      await sb.from("sales_alerts").update(patch).eq("id", open.id);
+      await notifySalesPhone(alertSummary({ ...a, name: name ?? open.customer_name, phone: phone ?? open.customer_phone }));
+    }
+    return true;
+  }
 
   const { data, error } = await sb
     .from("sales_alerts")

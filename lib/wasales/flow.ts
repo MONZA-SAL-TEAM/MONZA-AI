@@ -67,6 +67,8 @@ export function runTurn(
         brand,
         knowledge: deps.knowledge,
         linkOversize: send.linkOversize,
+        // Arabic script is answered in Arabic; Arabizi and everything else in English.
+        lang: decision.understanding.reading.language === "ar" ? "ar" : "en",
       })
     : [];
   const policy = applySendPolicy(decision.actions, send, deps.knowledge);

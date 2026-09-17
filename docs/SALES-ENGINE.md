@@ -305,3 +305,49 @@ rule 24; every other chat keeps the suggestion card.
   suggestions), or everywhere with `SALES_AUTOREPLY_MODE=off` + a redeploy.
 - **Logs** counts and stop reasons only, never words or numbers:
   `[sales/autoreply] wa-monza: rounds 1, sent 3, stopped: nothing_to_answer`.
+
+## 2026-09-17: production hardening (Samer's eight phases)
+
+- **Everyone outside the pilot is marked, never answered, never dropped.**
+  `lib/wasales/triage.ts` reads each new WhatsApp message from a non-pilot
+  chat (rules only), files it as PRICE / FINANCING / TEST_DRIVE / STOCK /
+  DISCOUNT / TRADE_IN / CALLBACK / HUMAN / QUESTION or NEEDS_PERSON with the
+  model, and `recordAlert` writes a `sales_alerts` row (kinds in migration
+  016). The reason names the topic and the model code, never the customer's
+  words. The inbox strip shows it and the chat row carries "Needs a person".
+  `SALES_AUTOREPLY_MODE=off` stops replies; marking continues.
+- **No silent ignores in the pilot:** a photo with no words, text the rules
+  do not read, or a message after "talk to a human" raises a NEEDS_PERSON
+  alert (`needsPerson` in `suggest.ts`, applied by the autoreply loop).
+- **A person's reply pauses the bot, it does not kill it.** The bot stays out
+  while the person's conversation is live and resumes when the customer's
+  newest message comes `SALES_HANDOVER_RESUME_HOURS` (default 12) after the
+  person's last reply, answering only what came after it. "Hand to a person"
+  in the inbox holds it out until "Suggest again". `tests/sales-handover.test.ts`.
+- **Held facts.** `PENDING_CONFIRMATION` in `scripts/sales-import-workbook.py`
+  keeps a conflicting workbook value EMPTY (`confirmed: false`, `pending`
+  holds the raw text) so the bot says "not confirmed yet" and the send policy
+  blocks the figure. The list, with the reason for each, is
+  `docs/SALES-FACTS-DISCREPANCIES.md`; remove a row from the set once Samer
+  confirms it and re-run the script.
+- **Arabic.** A message in Arabic script is answered in Arabic
+  (`RenderContext.lang`, `renderTextAr` and `pick()` in `templates.ts`);
+  Arabizi and English get English. Model and colour names stay Latin. The
+  Arabic wording was written for Samer's approval and any sentence without an
+  Arabic version falls back to English.
+- **After hours.** When a reply raises a sales alert outside Mon–Fri 08–18 /
+  Sat 08–14 (Beirut), the bot adds the AFTER_HOURS_NOTE line (`isAfterHours`).
+- **Typed test-drive times** ("tomorrow at 3", "Saturday afternoon", "18
+  September at 4:30", "Monday 11am"): booked if free, nearest free slots if
+  taken or closed, hours + free times on a closed day. "What time is my test
+  drive", "cancel", "change it to Monday 11am" work on `state.booking`; a
+  change cancels the old slot before booking, never two bookings.
+- **The mandatory regression set** is `tests/sales-regression.test.ts`: 80
+  conversations classified PASS / WRONG ANSWER / NO ANSWER /
+  UNSAFE-INVENTED FACT / HANDOFF REQUIRED, with an invented-number check
+  against the approved knowledge and an internal-label scan of every reply.
+- **Not done yet, by Samer's order:** Instagram (last), ad/referral
+  preselection (needs ad ids; `knowledge.referrals` is empty), WhatsApp
+  messages to a staff phone (needs `SALES_ALERT_WHATSAPP_TO` and an approved
+  template), brochure copies for Dream / Free 318 / Taishan / Passion L /
+  MHERO 2 (upload from Samer's Chrome).

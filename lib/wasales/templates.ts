@@ -74,7 +74,17 @@ export interface RenderContext {
    * tap-to-open link in the sentence instead of as an attachment.
    */
   linkOversize?: boolean;
+  /**
+   * "ar" answers in Arabic (Samer, 2026-09-17: reply in the customer's language).
+   * Model and colour names stay as they are. The Arabic wording here was written
+   * for Samer's approval; anything without an Arabic version falls back to English.
+   */
+  lang?: "en" | "ar";
 }
+
+let LANG: "en" | "ar" = "en";
+/** The Arabic sentence when the customer wrote in Arabic, else the English one. */
+const pick = (en: string, ar: string): string => (LANG === "ar" ? ar : en);
 
 /** The address to put in the sentence, when the file must go as a link. */
 function linkInstead(
@@ -96,24 +106,25 @@ export const BRAND_NAME: Readonly<Record<SalesBrand, string>> = {
 
 /** The hand-off sentence (workbook, B Showroom). */
 export function contactFallbackText(k: SalesKnowledge): string {
-  return k.showroom.handoff;
+  return pick(k.showroom.handoff, `لمزيد من المساعدة، يرجى الاتصال بنا على ${k.contact.display}.`);
 }
 
 /** The welcome (workbook, B Showroom), naming the brand of the account written to. */
 function welcomeText(ctx: RenderContext): string {
   const name = BRAND_NAME[ctx.brand];
+  if (LANG === "ar") return `أهلاً وسهلاً بكم في ${name.replace(/\.$/, "")}. كيف يمكننا مساعدتكم اليوم؟`;
   // "Monza S.A.L." ends the sentence with its own dot; another name needs one.
   return ctx.knowledge.showroom.welcome.replace("Monza S.A.L.", name.endsWith(".") ? name : `${name}.`);
 }
 
 function listWords(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? "";
-  return `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
+  return `${names.slice(0, -1).join(pick(", ", "، "))} ${pick("or", "أو")} ${names[names.length - 1]}`;
 }
 
 function andWords(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? "";
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `${names.slice(0, -1).join(pick(", ", "، "))} ${pick("and", "و")} ${names[names.length - 1]}`;
 }
 
 function nameOf(k: SalesKnowledge, code: ModelCode): string {
@@ -157,9 +168,24 @@ const ALL_HEADER: Readonly<Record<FactIntent, string>> = {
   WARRANTY: "Here is the warranty on our current models:",
 };
 
+const FACT_NAME_AR: Readonly<Record<FactIntent, string>> = {
+  HORSEPOWER: "قوة المحرك",
+  RANGE: "المدى",
+  BATTERY: "سعة البطارية",
+  POWERTRAIN: "نظام الدفع",
+  CHARGING: "وقت الشحن",
+  SEATS: "عدد المقاعد",
+  DIMENSIONS: "الأبعاد",
+  SPECIFICATIONS: "المواصفات",
+  WARRANTY: "الكفالة",
+};
+
 /** "not confirmed yet": what a customer reads when the workbook says a figure is not stated. */
 function notConfirmed(row: FactRow, k: SalesKnowledge): string {
-  return `The exact ${FACT_NAME[row.fact]} of the ${nameOf(k, row.model)} is not confirmed yet. Our team can confirm it for you on ${k.contact.display}.`;
+  return pick(
+    `The exact ${FACT_NAME[row.fact]} of the ${nameOf(k, row.model)} is not confirmed yet. Our team can confirm it for you on ${k.contact.display}.`,
+    `${FACT_NAME_AR[row.fact]} لسيارة ${nameOf(k, row.model)} غير مؤكد بعد. يمكن لفريقنا تأكيده لكم على ${k.contact.display}.`
+  );
 }
 
 /** One fact of one car, as a sentence (workbook E, section 4). */
@@ -167,6 +193,7 @@ function factSentence(row: FactRow, k: SalesKnowledge): string {
   if (!row.confirmed) return notConfirmed(row, k);
   const car = nameOf(k, row.model);
   const v = row.value;
+  if (LANG === "ar") return `${FACT_NAME_AR[row.fact]} لسيارة ${car}: ${v}.`;
   switch (row.fact) {
     case "HORSEPOWER":
       return `The ${car} produces ${v}.`;
@@ -191,8 +218,8 @@ function factSentence(row: FactRow, k: SalesKnowledge): string {
 
 /** One fact as a labelled line in a list of several cars. */
 function factLine(row: FactRow, k: SalesKnowledge, label: "model" | "fact"): string {
-  const value = row.confirmed ? row.value : "not confirmed yet";
-  return label === "model" ? `• ${nameOf(k, row.model)} — ${value}` : `• ${FACT_LABEL[row.fact]}: ${value}`;
+  const value = row.confirmed ? row.value : pick("not confirmed yet", "غير مؤكد بعد");
+  return label === "model" ? `• ${nameOf(k, row.model)} — ${value}` : `• ${pick(FACT_LABEL[row.fact], FACT_NAME_AR[row.fact])}: ${value}`;
 }
 
 function uniqueInOrder<T>(items: readonly T[]): T[] {
@@ -209,7 +236,7 @@ function renderFacts(a: Extract<EngineAction, { type: "SEND_FACTS" }>, k: SalesK
     return [`${nameOf(k, models[0])}:`, ...a.rows.map((r) => factLine(r, k, "fact"))].join("\n");
   }
   if (facts.length === 1) {
-    const header = a.scope === "all" ? ALL_HEADER[facts[0]] : `${FACT_LABEL[facts[0]]}:`;
+    const header = a.scope === "all" ? pick(ALL_HEADER[facts[0]], `${FACT_NAME_AR[facts[0]]} لموديلاتنا الحالية:`) : `${pick(FACT_LABEL[facts[0]], FACT_NAME_AR[facts[0]])}:`;
     return [header, ...a.rows.map((r) => factLine(r, k, "model"))].join("\n");
   }
   return models
@@ -220,8 +247,8 @@ function renderFacts(a: Extract<EngineAction, { type: "SEND_FACTS" }>, k: SalesK
 function renderComparison(a: Extract<EngineAction, { type: "SEND_COMPARISON" }>, k: SalesKnowledge): string {
   const header =
     a.models.length > 3
-      ? "Here is a comparison of our current models:"
-      : `Here is a side-by-side comparison of the ${andWords(a.models.map((m) => nameOf(k, m)))}:`;
+      ? pick("Here is a comparison of our current models:", "مقارنة بين موديلاتنا الحالية:")
+      : pick(`Here is a side-by-side comparison of the ${andWords(a.models.map((m) => nameOf(k, m)))}:`, `مقارنة بين ${andWords(a.models.map((m) => nameOf(k, m)))}:`);
   const blocks = a.models.map((m) =>
     [nameOf(k, m), ...a.rows.filter((r) => r.model === m).map((r) => factLine(r, k, "fact"))].join("\n")
   );
@@ -233,11 +260,20 @@ const BUCKET_TITLE: Readonly<Record<PowertrainBucket, string>> = {
   EREV: "Range-extended electric (EREV)",
   PHEV: "Plug-in hybrid (PHEV)",
 };
+const BUCKET_TITLE_AR: Readonly<Record<PowertrainBucket, string>> = {
+  EV: "كهربائية بالكامل (EV)",
+  EREV: "كهربائية بمدى موسّع (EREV)",
+  PHEV: "هجينة قابلة للشحن (PHEV)",
+};
 
 function renderText(key: TextKey, models: readonly ModelCode[], vars: Record<string, string>, ctx: RenderContext): string {
   const k = ctx.knowledge;
   const cars = andWords(models.map((m) => nameOf(k, m)));
   const number = k.contact.display;
+  if (LANG === "ar") {
+    const ar = renderTextAr(key, models, cars, vars, k);
+    if (ar) return ar;
+  }
   switch (key) {
     case "PRICE_HANDOFF":
       return models.length > 0 && models.length <= 3
@@ -290,6 +326,152 @@ function renderText(key: TextKey, models: readonly ModelCode[], vars: Record<str
       return "We currently specialize in VOYAH and MHERO vehicles in Lebanon.";
     case "HANDOFF":
       return k.showroom.handoff;
+    case "ASK_PHONE":
+      return "And a phone number our sales team can reach you on?";
+    case "CATEGORY_NONE":
+      return `We don't currently offer a ${vars.kind ?? "model of that type"} in this range. What we do offer:\n${vars.alternatives ?? ""}`;
+    case "DELIVERY_INFO":
+      return `Our sales team can arrange delivery details with you. They will get back to you, and you can also reach them on ${number}.`;
+    case "PAYMENT_HANDOFF":
+      return `Our sales team will get back to you on this shortly. You can also reach them on ${number}.`;
+    case "USED_CARS_INFO":
+      return `Our sales team can help you with pre-owned vehicles and what is currently available. They will get back to you, and you can also reach them on ${number}.`;
+    case "HUMAN_HANDOFF":
+      return "Of course. A member of our sales team will take over this conversation and reply to you here shortly.";
+    case "CALLBACK_CONFIRMED":
+      return vars.phone
+        ? `Certainly. Our sales team will call you on ${vars.phone} shortly.`
+        : "Certainly. Our sales team will call you on this number shortly.";
+    case "CALLBACK_ASK_NUMBER":
+      return "Certainly. Which phone number should our sales team call you on?";
+    case "INTERIOR_INFO":
+      return models.length > 0
+        ? `I don't have interior colour details or interior media for the ${cars} in our approved information yet. The brochure shows the interior, and our team can confirm the interior options on ${number}.`
+        : `I don't have interior colour details in our approved information yet. Which model are you interested in? I can send its brochure, which shows the interior.`;
+    case "PHOTOS_INFO":
+      return models.length > 0
+        ? `I don't have photos to send here, but I can send you a video of the ${cars}.`
+        : "I don't have photos to send here, but I can send you a video. Which model are you interested in?";
+    case "SPEC_NOT_CONFIRMED":
+      return models.length > 0
+        ? `The exact ${vars.detail ?? "detail"} of the ${cars} is not in our approved information yet. The brochure has the full specifications, and our team can confirm it on ${number}.`
+        : `The exact ${vars.detail ?? "detail"} is not in our approved information yet. Our team can confirm it on ${number}.`;
+    case "TEST_DRIVE_CANCELLED":
+      return `Your test drive${vars.slot ? ` on ${vars.slot}` : ""} is cancelled. Whenever you'd like to book another, just tell me.`;
+    case "TEST_DRIVE_WHEN":
+      return `Your test drive${cars ? ` of the ${cars}` : ""} is booked for ${vars.slot ?? "the time you chose"}.`;
+    case "TEST_DRIVE_NONE":
+      return "You don't have a test drive booked with us yet.";
+    case "TEST_DRIVE_TIME_CLOSED":
+      return `Test drives are available Monday to Friday from 10:00 to 17:00 and Saturday from 10:00 to 14:00. ${vars.day ? `Here are the free times on ${vars.day}:` : "Here are the next free times:"}`;
+    case "TEST_DRIVE_TAKEN":
+      return `${vars.slot ?? "That time"} is already taken. Here are the free times closest to it:`;
+    case "TEST_DRIVE_TIME_NOTED":
+      return `Noted, ${vars.slot ?? "that time"}. Which model would you like to test drive?`;
+    case "TEST_DRIVE_RESCHEDULE":
+      return `Your test drive${vars.slot ? ` on ${vars.slot}` : ""} is cancelled. Please choose a new time:`;
+    case "AFTER_HOURS_NOTE":
+      return "Our team is available Monday to Friday from 8:00 AM to 6:00 PM and Saturday from 8:00 AM to 2:00 PM, and will follow up with you during working hours.";
+  }
+}
+
+/** The showroom facts in Arabic: the same address, hours and number the workbook gives. */
+function globalAr(key: string, value: string, k: SalesKnowledge): string {
+  switch (key) {
+    case "LOCATION": {
+      const link = value.match(/https?:\/\/\S+/)?.[0];
+      return `صالة العرض في حرش تابت، بيروت.${link ? `\n${link}` : ""}`;
+    }
+    case "OPENING_HOURS":
+      return "صالة العرض مفتوحة من الاثنين إلى الجمعة من 8:00 صباحاً حتى 6:00 مساءً، والسبت من 8:00 صباحاً حتى 2:00 ظهراً. يوم الأحد والعطل الرسمية يؤكدها أحد أعضاء الفريق.";
+    case "CONTACT_NUMBER":
+      return `للاستفسارات، يرجى التواصل معنا على ${k.contact.display}.`;
+    default:
+      return value;
+  }
+}
+
+/** The Arabic fixed sentences (written for Samer's approval, 2026-09-17). Null: English is used. */
+function renderTextAr(key: TextKey, models: readonly ModelCode[], cars: string, vars: Record<string, string>, k: SalesKnowledge): string | null {
+  const n = k.contact.display;
+  const svc = k.showroom.serviceNumber;
+  switch (key) {
+    case "PRICE_HANDOFF":
+      return models.length > 0 && models.length <= 3 ? `لمعرفة السعر الحالي لسيارة ${cars}، يرجى التواصل مع فريق المبيعات على ${n}.` : `لمعرفة الأسعار الحالية، يرجى التواصل مع فريق المبيعات على ${n}.`;
+    case "FINANCING_INFO":
+      return "نعم، تتوفر لدينا تسهيلات في الدفع والتقسيط. تختلف الخطة بحسب السيارة وطريقة الدفع، وسيشرح لكم فريق المبيعات التفاصيل.";
+    case "ASK_NAME":
+      return "ممكن نعرف اسمكم الكريم ليتواصل معكم فريق المبيعات بالتفاصيل؟";
+    case "ASK_NAME_AND_PHONE":
+      return "ممكن نعرف اسمكم ورقم هاتفكم ليتواصل معكم فريق المبيعات بالتفاصيل؟";
+    case "ASK_PHONE":
+      return "وما هو رقم الهاتف الذي يمكن لفريق المبيعات التواصل معكم عليه؟";
+    case "LEAD_THANKS":
+      return vars.name ? `شكراً ${vars.name}. سيتواصل معكم فريق المبيعات قريباً.` : "شكراً لكم. سيتواصل معكم فريق المبيعات قريباً.";
+    case "TEST_DRIVE_ASK_NAME":
+      return models.length > 0 ? `يسعدنا حجز تجربة قيادة لسيارة ${cars}. ممكن نعرف اسمكم الكريم؟` : "يسعدنا حجز تجربة قيادة لكم. ممكن نعرف اسمكم الكريم؟";
+    case "TEST_DRIVE_BOOKED":
+      return `تم حجز تجربة القيادة${cars ? ` لسيارة ${cars}` : ""} يوم ${vars.slot ?? ""}. ${k.global.LOCATION?.value ?? ""}`.trim();
+    case "TEST_DRIVE_NO_SLOTS":
+      return `لا يوجد موعد متاح لتجربة القيادة في الأيام القليلة المقبلة. سيتواصل معكم فريق المبيعات لتحديد موعد، ويمكنكم الاتصال على ${n}.`;
+    case "STOCK_CONFIRM":
+      return `سيؤكد لكم فريق المبيعات التوفر الحالي${cars && models.length <= 3 ? ` لسيارة ${cars}` : ""}. يمكنكم أيضاً التواصل معهم على ${n}.`;
+    case "DISCOUNT_HANDOFF":
+      return `لمعرفة العروض الحالية${cars && models.length <= 3 ? ` على ${cars}` : ""}، يرجى التواصل مع فريق المبيعات على ${n}.`;
+    case "TRADE_IN_INFO":
+      return ["نعم، نقبل استبدال السيارات (Trade-in).", "نقوم بتقييم سيارتكم الحالية واحتساب قيمتها من ثمن السيارة الجديدة.", "لبدء التقييم، يرجى إرسال:\n• نوع السيارة والموديل\n• سنة الصنع\n• عدد الكيلومترات\n• بعض الصور الواضحة من الخارج والداخل", "بعد استلام التفاصيل، سيراجع فريقنا السيارة ويرشدكم إلى الخطوات التالية."].join("\n\n");
+    case "TRADE_IN_THANKS":
+      return "شكراً لكم. سيراجع فريقنا تفاصيل سيارتكم ويتواصل معكم بشأن التقييم.";
+    case "SERVICE_CONTACT":
+      return `للصيانة أو قطع الغيار، يرجى الاتصال على ${svc}.`;
+    case "COMPLAINT_CONTACT":
+      return `للمساعدة بخصوص مشكلة في السيارة، يرجى الاتصال بقسم الصيانة على ${svc}.`;
+    case "ADMIN_CONTACT":
+      return k.showroom.administration ? `للإدارة، يرجى الاتصال على ${k.showroom.administration}.` : `لمزيد من المساعدة، يرجى الاتصال بنا على ${n}.`;
+    case "MODEL_YEAR":
+      return models.length > 0 ? `موديلاتنا الحالية هي موديلات 2026 و2027. يمكن لفريقنا تأكيد سنة الصنع لسيارة ${cars}.` : "جميع موديلاتنا الحالية هي موديلات 2026 و2027.";
+    case "OTHER_BRAND":
+      return "نحن متخصصون حالياً بسيارات VOYAH وMHERO في لبنان.";
+    case "HANDOFF":
+      return `لمزيد من المساعدة، يرجى الاتصال بنا على ${n}.`;
+    case "CATEGORY_NONE":
+      return `لا نوفر حالياً ${vars.kind ?? "هذا النوع"} ضمن هذه المجموعة. ما نوفره:\n${vars.alternatives ?? ""}`;
+    case "DELIVERY_INFO":
+      return `يمكن لفريق المبيعات ترتيب تفاصيل التوصيل معكم. سيتواصلون معكم، ويمكنكم أيضاً الاتصال على ${n}.`;
+    case "PAYMENT_HANDOFF":
+      return `سيتواصل معكم فريق المبيعات بهذا الخصوص قريباً. يمكنكم أيضاً الاتصال على ${n}.`;
+    case "USED_CARS_INFO":
+      return `يمكن لفريق المبيعات مساعدتكم بخصوص السيارات المستعملة والمتوفر حالياً. سيتواصلون معكم، ويمكنكم أيضاً الاتصال على ${n}.`;
+    case "HUMAN_HANDOFF":
+      return "بالتأكيد. سيتابع أحد أعضاء فريق المبيعات هذه المحادثة ويرد عليكم هنا قريباً.";
+    case "CALLBACK_CONFIRMED":
+      return vars.phone ? `بالتأكيد. سيتصل بكم فريق المبيعات على ${vars.phone} قريباً.` : "بالتأكيد. سيتصل بكم فريق المبيعات على هذا الرقم قريباً.";
+    case "CALLBACK_ASK_NUMBER":
+      return "بالتأكيد. على أي رقم يمكن لفريق المبيعات الاتصال بكم؟";
+    case "INTERIOR_INFO":
+      return models.length > 0 ? `لا تتوفر لدي حالياً تفاصيل أو فيديو للمقصورة الداخلية لسيارة ${cars}. الكتالوج يعرض المقصورة الداخلية، ويمكن لفريقنا تأكيد الخيارات على ${n}.` : "لا تتوفر لدي حالياً تفاصيل المقصورة الداخلية. أي موديل يهمكم؟ يمكنني إرسال الكتالوج الذي يعرض المقصورة الداخلية.";
+    case "PHOTOS_INFO":
+      return models.length > 0 ? `لا تتوفر لدي صور لإرسالها هنا، لكن يمكنني إرسال فيديو لسيارة ${cars}.` : "لا تتوفر لدي صور لإرسالها هنا، لكن يمكنني إرسال فيديو. أي موديل يهمكم؟";
+    case "SPEC_NOT_CONFIRMED":
+      return models.length > 0 ? `هذه المعلومة (${vars.detail ?? ""}) عن ${cars} غير متوفرة بعد ضمن معلوماتنا المعتمدة. الكتالوج يحتوي على المواصفات الكاملة، ويمكن لفريقنا تأكيدها على ${n}.` : `هذه المعلومة (${vars.detail ?? ""}) غير متوفرة بعد ضمن معلوماتنا المعتمدة. يمكن لفريقنا تأكيدها على ${n}.`;
+    case "TEST_DRIVE_CANCELLED":
+      return `تم إلغاء تجربة القيادة${vars.slot ? ` يوم ${vars.slot}` : ""}. عندما ترغبون بحجز موعد آخر، أخبروني.`;
+    case "TEST_DRIVE_WHEN":
+      return `تجربة القيادة${cars ? ` لسيارة ${cars}` : ""} محجوزة يوم ${vars.slot ?? ""}.`;
+    case "TEST_DRIVE_NONE":
+      return "لا يوجد لديكم حجز تجربة قيادة بعد.";
+    case "TEST_DRIVE_TIME_CLOSED":
+      return `تجارب القيادة متاحة من الاثنين إلى الجمعة من 10:00 إلى 17:00، والسبت من 10:00 إلى 14:00. ${vars.day ? `المواعيد المتاحة يوم ${vars.day}:` : "المواعيد المتاحة التالية:"}`;
+    case "TEST_DRIVE_TAKEN":
+      return `الموعد ${vars.slot ?? ""} محجوز. المواعيد المتاحة الأقرب إليه:`;
+    case "TEST_DRIVE_RESCHEDULE":
+      return `تم إلغاء تجربة القيادة${vars.slot ? ` يوم ${vars.slot}` : ""}. يرجى اختيار موعد جديد:`;
+    case "TEST_DRIVE_TIME_NOTED":
+      return `تمام، ${vars.slot ?? ""}. أي موديل ترغبون بتجربته؟`;
+    case "AFTER_HOURS_NOTE":
+      return "فريقنا متواجد من الاثنين إلى الجمعة من 8:00 صباحاً حتى 6:00 مساءً، والسبت من 8:00 صباحاً حتى 2:00 ظهراً، وسيتابع معكم خلال ساعات العمل.";
+    default:
+      return null;
   }
 }
 
@@ -314,7 +496,7 @@ function question(text: string, choices: Choice[], channel: SalesChannel): Outbo
   const lines = choices.map((c, i) => `${i + 1}. ${c.title}`).join("\n");
   return {
     kind: "text",
-    text: `${text}\n${lines}\nReply with the number.`,
+    text: `${text}\n${lines}\n${pick("Reply with the number.", "أرسلوا رقم الخيار.")}`,
     choices,
     style: "numbered",
   };
@@ -334,16 +516,17 @@ function modelChoices(k: SalesKnowledge, models: readonly ModelCode[]): Choice[]
  */
 export function renderPlan(actions: readonly EngineAction[], ctx: RenderContext): OutboundPart[] {
   const k = ctx.knowledge;
+  LANG = ctx.lang ?? "en";
   const parts: OutboundPart[] = [];
   for (const a of actions) {
     switch (a.type) {
       case "SEND_BROCHURE": {
         const link = linkInstead(a.asset, "document", ctx);
         if (link) {
-          parts.push(say(`Here is the ${nameOf(k, a.model)} brochure: ${link}`));
+          parts.push(say(pick(`Here is the ${nameOf(k, a.model)} brochure: ${link}`, `كتالوج ${nameOf(k, a.model)}: ${link}`)));
           break;
         }
-        parts.push(say(`Here is the ${nameOf(k, a.model)} brochure.`));
+        parts.push(say(pick(`Here is the ${nameOf(k, a.model)} brochure.`, `إليكم كتالوج ${nameOf(k, a.model)}.`)));
         parts.push({
           kind: "file",
           fileKind: "document",
@@ -363,23 +546,28 @@ export function renderPlan(actions: readonly EngineAction[], ctx: RenderContext)
         parts.push(
           say(
             [
-              a.rows.length > 2 ? "Here are the colours we can show you for our models:" : "Here are the colours we can show you:",
-              ...a.rows.map((r) => `• ${nameOf(k, r.model)} — ${r.colours.length > 0 ? r.colours.join(", ") : "colour videos not available yet"}`),
+              pick(a.rows.length > 2 ? "Here are the colours we can show you for our models:" : "Here are the colours we can show you:", "الألوان التي يمكننا عرضها لكم:"),
+              ...a.rows.map(
+                (r) =>
+                  `• ${nameOf(k, r.model)} — ${r.colours.length > 0 ? r.colours.join(pick(", ", "، ")) : r.hasVideo ? pick("one video, no colour choice", "فيديو واحد، بدون خيار لون") : pick("no videos yet", "لا فيديو بعد")}`
+              ),
             ].join("\n")
           )
         );
         break;
       case "SEND_GLOBAL_INFO":
-        // The workbook's showroom answers are whole sentences.
-        parts.push(say(a.value));
+        // The workbook's showroom answers are whole sentences (English); Arabic versions of the same facts.
+        parts.push(say(LANG === "ar" ? globalAr(a.key, a.value, k) : a.value));
         break;
       case "SEND_COLOUR_VIDEO": {
         const car = nameOf(k, a.model);
-        const text = a.onlyOption
-          ? `Here is a video of the ${car}.`
+        const text = a.interior
+          ? pick(`Here is a look inside the ${car}.`, `إليكم نظرة على المقصورة الداخلية لسيارة ${car}.`)
+          : a.onlyOption
+          ? pick(`Here is a video of the ${car}.`, `إليكم فيديو لسيارة ${car}.`)
           : a.chosenForThem
-            ? `Here is the ${car} in ${a.colourName} — a favourite of ours.`
-            : `Here is the ${car} in ${a.colourName}.`;
+            ? pick(`Here is the ${car} in ${a.colourName} — a favourite of ours.`, `إليكم ${car} باللون ${a.colourName}، من ألواننا المفضلة.`)
+            : pick(`Here is the ${car} in ${a.colourName}.`, `إليكم ${car} باللون ${a.colourName}.`);
         const link = linkInstead(a.asset, "video", ctx);
         if (link) {
           parts.push(say(`${text.replace(/\.$/, "")}: ${link}`));
@@ -397,7 +585,7 @@ export function renderPlan(actions: readonly EngineAction[], ctx: RenderContext)
       }
       case "COLOUR_NOT_AVAILABLE":
         parts.push(
-          say(`Sorry — we don't have a video of the ${nameOf(k, a.model)} in ${a.requested}.`)
+          say(pick(`Sorry — we don't have a video of the ${nameOf(k, a.model)} in ${a.requested}.`, `عذراً، لا يتوفر لدينا فيديو لسيارة ${nameOf(k, a.model)} باللون ${a.requested}.`))
         );
         break;
       case "SEND_TEXT":
@@ -409,8 +597,10 @@ export function renderPlan(actions: readonly EngineAction[], ctx: RenderContext)
       case "SHOW_COLOUR_CHOICES":
         parts.push(
           question(
-            `Which exterior colour would you like to see? We can show you the ` +
-              `${nameOf(k, a.model)} in ${listWords(a.colours.map((c) => c.name))}.`,
+            pick(
+              `Which exterior colour would you like to see? We can show you the ${nameOf(k, a.model)} in ${listWords(a.colours.map((c) => c.name))}.`,
+              `أي لون خارجي تودون رؤيته؟ يمكننا عرض ${nameOf(k, a.model)} باللون ${listWords(a.colours.map((c) => c.name))}.`
+            ),
             a.colours.map((c) => ({ title: c.name, payload: colourPayload(a.model, c.id) })),
             ctx.channel
           )
@@ -420,12 +610,12 @@ export function renderPlan(actions: readonly EngineAction[], ctx: RenderContext)
         const lead = a.greet ? `${welcomeText(ctx)}\n\n` : "";
         const ask =
           a.prompt === "explore"
-            ? "Which model would you like to explore further?"
+            ? pick("Which model would you like to explore further?", "أي موديل تودون معرفة المزيد عنه؟")
             : a.prompt === "first"
-              ? "Which one would you like to see first?"
+              ? pick("Which one would you like to see first?", "أيهما تودون رؤيته أولاً؟")
               : a.narrowed
-                ? "Which one are you interested in?"
-                : "Which model are you interested in?";
+                ? pick("Which one are you interested in?", "أيهما يهمكم؟")
+                : pick("Which model are you interested in?", "أي موديل يهمكم؟");
         parts.push(question(`${lead}${ask}`, modelChoices(k, a.models), ctx.channel));
         break;
       }
@@ -435,27 +625,27 @@ export function renderPlan(actions: readonly EngineAction[], ctx: RenderContext)
           const cars = a.groups.flatMap((g) => g.models);
           lines.push(
             cars.length > 0
-              ? `For ${a.seats} seats, we currently offer the ${andWords(cars.map((m) => nameOf(k, m)))}.`
-              : `We don't currently offer a ${a.seats}-seat model.`
+              ? pick(`For ${a.seats} seats, we currently offer the ${andWords(cars.map((m) => nameOf(k, m)))}.`, `بـ${a.seats} مقاعد، نوفر حالياً ${andWords(cars.map((m) => nameOf(k, m)))}.`)
+              : pick(`We don't currently offer a ${a.seats}-seat model.`, `لا نوفر حالياً موديلاً بـ${a.seats} مقاعد.`)
           );
         } else if (a.filter === "ALL_TYPES" || a.filter === "HYBRID") {
           lines.push(
             a.filter === "HYBRID"
-              ? "We offer two hybrid-style systems:"
-              : "We offer three power systems, depending on how you prefer to drive:"
+              ? pick("We offer two hybrid-style systems:", "نوفر نظامين هجينين:")
+              : pick("We offer three power systems, depending on how you prefer to drive:", "نوفر ثلاثة أنظمة دفع، بحسب ما تفضلون:")
           );
           for (const g of a.groups) {
             if (!g.bucket || g.models.length === 0) continue;
-            lines.push(`\n${BUCKET_TITLE[g.bucket]}\n${g.models.map((m) => `• ${nameOf(k, m)}`).join("\n")}`);
+            lines.push(`\n${pick(BUCKET_TITLE[g.bucket], BUCKET_TITLE_AR[g.bucket])}\n${g.models.map((m) => `• ${nameOf(k, m)}`).join("\n")}`);
           }
         } else {
           const cars = a.groups.flatMap((g) => g.models);
           const kind =
-            a.filter === "EV" ? "fully electric driving" : a.filter === "EREV" ? "range-extended electric driving" : "plug-in hybrid driving";
+            a.filter === "EV" ? pick("fully electric driving", "القيادة الكهربائية بالكامل") : a.filter === "EREV" ? pick("range-extended electric driving", "القيادة الكهربائية بمدى موسّع") : pick("plug-in hybrid driving", "القيادة الهجينة القابلة للشحن");
           lines.push(
             cars.length === 1
-              ? `For ${kind}, we currently offer the ${nameOf(k, cars[0])}.`
-              : `For ${kind}, we currently offer:\n${cars.map((m) => `• ${nameOf(k, m)}`).join("\n")}`
+              ? pick(`For ${kind}, we currently offer the ${nameOf(k, cars[0])}.`, `لـ${kind}، نوفر حالياً ${nameOf(k, cars[0])}.`)
+              : pick(`For ${kind}, we currently offer:\n${cars.map((m) => `• ${nameOf(k, m)}`).join("\n")}`, `لـ${kind}، نوفر حالياً:\n${cars.map((m) => `• ${nameOf(k, m)}`).join("\n")}`)
           );
         }
         const models = a.groups.flatMap((g) => g.models);
@@ -470,7 +660,7 @@ export function renderPlan(actions: readonly EngineAction[], ctx: RenderContext)
         } else {
           parts.push(
             question(
-              `${lines.join("\n")}\n\n${a.filter === "ALL_TYPES" ? "Which system are you interested in?" : models.length === 1 ? "Would you like to see it?" : "Which one are you interested in?"}`,
+              `${lines.join("\n")}\n\n${a.filter === "ALL_TYPES" ? pick("Which system are you interested in?", "أي نظام يهمكم؟") : models.length === 1 ? pick("Would you like to see it?", "هل تودون رؤيتها؟") : pick("Which one are you interested in?", "أيهما يهمكم؟")}`,
               choices,
               ctx.channel
             )
@@ -481,7 +671,7 @@ export function renderPlan(actions: readonly EngineAction[], ctx: RenderContext)
       case "SHOW_TEST_DRIVE_SLOTS":
         parts.push(
           question(
-            "Please choose a time for your test drive:",
+            pick("Please choose a time for your test drive:", "يرجى اختيار موعد لتجربة القيادة:"),
             a.slots.map((slot) => ({ title: slotLabel(slot), payload: slotPayload(slot) })),
             ctx.channel
           )
@@ -490,11 +680,11 @@ export function renderPlan(actions: readonly EngineAction[], ctx: RenderContext)
       case "SHOW_DEPARTMENTS":
         parts.push(
           question(
-            `${welcomeText(ctx)}\n\nPlease choose an option:`,
+            `${welcomeText(ctx)}\n\n${pick("Please choose an option:", "يرجى اختيار قسم:")}`,
             [
-              { title: "Sales", payload: departmentPayload("SALES") },
-              { title: "Service & Parts", payload: departmentPayload("SERVICE") },
-              { title: "Administration", payload: departmentPayload("ADMIN") },
+              { title: pick("Sales", "المبيعات"), payload: departmentPayload("SALES") },
+              { title: pick("Service & Parts", "الصيانة وقطع الغيار"), payload: departmentPayload("SERVICE") },
+              { title: pick("Administration", "الإدارة"), payload: departmentPayload("ADMIN") },
             ],
             ctx.channel
           )
@@ -562,6 +752,8 @@ export function actionLabel(a: EngineAction): string {
       return `COMPARE ${a.models.map(label).join(", ")}`;
     case "SEND_COLOUR_LIST":
       return `LIST COLOURS ${a.rows.map((r) => label(r.model)).join(", ")}`;
+    case "CANCEL_TEST_DRIVE":
+      return `CANCEL TEST DRIVE ${a.slot}`;
     case "SEND_GLOBAL_INFO":
       return `SEND ${label(a.key)}`;
     case "SEND_COLOUR_VIDEO":
@@ -587,7 +779,7 @@ export function actionLabel(a: EngineAction): string {
     case "FLAG_FOR_STAFF":
       return `FLAG FOR STAFF — ${a.reason}`;
     case "ALERT_SALES":
-      return `ALERT SALES — ${label(a.kind)}${a.models.length > 0 ? ` (${a.models.map(label).join(", ")})` : ""}${a.name ? " WITH NAME" : ""}`;
+      return `ALERT SALES — ${label(a.kind)}${a.models.length > 0 ? ` (${a.models.map(label).join(", ")})` : ""}${a.name ? " WITH NAME" : ""}${a.phone ? " WITH PHONE" : ""}`;
     case "BOOK_TEST_DRIVE":
       return `BOOK TEST DRIVE ${a.slot}`;
   }

@@ -2,7 +2,9 @@
  * GET  /api/sales/suggestion?thread=<id>   the Search Engine's suggested reply
  *                                          for one open chat
  * POST /api/sales/suggestion               { thread, action: "resume" } —
- *                                          "Suggest again" after a person replied
+ *                                          "Suggest again" after a person replied;
+ *                                          { thread, action: "takeover" } — hand the
+ *                                          chat to a person until "Suggest again"
  *
  * A suggestion is only ever SHOWN here. Sending it is a separate route that a
  * person has to press (./send). Staff only, like the thread it reads.
@@ -11,7 +13,7 @@
 import { NextResponse } from "next/server";
 import { requireRealStaff } from "@/lib/auth";
 import { MEDIA_CAPABILITIES } from "@/lib/permissions/media";
-import { resumeSuggestions, suggestionFor } from "@/lib/wasales/suggestion-server";
+import { resumeSuggestions, suggestionFor, takeOverSuggestions } from "@/lib/wasales/suggestion-server";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -40,9 +42,9 @@ export async function POST(request: Request): Promise<NextResponse> {
   const refused = await staff(request);
   if (refused) return refused;
   const body = (await request.json().catch(() => null)) as { thread?: unknown; action?: unknown } | null;
-  if (!body || body.action !== "resume") {
+  if (!body || (body.action !== "resume" && body.action !== "takeover")) {
     return NextResponse.json({ ok: false, message: "Unknown request." }, { status: 400, headers: NO_STORE });
   }
-  const r = await resumeSuggestions(body.thread);
+  const r = body.action === "takeover" ? await takeOverSuggestions(body.thread) : await resumeSuggestions(body.thread);
   return NextResponse.json(r.body, { status: r.status, headers: NO_STORE });
 }

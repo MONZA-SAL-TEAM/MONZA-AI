@@ -65,7 +65,8 @@ describe("the definition of done, as a customer on Instagram would receive it", 
         "• VOYAH Dream — 416 hp / 310 kW",
         "• VOYAH Passion — 523 hp / 390 kW",
         "• VOYAH Passion L — not confirmed yet",
-        "• VOYAH Taishan — 657 hp",
+        // Held pending Samer's confirmation (657 vs the video's 670): docs/SALES-FACTS-DISCREPANCIES.md
+        "• VOYAH Taishan — not confirmed yet",
       ].join("\n"),
       "Which model would you like to explore further? [quick_replies: VOYAH Free 318 | VOYAH Courage | VOYAH Dream | VOYAH Passion | VOYAH Passion L | VOYAH Taishan]",
     ]);

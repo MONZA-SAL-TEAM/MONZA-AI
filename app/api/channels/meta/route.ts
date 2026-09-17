@@ -178,7 +178,7 @@ export async function POST(request: Request): Promise<Response> {
   if (result.fresh.length > 0) {
     try {
       const a = await runAutoreply(result.fresh, AUTOREPLY_BUDGET_MS);
-      if (a.chats > 0) console.info(`[channels/meta] autoreply chats ${a.chats}, sent ${a.sent}`);
+      if (a.chats > 0 || a.marked > 0) console.info(`[channels/meta] autoreply chats ${a.chats}, sent ${a.sent}, marked for a person ${a.marked}`);
     } catch (e) {
       console.error("[channels/meta] autoreply failed:", e);
     }

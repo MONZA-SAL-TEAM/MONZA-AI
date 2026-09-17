@@ -223,6 +223,8 @@ export interface LibraryFile {
    * Preferred over the original.
    */
   sendCopy?: boolean;
+  /** An interior video (its name says so): never sent as an exterior colour. */
+  view?: "interior";
 }
 
 /**
@@ -240,7 +242,7 @@ export function libraryMedia(files: readonly LibraryFile[]): ModelMediaLookup {
     const copies: Record<string, MediaRef[]> = {};
     for (const f of files) {
       if (f.carId !== carId) continue;
-      const ref: MediaRef = { name: f.name, bytes: f.size, ...(f.url ? { url: f.url } : {}) };
+      const ref: MediaRef = { name: f.name, bytes: f.size, ...(f.url ? { url: f.url } : {}), ...(f.view ? { view: f.view } : {}) };
       if (f.kind === "brochure") {
         if (f.sendCopy) brochureCopy ??= ref;
         else brochure ??= ref;

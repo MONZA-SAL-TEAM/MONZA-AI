@@ -139,22 +139,27 @@ export default function SalesSuggestion({
     }
   }, [view, busy, threadId, onSent, load]);
 
-  const resume = useCallback(async () => {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/sales/suggestion", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ thread: threadId, action: "resume" }),
-      });
-      const json: unknown = await res.json().catch(() => null);
-      const fresh = asView(json);
-      if (res.ok && fresh) setView(fresh);
-      else setNote("Could not switch suggestions back on.");
-    } finally {
-      setBusy(false);
-    }
-  }, [threadId]);
+  const post = useCallback(
+    async (action: "resume" | "takeover") => {
+      setBusy(true);
+      try {
+        const res = await fetch("/api/sales/suggestion", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ thread: threadId, action }),
+        });
+        const json: unknown = await res.json().catch(() => null);
+        const fresh = asView(json);
+        if (res.ok && fresh) setView(fresh);
+        else setNote(action === "resume" ? "Could not switch suggestions back on." : "Could not hand the chat over.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [threadId]
+  );
+  const resume = useCallback(() => post("resume"), [post]);
+  const takeOver = useCallback(() => post("takeover"), [post]);
 
   if (!view || view.kind === "nothing_to_answer") return null;
 
@@ -165,7 +170,7 @@ export default function SalesSuggestion({
   if (view.kind === "handed_over") {
     return (
       <p className="ss-line">
-        Suggestions are off in this chat — a person has replied.{" "}
+        {view.reason ?? "Suggestions are off in this chat — a person has replied."}{" "}
         <button type="button" className="ss-link" disabled={busy} onClick={() => void resume()}>
           Suggest again
         </button>
@@ -250,6 +255,9 @@ export default function SalesSuggestion({
         </button>
         <button type="button" className="ss-btn" onClick={() => setDismissed(view.version ?? null)}>
           Dismiss
+        </button>
+        <button type="button" className="ss-btn" disabled={busy} title="The bot stays out of this chat until Suggest again" onClick={() => void takeOver()}>
+          Hand to a person
         </button>
         <button
           type="button"

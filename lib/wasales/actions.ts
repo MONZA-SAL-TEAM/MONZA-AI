@@ -97,15 +97,34 @@ export type TextKey =
   | "ADMIN_CONTACT"
   | "MODEL_YEAR"
   | "OTHER_BRAND"
-  | "HANDOFF";
+  | "HANDOFF"
+  | "ASK_PHONE"
+  | "CATEGORY_NONE"
+  | "DELIVERY_INFO"
+  | "PAYMENT_HANDOFF"
+  | "USED_CARS_INFO"
+  | "HUMAN_HANDOFF"
+  | "CALLBACK_CONFIRMED"
+  | "CALLBACK_ASK_NUMBER"
+  | "INTERIOR_INFO"
+  | "PHOTOS_INFO"
+  | "SPEC_NOT_CONFIRMED"
+  | "TEST_DRIVE_CANCELLED"
+  | "TEST_DRIVE_WHEN"
+  | "TEST_DRIVE_NONE"
+  | "TEST_DRIVE_TIME_CLOSED"
+  | "TEST_DRIVE_TAKEN"
+  | "TEST_DRIVE_RESCHEDULE"
+  | "TEST_DRIVE_TIME_NOTED"
+  | "AFTER_HOURS_NOTE";
 
 /** Sentences that already carry a phone number. */
-const GIVES_NUMBER: readonly TextKey[] = ["PRICE_HANDOFF", "DISCOUNT_HANDOFF", "STOCK_CONFIRM", "SERVICE_CONTACT", "COMPLAINT_CONTACT", "ADMIN_CONTACT", "HANDOFF"];
+const GIVES_NUMBER: readonly TextKey[] = ["PRICE_HANDOFF", "DISCOUNT_HANDOFF", "STOCK_CONFIRM", "SERVICE_CONTACT", "COMPLAINT_CONTACT", "ADMIN_CONTACT", "HANDOFF", "DELIVERY_INFO", "PAYMENT_HANDOFF", "USED_CARS_INFO", "SPEC_NOT_CONFIRMED", "TEST_DRIVE_NO_SLOTS"];
 
-const QUESTION_TEXT: readonly TextKey[] = ["ASK_NAME", "ASK_NAME_AND_PHONE", "TEST_DRIVE_ASK_NAME"];
+const QUESTION_TEXT: readonly TextKey[] = ["ASK_NAME", "ASK_NAME_AND_PHONE", "TEST_DRIVE_ASK_NAME", "ASK_PHONE", "CALLBACK_ASK_NUMBER"];
 
 /** What the team is alerted about (inbox flag + WhatsApp to a salesperson). */
-export type AlertKind = "PRICE" | "FINANCING" | "TEST_DRIVE" | "STOCK" | "DISCOUNT" | "TRADE_IN" | "NEEDS_PERSON";
+export type AlertKind = "PRICE" | "FINANCING" | "TEST_DRIVE" | "STOCK" | "DISCOUNT" | "TRADE_IN" | "NEEDS_PERSON" | "CALLBACK" | "HUMAN" | "QUESTION";
 
 export type EngineAction =
   | { type: "SEND_BROCHURE"; model: ModelCode; asset: MediaRef; explicit: boolean }
@@ -116,7 +135,7 @@ export type EngineAction =
       rows: FactRow[];
     }
   | { type: "SEND_COMPARISON"; models: ModelCode[]; rows: FactRow[] }
-  | { type: "SEND_COLOUR_LIST"; rows: { model: ModelCode; colours: string[] }[] }
+  | { type: "SEND_COLOUR_LIST"; rows: { model: ModelCode; colours: string[]; hasVideo: boolean }[] }
   | { type: "SEND_TEXT"; key: TextKey; models: ModelCode[]; vars?: Record<string, string> }
   | {
       type: "SHOW_CATEGORY";
@@ -135,8 +154,11 @@ export type EngineAction =
       /** A phone number the customer typed (Instagram, Messenger). */
       phone: string | null;
       slot: string | null;
+      /** Why, for a QUESTION or HUMAN alert: the engine's words only. */
+      reason?: string;
     }
   | { type: "BOOK_TEST_DRIVE"; slot: string; models: ModelCode[] }
+  | { type: "CANCEL_TEST_DRIVE"; slot: string }
   | { type: "SEND_GLOBAL_INFO"; key: GlobalIntent; value: string; source: string }
   | {
       type: "SEND_COLOUR_VIDEO";
@@ -146,6 +168,8 @@ export type EngineAction =
       asset: MediaRef;
       /** True when the customer said "any" and the engine picked. */
       chosenForThem: boolean;
+      /** A look inside the car, asked for as such — never offered as a colour. */
+      interior?: boolean;
       /**
        * The model has exactly one colour with a video (Voyah Dream, filmed
        * without colour folders): the words must not name or offer a colour.
@@ -202,6 +226,7 @@ const PRIORITY: Readonly<Record<ActionType, number>> = {
   FLAG_FOR_STAFF: 21,
   ALERT_SALES: 22,
   BOOK_TEST_DRIVE: 23,
+  CANCEL_TEST_DRIVE: 24,
 };
 
 function priorityOf(a: EngineAction): number {
@@ -210,7 +235,7 @@ function priorityOf(a: EngineAction): number {
   return PRIORITY[a.type];
 }
 
-const INTERNAL: readonly ActionType[] = ["CONTENT_GAP", "FLAG_FOR_STAFF", "ALERT_SALES", "BOOK_TEST_DRIVE"];
+const INTERNAL: readonly ActionType[] = ["CONTENT_GAP", "FLAG_FOR_STAFF", "ALERT_SALES", "BOOK_TEST_DRIVE", "CANCEL_TEST_DRIVE"];
 
 /** Actions that reach the customer; the rest are for staff only. */
 export function isCustomerFacing(action: EngineAction): boolean {
@@ -237,8 +262,10 @@ function actionKey(a: EngineAction): string {
     case "SHOW_DEPARTMENTS":
       return a.type;
     case "ALERT_SALES":
-      return `${a.type}:${a.kind}`;
+      return `${a.type}:${a.kind}:${a.reason ?? ""}`;
     case "BOOK_TEST_DRIVE":
+      return a.type;
+    case "CANCEL_TEST_DRIVE":
       return a.type;
     case "SEND_GLOBAL_INFO":
       return `${a.type}:${a.key}`;

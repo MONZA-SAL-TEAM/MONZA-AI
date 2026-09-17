@@ -195,11 +195,18 @@ describe("what the engine would really do", () => {
   });
 
   test("a fact is sent exactly as the workbook states it — and 'not stated' says so", () => {
+    const hp = say("courage hp?", "voyah");
+    assert.deepEqual(hp.gaps, []);
+    const rows = hp.actions.flatMap((a) => (a.type === "SEND_FACTS" ? a.rows : []));
+    assert.deepEqual(rows, [{ model: "COURAGE", fact: "HORSEPOWER", value: "320 kW / 435 PS", confirmed: true }]);
+    assert.match(words(hp, "voyah"), /The VOYAH Courage produces 320 kW \/ 435 PS\./);
+
+    // HELD (docs/SALES-FACTS-DISCREPANCIES.md): the workbook says 440 km WLTP, Monza's own
+    // video says 470 km. Until Samer confirms, the bot never picks one.
     const range = say("courage range?", "voyah");
     assert.deepEqual(range.gaps, []);
-    const rows = range.actions.flatMap((a) => (a.type === "SEND_FACTS" ? a.rows : []));
-    assert.deepEqual(rows, [{ model: "COURAGE", fact: "RANGE", value: "440 km WLTP", confirmed: true }]);
-    assert.match(words(range, "voyah"), /The VOYAH Courage offers 440 km WLTP\./);
+    assert.match(words(range, "voyah"), /The exact range of the VOYAH Courage is not confirmed yet\./);
+    assert.ok(!words(range, "voyah").includes("440") && !words(range, "voyah").includes("470"));
 
     const battery = say("passion l battery?", "voyah");
     assert.deepEqual(battery.gaps, [], "EMPTY is the workbook's answer, not a gap");

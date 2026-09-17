@@ -35,6 +35,8 @@ import {
   afterSend,
   AUTOREPLY_AUTOMATION_PREFIX,
   freshSaved,
+  handoverResumeHours,
+  needsPerson,
   suggestForThread,
   SUGGESTION_AUTOMATION_PREFIX,
   type SavedSuggestion,
@@ -42,7 +44,7 @@ import {
   type ThreadFacts,
 } from "@/lib/wasales/suggest";
 import { loadSuggestion, saveSuggestion } from "@/lib/wasales/suggestion-store";
-import { bookedSlotsFrom, bookTestDrive, recordAlert, type ChatRef } from "@/lib/wasales/sales-ops";
+import { bookedSlotsFrom, bookTestDrive, cancelChatBookings, recordAlert, type ChatRef } from "@/lib/wasales/sales-ops";
 
 /** What the inbox card shows. Template wording and file names — never customer words. */
 export interface SuggestionView {
@@ -199,8 +201,27 @@ export async function suggestionFor(threadId: unknown): Promise<Reply> {
   if (!(await inPilot(threadId))) return NOT_IN_PILOT;
   const c = await load(threadId);
   if (!c.ok) return { status: c.status, body: { ok: false, message: c.problem } };
-  const s = suggestForThread(c.facts, c.saved, c.deps, { liveSending: channelsSendLive() });
+  const s = suggestForThread(c.facts, c.saved, c.deps, { liveSending: channelsSendLive(), resumeHours: resumeHours() });
   return { status: 200, body: viewOf(s, c.memoryOk, c.notes) };
+}
+
+/** SALES_HANDOVER_RESUME_HOURS: how long a chat stays a person's after they reply (default 12). */
+function resumeHours(): number {
+  return handoverResumeHours(process.env.SALES_HANDOVER_RESUME_HOURS);
+}
+
+/** "Hand this chat to a person": the bot stays out until "Suggest again". */
+export async function takeOverSuggestions(threadId: unknown): Promise<Reply> {
+  if (!(await inPilot(threadId))) return NOT_IN_PILOT;
+  const c = await load(threadId);
+  if (!c.ok) return { status: c.status, body: { ok: false, message: c.problem } };
+  if (!c.memoryOk) {
+    return { status: 503, body: { ok: false, message: "The suggestion memory is not set up yet (migration 012)." } };
+  }
+  const next: SavedSuggestion = { ...c.saved, state: { ...c.saved.state, manualTakeover: true }, rev: c.saved.rev + 1 };
+  const r = await saveSuggestion({ accountId: c.account.id, brand: c.account.brand, conversationRef: c.ref, saved: next, expectedRev: c.saved.rev });
+  if (r !== "saved") return { status: 409, body: { ok: false, message: "Could not hand the chat over — try again." } };
+  return suggestionFor(threadId);
 }
 
 /** Who a send is recorded as. */
@@ -260,6 +281,12 @@ async function deliver(
     customerPhone: c.channel === "whatsapp" && target.target.channel === "whatsapp" ? target.target.to.replace(/\D/g, "") : null,
   };
 
+  // A cancelled or moved test drive frees its slot before the new one is held.
+  if (s.turn.decision.actions.some((a) => a.type === "CANCEL_TEST_DRIVE")) {
+    const freed = await cancelChatBookings(chat);
+    if (!freed) console.error("[sales/booking] the customer's booking could not be cancelled");
+  }
+
   // A test drive is held BEFORE its confirmation goes out: never confirm a slot we do not hold.
   for (const a of s.turn.decision.actions) {
     if (a.type !== "BOOK_TEST_DRIVE") continue;
@@ -288,7 +315,7 @@ async function deliver(
   if (!result.failed) {
     for (const a of s.turn.decision.actions) {
       if (a.type !== "ALERT_SALES") continue;
-      const ok = await recordAlert(chat, { kind: a.kind, models: a.models, name: a.name, phone: a.phone, slot: a.slot });
+      const ok = await recordAlert(chat, { kind: a.kind, models: a.models, name: a.name, phone: a.phone, slot: a.slot, reason: a.reason ?? null });
       if (!ok) console.error(`[sales/alert] ${a.kind} on ${c.account.id} could not be recorded (migration 013?)`);
     }
     for (const a of s.turn.decision.actions) {
@@ -367,7 +394,7 @@ export async function sendSuggestion(threadId: unknown, version: unknown, staffN
   }
 
   const live = channelsSendLive();
-  const s = suggestForThread(c.facts, c.saved, c.deps, { liveSending: live });
+  const s = suggestForThread(c.facts, c.saved, c.deps, { liveSending: live, resumeHours: resumeHours() });
   const view = viewOf(s, c.memoryOk, c.notes);
   if (s.kind !== "suggestion" || s.version !== version) {
     return { status: 409, body: { ok: false, message: "The chat changed — here is the new suggestion. Nothing was sent.", view } };
@@ -385,7 +412,12 @@ export async function resumeSuggestions(threadId: unknown): Promise<Reply> {
   if (!c.memoryOk) {
     return { status: 503, body: { ok: false, message: "The suggestion memory is not set up yet (migration 012)." } };
   }
-  const next: SavedSuggestion = { ...c.saved, resumedAt: new Date().toISOString(), rev: c.saved.rev + 1 };
+  const next: SavedSuggestion = {
+    ...c.saved,
+    state: { ...c.saved.state, manualTakeover: false },
+    resumedAt: new Date().toISOString(),
+    rev: c.saved.rev + 1,
+  };
   const r = await saveSuggestion({
     accountId: c.account.id,
     brand: c.account.brand,
@@ -395,11 +427,6 @@ export async function resumeSuggestions(threadId: unknown): Promise<Reply> {
   });
   if (r !== "saved") return { status: 409, body: { ok: false, message: "Could not switch suggestions back on — try again." } };
   return suggestionFor(threadId);
-}
-
-/** Engine reasons that mean a customer is waiting for a person, not a quiet "ok". */
-function needsPerson(reasons: readonly string[]): boolean {
-  return reasons.some((r) => /a person (reads|looks|says|answers)|switched off|another brand/i.test(r));
 }
 
 /** A "Needs a person" alert for the inbox — the engine's reason only, never the customer's words. */
@@ -470,7 +497,12 @@ export async function autoreplyThread(
     }
 
     const live = channelsSendLive();
-    const s = suggestForThread(c.facts, saved, c.deps, { liveSending: live });
+    const s = suggestForThread(c.facts, saved, c.deps, { liveSending: live, resumeHours: resumeHours() });
+    if (s.kind === "handed_over") {
+      // A person has this chat: the new message is theirs to answer, and it is marked so it is not missed.
+      await alertPerson(threadId, c, s.manual ? "Staff handed this chat to a person; the customer wrote again." : "A person is in this chat; the customer wrote again.");
+      return { rounds: round, sent, stopped: s.kind };
+    }
     if (s.kind !== "suggestion") return { rounds: round, sent, stopped: s.kind };
     const view = viewOf(s, true, c.notes);
     if (view.outcome !== "ACTIONS") {

@@ -236,11 +236,22 @@ const NOT_A_CAR_PHRASES = [
   "interest free",
 ].map((p) => p.split(" "));
 
+/**
+ * Everyday words a typo-tolerant match would land on a car: "charge" is two
+ * letters from the alias "corage" (2026-09-17: "how long to charge the dream"
+ * answered for the Courage too). None of these is a car's name or alias.
+ */
+const NOT_A_CAR_WORDS = new Set([
+  "charge", "charges", "charged", "charging", "charger", "chargers", "garage", "coverage",
+  "courier", "courage's", "cream", "drum", "trim", "tree", "fashion", "mission", "session",
+  "pension", "cushion", "passive", "drama", "fee", "fees", "freeze", "freed", "freely", "frame",
+]);
+
 /** Stands in for a blanked word; no alias token can ever equal or fuzz onto it. */
 const BLANK = "·";
 
 function blankOrdinaryPhrases(tokens: string[]): string[] {
-  const out = [...tokens];
+  const out = tokens.map((t) => (NOT_A_CAR_WORDS.has(t) ? BLANK : t));
   for (const phrase of NOT_A_CAR_PHRASES) {
     for (let start = 0; start + phrase.length <= tokens.length; start++) {
       if (phrase.every((word, j) => tokens[start + j] === word)) {

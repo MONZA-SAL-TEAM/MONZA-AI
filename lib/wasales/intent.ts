@@ -72,6 +72,16 @@ export const INTENTS = [
   "MODEL_YEAR",
   "OTHER_BRAND",
   "ACKNOWLEDGEMENT",
+  // Samer, 2026-09-17: "no more silent ignores".
+  "INTERIOR_COLOUR",
+  "MEDIA_PHOTOS",
+  "HUMAN_HANDOFF",
+  "CALLBACK",
+  "DELIVERY_LOCATION",
+  "PAYMENT_CURRENCY",
+  "USED_CARS",
+  "OTHER_SPEC",
+  "TEST_DRIVE_CHANGE",
   "UNKNOWN",
 ] as const;
 
@@ -252,10 +262,9 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
   ],
   CONTACT_NUMBER: [
     weak("number"), "phone", "phone number", "your number", "mobile",
-    "whatsapp", "whatsapp number", "call", "call you", "call me", "contact",
+    "whatsapp", "whatsapp number", weak("call"), "call you", "contact",
     "contact number", "contact you", "reach you", "telephone", "tel",
     "ra2em", "ra2m", "nemra", "رقم", "رقمكم", "تلفون", "تلفونكم", "واتساب",
-    "اتصل",
   ],
   PRICE: [
     "price", "prices", "pricing", "price range", "cost", "costs",
@@ -284,8 +293,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "kafele", "kafeleh", "kafala", "كفالة", "ضمان",
   ],
   AVAILABILITY: [
-    "available", "availability", "in stock", "stock", "instock", "delivery",
-    "delivery time", "when can i get", "waiting time", "disponible",
+    "available", "availability", "in stock", "stock", "instock",
+    "delivery time", "delivery date", "when can i get", "waiting time", "disponible",
     "mawjoud", "mawjoude", "mawjoudin", "متوفر", "متوفرة", "موجود", "موجودة",
   ],
   DISCOUNT: [
@@ -339,6 +348,65 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "nissan", "porsche", "lexus", "jeep", "ford", "chevrolet", "honda", "mitsubishi",
     "geely", "chery", "jetour", "zeekr", "xpeng", "volkswagen", "volvo", "land rover",
     "range rover",
+  ],
+  INTERIOR_COLOUR: [
+    "interior", "interiors", "inside", "cabin", "dashboard", "upholstery",
+    "interior colour", "interior color", "interior colours", "interior colors",
+    "من جوا", "الداخلية", "الداخل", "الصالون", "مقاعد جلد",
+  ],
+  MEDIA_PHOTOS: [
+    "photo", "photos", "picture", "pictures", "pic", "pics", "image", "images",
+    "photographs", "صور", "صورة", "صوره", "sowar", "soura",
+  ],
+  HUMAN_HANDOFF: [
+    "human", "a human", "real person", "a person", "someone", "somebody",
+    "salesperson", "sales person", "sales rep", "representative", "agent",
+    "operator", "talk to someone", "speak to someone", "speak to a person",
+    "talk to a person", "can someone help", "is anyone there", "anyone there",
+    "are you a bot", "is this a bot", "is this a robot", "chatbot",
+    "حدا", "موظف", "شخص", "بدي احكي مع حدا", "في حدا",
+  ],
+  CALLBACK: [
+    "call me", "call me back", "callback", "call back", "give me a call",
+    "someone call me", "can someone call me", "contact me", "get back to me",
+    "reach me", "ring me", "phone me", "اتصل فيي", "اتصلو فيي", "اتصلي فيي",
+    "اتصل بي", "خبروني", "ittasel fiye", "ttasel fiye", "call me pls",
+  ],
+  DELIVERY_LOCATION: [
+    "deliver", "delivery", "delivery to", "deliver to", "home delivery", "delivered",
+    "shipping", "ship it", "توصيل", "بتوصلو", "بتوصل", "توصلولي", "twasso",
+  ],
+  PAYMENT_CURRENCY: [
+    "lbp", "lira", "liras", "lebanese pounds", "lebanese pound", "lebanese lira",
+    "in dollars", "usd only", "dollars only", "fresh dollars", "fresh usd",
+    "cash or", "by card", "credit card", "bank transfer", "cheque", "check payment",
+    "ليرة", "بالليرة", "ليرات", "دولار", "بالدولار", "فريش", "كاش", "شيك", "تحويل",
+  ],
+  USED_CARS: [
+    "used car", "used cars", "used vehicle", "used vehicles", "second hand",
+    "secondhand", "pre owned", "preowned", "pre-owned", "مستعمل", "مستعملة",
+    "مستعملين", "سيارات مستعملة", "مستعمله",
+  ],
+  // Specifications the workbook does not cover: named honestly, never guessed.
+  OTHER_SPEC: [
+    "top speed", "max speed", "maximum speed", "0 100", "0-100", "acceleration",
+    "how fast", "sunroof", "panoramic roof", "moonroof", "seat material",
+    "leather", "leather seats", "wheel size", "wheels",
+    "rims", "tyre size", "tire size", "suspension", "air suspension", "adas",
+    "autopilot", "self driving", "cruise control", "lane assist", "parking sensors",
+    "camera", "360 camera", "towing", "tow", "snow", "off road", "offroad",
+    "off-road", "sound system", "speakers", "screen size", "display size",
+    "heated seats", "ventilated seats", "massage seats",
+    "weight", "kerb weight", "torque", "nm", "سرعة", "سرعه", "فتحة سقف", "جلد",
+    "ثلج", "تلج",
+  ],
+  TEST_DRIVE_CHANGE: [
+    "reschedule", "change my test drive", "change the test drive", "change my booking",
+    "change the booking", "change the time", "change the appointment", "move my test drive",
+    "cancel my test drive", "cancel the test drive", "cancel my booking", "cancel the booking",
+    "cancel my appointment", "when is my test drive", "what time is my test drive",
+    "my test drive", "my booking", "my appointment", "غير الموعد", "الغي الموعد",
+    "الغاء الموعد", "تأجيل",
   ],
   // An acknowledgement only counts when nothing else was said: all weak.
   ACKNOWLEDGEMENT: [
@@ -505,9 +573,12 @@ export function findIntents(tokens: readonly string[]): IntentHit[] {
     (h): h is RawHit & { intent: Exclude<Intent, "UNKNOWN"> } => h.intent !== null
   );
 
-  // A weak word counts only when nothing stronger was asked.
+  // A weak word counts only when nothing stronger was asked — "how much hp" is a
+  // horsepower question. A comparison, a model list or a greeting beside it is
+  // not stronger: "how much is the Courage vs the Taishan" still asks the price.
+  const NOT_STRONGER: readonly Intent[] = ["COMPARE", "MODEL_LIST", "SALES", "GREETING", "ACKNOWLEDGEMENT", "MODEL_YEAR"];
   const kept = meaningful.filter(
-    (a) => !a.weak || !meaningful.some((b) => !b.weak && b.intent !== a.intent)
+    (a) => !a.weak || !meaningful.some((b) => !b.weak && b.intent !== a.intent && !NOT_STRONGER.includes(b.intent))
   );
 
   kept.sort((a, b) => a.start - b.start || b.end - a.end);

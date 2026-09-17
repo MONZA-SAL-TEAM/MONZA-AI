@@ -272,6 +272,8 @@ export interface MediaRef {
    * cannot be sent until somebody uploads it.
    */
   readonly url?: string | null;
+  /** A look inside the car rather than its exterior colour. Absent: exterior. */
+  readonly view?: "interior";
 }
 
 /** What has actually been uploaded for one catalogue car. */

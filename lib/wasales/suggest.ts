@@ -66,9 +66,35 @@ export interface ThreadFacts {
   windowOpen: boolean;
 }
 
+/**
+ * HUMAN TAKEOVER (Samer, 2026-09-17: "a human reply should pause automation
+ * temporarily, not permanently"). A reply typed by a person pauses the bot
+ * while that conversation is live: the bot stays out until the chat has been
+ * quiet for RESUME_HOURS after the person's last reply. A customer who comes
+ * back later with a new question is then read again, and only the messages
+ * after the person's last reply are answered. "Hand this chat to a person"
+ * (state.manualTakeover) holds the bot out until "Suggest again".
+ */
+export const DEFAULT_HANDOVER_RESUME_HOURS = 12;
+
+/**
+ * Engine reasons that mean a customer is waiting for a person, not a quiet "ok":
+ * a photo with no words, text the rules do not read, another brand's car. The
+ * autoreply marks the chat "Needs a person" on these, so nobody is silently ignored.
+ */
+export function needsPerson(reasons: readonly string[]): boolean {
+  return reasons.some((r) => /a person (reads|looks|says|answers)|asked for a person|switched off|another brand/i.test(r));
+}
+
+export function handoverResumeHours(raw: string | undefined | null): number {
+  if (typeof raw !== "string" || !/^\s*\d{1,3}\s*$/.test(raw)) return DEFAULT_HANDOVER_RESUME_HOURS;
+  const h = Number(raw.trim());
+  return h >= 1 && h <= 168 ? h : DEFAULT_HANDOVER_RESUME_HOURS;
+}
+
 export type Suggestion =
-  /** A person has replied: suggestions stop for this chat. */
-  | { kind: "handed_over"; reason: string; since: string }
+  /** A person is in this chat: the bot waits. */
+  | { kind: "handed_over"; reason: string; since: string; manual: boolean }
   /** Our reply is the latest, or the customer has not written. */
   | { kind: "nothing_to_answer"; reason: string }
   | {
@@ -120,8 +146,9 @@ export function suggestForThread(
   facts: ThreadFacts,
   saved: SavedSuggestion,
   deps: EngineDeps,
-  opts: { liveSending: boolean }
+  opts: { liveSending: boolean; resumeHours?: number }
 ): Suggestion {
+  const resumeHours = opts.resumeHours ?? DEFAULT_HANDOVER_RESUME_HOURS;
   const started = saved.startedAt ? Date.parse(saved.startedAt) : NaN;
   const ordered = [...facts.messages]
     .filter((m) => !(Number.isFinite(started) && timeOf(m) <= started))
@@ -132,12 +159,30 @@ export function suggestForThread(
   const byPerson = outs.filter(
     (m) => !isOurs(m, saved) && !(Number.isFinite(resumed) && timeOf(m) <= resumed)
   );
-  if (byPerson.length > 0) {
+  if (saved.state.manualTakeover) {
     return {
       kind: "handed_over",
-      reason: "A person has replied in this chat, so suggestions stop here.",
-      since: byPerson[byPerson.length - 1].at,
+      reason: "Staff handed this chat to a person. Press \"Suggest again\" to switch the bot back on.",
+      since: byPerson[byPerson.length - 1]?.at ?? saved.resumedAt ?? ordered[ordered.length - 1]?.at ?? "",
+      manual: true,
     };
+  }
+  if (byPerson.length > 0) {
+    const lastHuman = byPerson[byPerson.length - 1];
+    const lastHumanAt = timeOf(lastHuman);
+    const customerSince = ordered.filter((m) => m.direction === "in" && timeOf(m) > lastHumanAt);
+    const latestIn = customerSince[customerSince.length - 1];
+    const quietMs = latestIn ? timeOf(latestIn) - lastHumanAt : 0;
+    // The person is in the conversation: the bot does not jump into the middle of it.
+    if (!latestIn || quietMs < resumeHours * 3_600_000) {
+      return {
+        kind: "handed_over",
+        reason: `A person has replied in this chat. The bot stays out until the chat has been quiet for ${resumeHours} hours after their last reply.`,
+        since: lastHuman.at,
+        manual: false,
+      };
+    }
+    // Quiet long enough: the person's conversation is over, and the customer is back with something new.
   }
 
   const lastOut = outs.length > 0 ? timeOf(outs[outs.length - 1]) : -Infinity;

@@ -469,7 +469,8 @@ describe("leads, test drives, stock and trade-ins", () => {
   test("installments: the information, the name, then an alert with it and a thank-you", () => {
     const [ask, name] = talk(["do you have installments?", "Rabih Yazbek"]);
     assert.equal(ask.nextState.awaiting, "LEAD_NAME");
-    assert.deepEqual(ask.nextState.lead, { kind: "FINANCING", models: [], captured: false });
+    // On WhatsApp the number is already known, so only the name is asked for.
+    assert.deepEqual(ask.nextState.lead, { kind: "FINANCING", models: [], captured: false, havePhone: true });
     assert.deepEqual(labels(name), ["SAY LEAD THANKS", "ALERT SALES — FINANCING WITH NAME"]);
     const alert = name.actions.find((a) => a.type === "ALERT_SALES");
     assert.equal(alert?.type === "ALERT_SALES" && alert.name, "Rabih Yazbek");
@@ -803,7 +804,8 @@ describe("the openers the study found, as the engine answers them", () => {
     ["do you have installments?", "SAY FINANCING INFO"],
     ["where is your showroom?", "SEND LOCATION"],
     ["kifak, ade se3er el taishan?", "SEND TAISHAN BROCHURE"],
-    ["feel free to call me back", "SEND CONTACT NUMBER"],
+    // "Call me back" is a call-back request (Samer, 2026-09-17): never our number given back to them.
+    ["feel free to call me back", "SAY CALLBACK CONFIRMED"],
   ];
   for (const [text, first] of PATTERNS) {
     test(text, () => assert.equal(facing(last([text]))[0], first));

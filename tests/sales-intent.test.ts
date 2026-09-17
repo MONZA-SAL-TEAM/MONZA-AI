@@ -68,7 +68,8 @@ describe("longest phrase wins", () => {
     assert.deepEqual(intents("is it like a range rover"), ["OTHER_BRAND"]);
     assert.deepEqual(intents("no problem"), []);
     assert.deepEqual(intents("no problem, thanks"), ["ACKNOWLEDGEMENT"]);
-    assert.deepEqual(intents("is delivery free of charge"), ["AVAILABILITY"]);
+    // "delivery" is a delivery question (Samer, 2026-09-17), and "free of charge" still means nothing.
+    assert.deepEqual(intents("is delivery free of charge"), ["DELIVERY_LOCATION"]);
   });
 });
 

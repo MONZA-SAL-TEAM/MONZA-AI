@@ -111,6 +111,7 @@ export async function listLibraryFiles(
                 size: sizeOf(e),
                 url: publicUrl(path),
                 ...(sendCopy ? { sendCopy: true } : {}),
+                ...(/interior|inside|cabin|dashboard/i.test(nameOf(e)) ? { view: "interior" as const } : {}),
               });
             }
           }

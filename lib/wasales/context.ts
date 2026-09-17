@@ -24,14 +24,14 @@
 import { INTENTS, type CategoryFilter, type Intent } from "@/lib/wasales/intent";
 import { isModelCode, type ModelCode } from "@/lib/wasales/knowledge";
 
-export type Awaiting = "NONE" | "MODEL" | "COLOUR" | "LEAD_NAME" | "TEST_DRIVE_SLOT";
+export type Awaiting = "NONE" | "MODEL" | "COLOUR" | "LEAD_NAME" | "LEAD_PHONE" | "TEST_DRIVE_SLOT" | "PERSON";
 
 /**
  * A sales request the team must follow up (workbook, C Decisions): what it is
  * about and which cars. The customer's NAME is never kept here — it goes
  * straight into the sales alert — so this memory still holds no customer words.
  */
-export type LeadKind = "FINANCING" | "TEST_DRIVE";
+export type LeadKind = "FINANCING" | "TEST_DRIVE" | "CALLBACK";
 
 export interface LeadState {
   kind: LeadKind;
@@ -40,6 +40,9 @@ export interface LeadState {
   captured: boolean;
   /** Installments asked together with a test drive: after the name, the slots too. */
   andTestDrive?: boolean;
+  /** Which of the two the customer has given (WhatsApp already knows the number). */
+  haveName?: boolean;
+  havePhone?: boolean;
 }
 
 export interface SearchEngineState {
@@ -73,6 +76,15 @@ export interface SearchEngineState {
   lead: LeadState | null;
   /** Test-drive slots offered, as ISO times, so a numbered answer can pick one. */
   offeredSlots: string[];
+  /** The test drive booked in this chat (UTC ISO), for "change" / "cancel" / "when is it". */
+  booking: string | null;
+  /** A time the customer typed before giving their name; booked once the name arrives. */
+  requestedSlot: string | null;
+  /**
+   * Staff pressed "Hand this chat to a person": the bot stays out of this chat
+   * until "Suggest again", however long the chat goes quiet.
+   */
+  manualTakeover: boolean;
   /** ISO time of the last message the engine read, from the message itself. */
   updatedAt: string | null;
 }
@@ -95,6 +107,9 @@ export function freshState(): SearchEngineState {
     categoryFilter: null,
     lead: null,
     offeredSlots: [],
+    booking: null,
+    requestedSlot: null,
+    manualTakeover: false,
     updatedAt: null,
   };
 }
@@ -145,18 +160,20 @@ export function hasContext(state: SearchEngineState): boolean {
 
 /* ── Reading a stored state ──────────────────────────────────────────────── */
 
-const AWAITING: readonly Awaiting[] = ["NONE", "MODEL", "COLOUR", "LEAD_NAME", "TEST_DRIVE_SLOT"];
+const AWAITING: readonly Awaiting[] = ["NONE", "MODEL", "COLOUR", "LEAD_NAME", "LEAD_PHONE", "TEST_DRIVE_SLOT", "PERSON"];
 const CATEGORIES: readonly CategoryFilter[] = ["EV", "EREV", "PHEV", "HYBRID"];
 
 function leadOrNull(value: unknown): LeadState | null {
   if (!value || typeof value !== "object") return null;
   const v = value as Record<string, unknown>;
-  if (v.kind !== "FINANCING" && v.kind !== "TEST_DRIVE") return null;
+  if (v.kind !== "FINANCING" && v.kind !== "TEST_DRIVE" && v.kind !== "CALLBACK") return null;
   return {
     kind: v.kind,
     models: Array.isArray(v.models) ? v.models.map(modelOrNull).filter((m): m is ModelCode => m !== null) : [],
     captured: v.captured === true,
     ...(v.andTestDrive === true ? { andTestDrive: true } : {}),
+    ...(v.haveName === true ? { haveName: true } : {}),
+    ...(v.havePhone === true ? { havePhone: true } : {}),
   };
 }
 const COLOUR_ID = /^[a-z0-9-]{1,64}$/;
@@ -218,6 +235,9 @@ export function parseState(stored: unknown): SearchEngineState {
     offeredSlots: Array.isArray(s.offeredSlots)
       ? s.offeredSlots.filter((t): t is string => typeof t === "string" && Number.isFinite(Date.parse(t))).slice(0, 13)
       : [],
+    booking: typeof s.booking === "string" && Number.isFinite(Date.parse(s.booking)) ? s.booking : null,
+    requestedSlot: typeof s.requestedSlot === "string" && Number.isFinite(Date.parse(s.requestedSlot)) ? s.requestedSlot : null,
+    manualTakeover: s.manualTakeover === true,
     updatedAt:
       typeof s.updatedAt === "string" && Number.isFinite(Date.parse(s.updatedAt))
         ? s.updatedAt

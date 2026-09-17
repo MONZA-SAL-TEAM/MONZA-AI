@@ -24,8 +24,9 @@ export const WORKBOOK = {
           "confirmed": true
         },
         "BATTERY": {
-          "value": "43 kWh ternary lithium",
-          "confirmed": true
+          "value": "",
+          "confirmed": false,
+          "pending": "43 kWh ternary lithium"
         },
         "POWERTRAIN": {
           "value": "EREV – electric drive with 1.5T petrol range extender",
@@ -79,8 +80,9 @@ export const WORKBOOK = {
           "confirmed": true
         },
         "RANGE": {
-          "value": "440 km WLTP",
-          "confirmed": true
+          "value": "",
+          "confirmed": false,
+          "pending": "440 km WLTP"
         },
         "BATTERY": {
           "value": "80 kWh nominal / 77.3 kWh usable LFP",
@@ -137,8 +139,9 @@ export const WORKBOOK = {
           "confirmed": true
         },
         "BATTERY": {
-          "value": "43 kWh ternary lithium",
-          "confirmed": true
+          "value": "",
+          "confirmed": false,
+          "pending": "43 kWh ternary lithium"
         },
         "POWERTRAIN": {
           "value": "PHEV – Plug-in Hybrid",
@@ -191,8 +194,9 @@ export const WORKBOOK = {
           "confirmed": true
         },
         "BATTERY": {
-          "value": "43 kWh ternary lithium",
-          "confirmed": true
+          "value": "",
+          "confirmed": false,
+          "pending": "43 kWh ternary lithium"
         },
         "POWERTRAIN": {
           "value": "PHEV – Plug-in Hybrid",
@@ -235,12 +239,14 @@ export const WORKBOOK = {
       "seatCount": 5,
       "facts": {
         "HORSEPOWER": {
-          "value": "657 hp",
-          "confirmed": true
+          "value": "",
+          "confirmed": false,
+          "pending": "657 hp"
         },
         "RANGE": {
-          "value": "410 km EV / 1,400 km combined (CLTC)",
-          "confirmed": true
+          "value": "",
+          "confirmed": false,
+          "pending": "410 km EV / 1,400 km combined (CLTC)"
         },
         "BATTERY": {
           "value": "",
@@ -290,12 +296,14 @@ export const WORKBOOK = {
       "seatCount": 6,
       "facts": {
         "HORSEPOWER": {
-          "value": "657 hp",
-          "confirmed": true
+          "value": "",
+          "confirmed": false,
+          "pending": "657 hp"
         },
         "RANGE": {
-          "value": "370 km EV / 1,400 km combined (CLTC)",
-          "confirmed": true
+          "value": "",
+          "confirmed": false,
+          "pending": "370 km EV / 1,400 km combined (CLTC)"
         },
         "BATTERY": {
           "value": "65 kWh CATL ternary lithium",
