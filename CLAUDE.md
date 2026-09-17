@@ -914,6 +914,20 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   are not part of the chat. Recorded as author `automation`,
   `automation_id` `sales-autoreply:…`. A reply a person types in that chat
   stops it (handover). Off: `SALES_AUTOREPLY_MODE=off`.
+- **Everyone OUTSIDE the pilot is marked, never answered (Samer, 2026-09-17:
+  "do not enable automatic replies globally without my explicit approval").**
+  `lib/wasales/triage.ts` classifies each new non-pilot WhatsApp message and
+  `recordAlert` files it (`sales_alerts`, kinds in 016) with a reason that
+  names the topic and model code, never the customer's words. The inbox strip
+  and "Needs a person" on the chat row show it. `SALES_AUTOREPLY_MODE=off`
+  stops replies, not marking. A person's reply PAUSES the bot (resumes after
+  `SALES_HANDOVER_RESUME_HOURS`, default 12, answering only what came after);
+  "Hand to a person" holds it until "Suggest again". Arabic script is answered
+  in Arabic (`templates.ts` `renderTextAr`), Arabizi in English. Conflicting
+  workbook facts are HELD (`PENDING_CONFIRMATION` in the import script,
+  `docs/SALES-FACTS-DISCREPANCIES.md`) and read "not confirmed yet" until Samer
+  confirms. `tests/sales-regression.test.ts` is the mandatory set: every reply
+  classified, no figure outside the approved knowledge, no internal label.
 - **Memory:** `database/migrations/012_sales_suggestion_state.sql` — engine
   state and our own sent ids per chat, never words. NOT applied until Samer
   says so: suggestions still show without it, but cannot be sent.
