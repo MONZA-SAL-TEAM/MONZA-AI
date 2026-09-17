@@ -597,7 +597,15 @@ export function decide(
     answerIndependent(null);
     if (modelDependent.length > 0) {
       next.pendingIntents = unique([...base.pendingIntents, ...modelDependent]);
-      offerModels(brandModels, false);
+      // "the price of each", right after "MHERO 1 or MHERO 2?": ask of just
+      // those again, not of every model.
+      const stillOffered =
+        base.awaiting === "MODEL" ? base.offeredModels.filter((c) => brandModels.includes(c)) : [];
+      if (stillOffered.length > 1 && stillOffered.length < brandModels.length) {
+        offerModels(stillOffered, true);
+      } else {
+        offerModels(brandModels, false);
+      }
     }
   }
 

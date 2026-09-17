@@ -162,6 +162,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "marhaba", "mar7aba", "marhabtein", "hala", "ahla", "ahlan", "ahlein",
     "bonjour", "bonsoir", "salut", "kifak", "kifik", "kifkon",
     "thanks", "thank you", "thankyou", "thx", "merci", "shukran", "choukran",
+    "thk u", "thku", "thnx", "tnx", "thanx", "sabaho", "saba7o", "sabah el kheir",
+    "saba7 el kheir",
     "مرحبا", "مرحبتين", "أهلا", "أهلين", "هلا", "السلام عليكم", "سلام",
     "صباح الخير", "مسا الخير", "مساء الخير", "كيفك", "كيفكن", "شكرا",
   ],
@@ -169,7 +171,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "info", "infos", "information", "informations", "more info",
     "more information", "more details", "details", "detail", "know more",
     "tell me more", "tell me about", "interested", "inquiry", "enquiry",
-    "ma3loumet", "ma3lumet", "ma3loumat", "ma3lomet",
+    "ma3loumet", "ma3lumet", "ma3loumat", "ma3lomet", "more inf", "tafasil",
+    "tafaseel", "tafasel",
     "معلومات", "معلومة", "تفاصيل", "مهتم", "مهتمة", "استفسار", "بدي اعرف",
   ],
   BROCHURE: [
@@ -253,7 +256,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "price", "prices", "pricing", "price range", "cost", "costs",
     weak("how much"), "how much does it cost", "usd", "dollars", "dollar",
     "prix", "combien", "se3er", "si3r", "sa3er", "se3r", weak("ade"),
-    "adesh", "addesh", "2adesh", weak("adde"), "سعر", "السعر", "أسعار",
+    "adesh", "addesh", "2adesh", weak("adde"), "pricr", "prise", "as3ar",
+    "asaar", "cheaper", "cheapest", "سعر", "السعر", "أسعار", "ارخص", "أرخص",
     "الأسعار", "بكم", "قديش", weak("كم"), "تكلفة", "كلفة",
   ],
   FINANCING: [
@@ -261,7 +265,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "financing", "loan", "loans", "bank loan", "monthly", "monthly payment",
     "monthly payments", "payment plan", "payment facilities", "facilities",
     "down payment", "downpayment", "first payment", "credit", "leasing",
-    "lease", "taksit", "ta2sit", "takseet", "ta2seet", "a2sat",
+    "lease", "taksit", "ta2sit", "takseet", "ta2seet", "a2sat", "to2seet",
+    "interest", "daf3a", "daf3a oula", "awal daf3a", "dafe3", "طريقة الدفع",
     "تقسيط", "بالتقسيط", "أقساط", "قسط", "قرض", "دفعة أولى", "دفعة",
     "شهري", "تسهيلات",
   ],
@@ -324,6 +329,10 @@ const IGNORE: readonly string[] = [
   "not a problem",
   "no issue",
   "no issues",
+  // Agreeing, not asking for a discount (WhatsApp, 2026-09-16).
+  "okay deal",
+  "ok deal",
+  "deal done",
 ];
 
 /**
@@ -602,10 +611,10 @@ const THREAT =
   /\b(?:disabled|deactivated|suspended|restricted|removed|deleted|banned|terminated|unpublished|violat\w*|infringement|appeal|permanently|verify your (?:account|page)|confirm your (?:account|page))\b/g;
 
 const SERVICE =
-  /\b(?:seo|web design|website design|web development|app development|digital marketing|social media (?:marketing|management)|followers|likes|lead generation|leads generation|backlinks|google ranking|graphic design|video editing|logo design|content creation|ugc)\b/;
+  /\b(?:seo|web design|website design|web development|app development|digital marketing|social media (?:marketing|management)|shipments?|freight|logistics|do business with|followers|likes|lead generation|leads generation|backlinks|google ranking|graphic design|video editing|logo design|content creation|ugc)\b/;
 
 const PITCH =
-  /\b(?:we (?:offer|provide|can help|specialize|are a)|i (?:offer|provide|can help you|am a (?:freelancer|professional|digital))|our (?:agency|company|team|services)|would you be interested|boost your|grow your|increase your (?:sales|followers|revenue|reach)|free (?:audit|consultation|trial)|dm me|let me know if you)\b/;
+  /\b(?:we (?:offer|provide|can help|specialize|are a)|i (?:offer|provide|can help you|am a (?:freelancer|professional|digital))|our (?:agency|company|team|services|best services)|company profile|we would like to do business|would you be interested|boost your|grow your|increase your (?:sales|followers|revenue|reach)|free (?:audit|consultation|trial)|dm me|let me know if you)\b/;
 
 const SYSTEM_NOTICE = /\b(?:created this chat because|this chat was created because)\b/;
 
@@ -670,6 +679,23 @@ export interface MessageReading {
 }
 
 /**
+ * "64000 km", "165,000 km" after photos of a car: the customer telling us
+ * THEIR car's mileage for a trade-in, not asking a range (WhatsApp,
+ * 2026-09-16). Only a bare "km" after a number of at least 1,000, in a
+ * message with no question mark and no other intent.
+ */
+function mileageAsTradeIn(hits: IntentHit[], tokens: readonly string[], raw: string): IntentHit[] {
+  if (raw.includes("?") || raw.includes("؟") || hits.length !== 1) return hits;
+  const [h] = hits;
+  if (h.intent !== "RANGE" || !["km", "kms"].includes(h.matched) || h.start === 0) return hits;
+  // normalize() may split "165,000" into "165" "000"; join the digits before "km".
+  let digits = "";
+  for (let i = h.start - 1; i >= 0 && /^[0-9]+$/.test(tokens[i]); i--) digits = tokens[i] + digits;
+  if (digits === "" || Number(digits) < 1000) return hits;
+  return [{ ...h, intent: "TRADE_IN" }];
+}
+
+/**
  * Read one inbound message. `payload` is the button payload when the customer
  * tapped a choice; a message typed in exactly that shape counts too (it is
  * no more powerful than typing the model's name).
@@ -679,7 +705,7 @@ export function readMessage(text: string, payload?: string | null): MessageReadi
   const normalized = normalize(raw);
   const tokens = normalized === "" ? [] : normalized.split(" ");
   const parsedPayload = parsePayload(payload) ?? parsePayload(raw);
-  const hits = parsedPayload ? [] : findIntents(tokens);
+  const hits = parsedPayload ? [] : mileageAsTradeIn(findIntents(tokens), tokens, raw);
 
   let confidence: MessageReading["confidence"] = "none";
   if (hits.length > 0) {

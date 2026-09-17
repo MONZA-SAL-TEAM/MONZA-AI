@@ -220,6 +220,20 @@ const NOT_A_CAR_PHRASES = [
   "free today",
   "free tomorrow",
   "free now",
+  // Offer wording (WhatsApp, 2026-09-16: a customer forwarded the Courage
+  // offer's "2 years free maintenance" and was asked "Free 318 or Courage?").
+  "free maintenance",
+  "free service",
+  "free servicing",
+  "free insurance",
+  "free registration",
+  "free charging",
+  "free charger",
+  "free wallbox",
+  "free installation",
+  "free warranty",
+  "free accessories",
+  "interest free",
 ].map((p) => p.split(" "));
 
 /** Stands in for a blanked word; no alias token can ever equal or fuzz onto it. */
@@ -373,7 +387,9 @@ export function matchModel(text: string, catalog: readonly WaCar[]): ModelMatch 
             continue;
           }
           const allow = fuzzyAllowance(pt);
-          if (allow > 0 && editDistance(pt, mt, allow) <= allow) {
+          // A typo drops a letter, not half the word: "pass" (in "i will pass
+          // by") is two letters short of the alias "passon" and is not a car.
+          if (allow > 0 && mt.length >= pt.length - 1 && editDistance(pt, mt, allow) <= allow) {
             score += 60;
             fuzzy = true;
             continue;
@@ -579,7 +595,9 @@ export function pickAmong(text: string, candidates: readonly WaCar[]): WaCar | n
     const distinct = names[i].filter((t) => !shared.includes(t));
     if (distinct.length > 0 && containsRun(tokens, distinct)) picked.add(car);
     const ordinal = ORDINALS[i];
-    if (ordinal && ordinal.some((p) => containsRun(tokens, p.split(" ")))) {
+    // Only a short reply points by position: "the first one" does, "what about
+    // the first payment" does not (WhatsApp, 2026-09-16: it sent the Free 318).
+    if (ordinal && tokens.length <= 4 && ordinal.some((p) => containsRun(tokens, p.split(" ")))) {
       picked.add(car);
     }
   });
