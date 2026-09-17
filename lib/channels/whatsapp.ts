@@ -678,6 +678,40 @@ export async function sendWhatsAppText(
 }
 
 /**
+ * An approved TEMPLATE message — the only kind WhatsApp delivers to a number that
+ * has not written to the business in the last 24 hours. Used for the sales team
+ * alert (lib/wasales/sales-ops.ts), never for a customer. Each body parameter is
+ * one line: WhatsApp refuses new lines, tabs and long runs of spaces in them.
+ */
+export async function sendWhatsAppTemplate(
+  input: { phoneNumberId: string; to: string; template: string; language: string; bodyParams: string[] },
+  token: string,
+  fetchFn: typeof fetch = fetch
+): Promise<WhatsAppSendResult> {
+  if (!/^[a-z0-9_]{1,512}$/.test(input.template)) {
+    return { ok: false, problem: "The alert template name is not valid.", windowClosed: false };
+  }
+  const params = input.bodyParams.map((p) => ({
+    type: "text",
+    text: p.replace(/[\r\n\t]+/g, " ").replace(/ {4,}/g, "   ").slice(0, 900) || "-",
+  }));
+  return postWhatsAppMessage(
+    input.phoneNumberId,
+    input.to,
+    {
+      type: "template",
+      template: {
+        name: input.template,
+        language: { code: input.language },
+        ...(params.length > 0 ? { components: [{ type: "body", parameters: params }] } : {}),
+      },
+    },
+    token,
+    fetchFn
+  );
+}
+
+/**
  * Hand WhatsApp a file to send (POST /{phone-number-id}/media). It answers with
  * an id, valid 30 days, that a message then names. Uploading is not sending:
  * nothing reaches the customer until sendWhatsAppMedia.

@@ -161,6 +161,17 @@ function fallbackKinds(d: EngineDecision): string[] {
 }
 
 const VOYAH_MODELS = "SHOW MODEL CHOICES (FREE 318, COURAGE, DREAM, PASSION, PASSION L, TAISHAN)";
+const VOYAH_CARS = "FREE 318 + COURAGE + DREAM + PASSION + PASSION L + TAISHAN";
+
+/** Every SEND_FACTS row the decision sends. */
+function factRows(d: EngineDecision) {
+  return d.actions.flatMap((a) => (a.type === "SEND_FACTS" ? a.rows : []));
+}
+
+/** The SEND_TEXT keys, in order. */
+function textKeys(d: EngineDecision): string[] {
+  return d.actions.flatMap((a) => (a.type === "SEND_TEXT" ? [a.key] : []));
+}
 
 /* ── The definition of done ──────────────────────────────────────────────── */
 
@@ -174,20 +185,32 @@ describe("the definition of done (§62)", () => {
     "what's the range?",
   ]);
 
-  test("1. hp? — HORSEPOWER, model unknown, show model choices", () => {
+  test("1. hp? — HORSEPOWER, no model: every car's value, then 'which to explore'", () => {
     assert.deepEqual(hp.understanding.intents, ["HORSEPOWER"]);
     assert.equal(hp.understanding.model, null);
-    assert.deepEqual(labels(hp), [VOYAH_MODELS]);
-    assert.deepEqual(hp.nextState.pendingIntents, ["HORSEPOWER"]);
+    assert.deepEqual(facing(hp), [`SEND ${VOYAH_CARS} HORSEPOWER (ALL MODELS)`, VOYAH_MODELS]);
+    const facts = hp.actions[0];
+    assert.equal(facts.type === "SEND_FACTS" && facts.scope, "all");
+    const choices = hp.actions.find((a) => a.type === "SHOW_MODEL_CHOICES");
+    assert.equal(choices?.type === "SHOW_MODEL_CHOICES" && choices.prompt, "explore");
+    // The Courage's value as approved; a car with none is "not confirmed yet", never invented.
+    assert.deepEqual(
+      factRows(hp).map((r) => [r.model, r.value, r.confirmed]),
+      [
+        ["FREE_318", "", false],
+        ["COURAGE", "TEST-HP-COURAGE", true],
+        ["DREAM", "", false],
+        ["PASSION", "", false],
+        ["PASSION_L", "", false],
+        ["TAISHAN", "", false],
+      ]
+    );
+    assert.deepEqual(hp.nextState.pendingIntents, [], "a fact question is answered, never kept waiting");
     assert.equal(hp.nextState.awaiting, "MODEL");
   });
 
-  test("2. tapping COURAGE: brochure, horsepower, colours — in that order", () => {
-    assert.deepEqual(labels(courage), [
-      "SEND COURAGE BROCHURE",
-      "SEND COURAGE HORSEPOWER",
-      "SHOW COURAGE COLOURS",
-    ]);
+  test("2. tapping COURAGE: brochure, then colours — in that order", () => {
+    assert.deepEqual(labels(courage), ["SEND COURAGE BROCHURE", "SHOW COURAGE COLOURS"]);
     assert.equal(courage.activation?.kind, "NEW");
     assert.deepEqual(courage.nextState.pendingIntents, []);
     assert.equal(courage.nextState.awaiting, "COLOUR");
@@ -213,7 +236,8 @@ describe("the definition of done (§62)", () => {
   test("6. what's the range? — the Passion L range, never the Passion's, never 'orange'", () => {
     assert.deepEqual(labels(rangeL), ["SEND PASSION L RANGE"]);
     const fact = rangeL.actions[0];
-    assert.equal(fact.type === "SEND_FACT" && fact.value, "TEST-RANGE-PASSION-L");
+    assert.equal(fact.type === "SEND_FACTS" && fact.scope, "one");
+    assert.deepEqual(factRows(rangeL), [{ model: "PASSION_L", fact: "RANGE", value: "TEST-RANGE-PASSION-L", confirmed: true }]);
   });
 
   test("typing the model, or its number, works like tapping it", () => {
@@ -234,7 +258,7 @@ describe("brochure first, on every activation", () => {
   test("from the words, a button, a numbered answer and a known ad", () => {
     const fromWords = last(["tell me about the taishan"]);
     const fromButton = last([{ payload: "MODEL:TAISHAN" }]);
-    const fromNumber = last(["hi", "6"]);
+    const fromNumber = last([{ payload: "DEPT:SALES" }, "6"]);
     const fromAd = last([{ text: "hi", referral: { ref: "MODEL:TAISHAN" } }]);
     for (const d of [fromWords, fromButton, fromNumber, fromAd]) {
       assert.equal(facing(d)[0], "SEND TAISHAN BROCHURE");
@@ -276,25 +300,44 @@ describe("brochure first, on every activation", () => {
 
 describe("questions asked before the model", () => {
   test("wait, in order, without repeats — then answer after the brochure", () => {
-    const [hp, again, range, courage] = talk(["hp?", "hp?", "range?", "courage"]);
-    assert.deepEqual(hp.nextState.pendingIntents, ["HORSEPOWER"]);
-    assert.deepEqual(again.nextState.pendingIntents, ["HORSEPOWER"]);
-    assert.deepEqual(range.nextState.pendingIntents, ["HORSEPOWER", "RANGE"]);
+    const [price, again, info, courage] = talk(["price?", "price?", "info?", "courage"]);
+    assert.deepEqual(price.nextState.pendingIntents, ["PRICE"]);
+    assert.deepEqual(again.nextState.pendingIntents, ["PRICE"]);
+    assert.deepEqual(info.nextState.pendingIntents, ["PRICE", "GENERAL_INFO"]);
     assert.deepEqual(labels(courage), [
       "SEND COURAGE BROCHURE",
-      "SEND COURAGE HORSEPOWER",
-      "SEND COURAGE RANGE",
+      "SAY PRICE HANDOFF (COURAGE)",
       "SHOW COURAGE COLOURS",
+      "ALERT SALES — PRICE (COURAGE)",
     ]);
+    assert.deepEqual(courage.nextState.pendingIntents, []);
   });
 
-  test("PRICE waits for the model, then gets brochure → number → colours", () => {
+  test("a fact question is never kept waiting: it is answered for every car at once", () => {
+    const [hp, courage] = talk(["hp?", "courage"]);
+    assert.deepEqual(hp.nextState.pendingIntents, []);
+    assert.deepEqual(labels(courage), ["SEND COURAGE BROCHURE", "SHOW COURAGE COLOURS"]);
+  });
+
+  test("PRICE waits for the model, then gets brochure → price hand-off → colours", () => {
     const [price, free] = talk(["price?", "the free"]);
     assert.deepEqual(labels(price), [VOYAH_MODELS]);
     assert.deepEqual(labels(free), [
       "SEND FREE 318 BROCHURE",
-      "SEND CONTACT FALLBACK — PRICE (FREE 318)",
+      "SAY PRICE HANDOFF (FREE 318)",
       "SHOW FREE 318 COLOURS",
+      "ALERT SALES — PRICE (FREE 318)",
+    ]);
+    assert.ok(!free.actions.some((a) => a.type === "SEND_CONTACT_FALLBACK"), "the hand-off already gives the number");
+  });
+
+  test("PRICE with the model: the hand-off and a sales alert, never a figure", () => {
+    const d = last(["how much is the courage"]);
+    assert.deepEqual(labels(d), [
+      "SEND COURAGE BROCHURE",
+      "SAY PRICE HANDOFF (COURAGE)",
+      "SHOW COURAGE COLOURS",
+      "ALERT SALES — PRICE (COURAGE)",
     ]);
   });
 
@@ -306,39 +349,38 @@ describe("questions asked before the model", () => {
 
   test("questions that need no model are answered at once", () => {
     const d = last(["where are you? and hp?"]);
-    assert.deepEqual(labels(d), ["SEND LOCATION", VOYAH_MODELS]);
-    assert.deepEqual(d.nextState.pendingIntents, ["HORSEPOWER"]);
+    assert.deepEqual(facing(d), [`SEND ${VOYAH_CARS} HORSEPOWER (ALL MODELS)`, "SEND LOCATION", VOYAH_MODELS]);
+    assert.deepEqual(d.nextState.pendingIntents, []);
   });
 });
 
 /* ── Facts ───────────────────────────────────────────────────────────────── */
 
-describe("facts: approved, or the number", () => {
-  test("missing, unapproved, empty and zero are four different gaps — none is sent", () => {
+describe("facts: the approved value, or 'not confirmed yet'", () => {
+  test("empty is the workbook saying 'not stated'; missing, unapproved and zero are also gaps — no value is sent", () => {
     const [, hp, seats, battery, range] = talk(["dream", "hp?", "seats?", "battery?", "range?"]);
     const gap = (d: EngineDecision) => d.gaps.map((g) => g.detail);
     assert.deepEqual(gap(hp), ["FACT NOT APPROVED: DREAM / HORSEPOWER"]);
-    assert.deepEqual(gap(seats), ["APPROVED FACT IS EMPTY: DREAM / SEATS"]);
+    assert.deepEqual(gap(seats), [], "EMPTY is an approved 'not confirmed yet', not a gap");
     assert.deepEqual(gap(battery), ["APPROVED FACT IS ZERO: DREAM / BATTERY"]);
     assert.deepEqual(gap(range), ["MISSING APPROVED FACT: DREAM / RANGE"]);
-    for (const d of [hp, seats, battery, range]) {
-      assert.ok(!d.actions.some((a) => a.type === "SEND_FACT"));
-      assert.deepEqual(fallbackKinds(d), ["MISSING_FACT"]);
+    for (const [d, fact] of [[hp, "HORSEPOWER"], [seats, "SEATS"], [battery, "BATTERY"], [range, "RANGE"]] as const) {
+      assert.deepEqual(factRows(d), [{ model: "DREAM", fact, value: "", confirmed: false }], fact);
+      assert.deepEqual(fallbackKinds(d), [], "'not confirmed yet' already carries the number");
     }
   });
 
   test("a fact is never borrowed from a sibling: the Passion and the Passion L", () => {
     const passion = last(["passion range?"]);
     const passionL = last(["passion l range?"]);
-    const value = (d: EngineDecision) =>
-      d.actions.find((a): a is Extract<EngineAction, { type: "SEND_FACT" }> => a.type === "SEND_FACT")?.value;
+    const value = (d: EngineDecision) => factRows(d).find((r) => r.fact === "RANGE")?.value;
     assert.equal(value(passion), "TEST-RANGE-PASSION");
     assert.equal(value(passionL), "TEST-RANGE-PASSION-L");
   });
 
-  test("the Taishan has no approved horsepower: the number, never another car's", () => {
+  test("the Taishan has no approved horsepower: 'not confirmed yet', never another car's", () => {
     const d = last(["taishan hp"]);
-    assert.ok(!d.actions.some((a) => a.type === "SEND_FACT"));
+    assert.deepEqual(factRows(d), [{ model: "TAISHAN", fact: "HORSEPOWER", value: "", confirmed: false }]);
     assert.deepEqual(d.gaps.map((g) => g.detail), ["MISSING APPROVED FACT: TAISHAN / HORSEPOWER"]);
   });
 });
@@ -346,45 +388,155 @@ describe("facts: approved, or the number", () => {
 /* ── Everything else that gets the number ────────────────────────────────── */
 
 describe("questions a person answers", () => {
-  test("each gets the contact number, once, with every reason on it", () => {
-    for (const [text, intent] of [
-      ["do you have installments?", "FINANCING"],
-      ["can i book a test drive", "TEST_DRIVE"],
-      ["any discount?", "DISCOUNT"],
-      ["do you accept trade in", "TRADE_IN"],
-      ["i need a service appointment", "SERVICE"],
-      ["spare parts?", "PARTS"],
+  test("each gets its own workbook sentence — never the generic contact fallback", () => {
+    for (const [text, expected] of [
+      ["do you have installments?", ["SAY FINANCING INFO", "SAY ASK NAME"]],
+      ["can i book a test drive", ["SAY TEST DRIVE ASK NAME"]],
+      ["any discount?", ["SAY DISCOUNT HANDOFF", "ALERT SALES — DISCOUNT"]],
+      ["do you accept trade in", ["SAY TRADE IN INFO"]],
+      ["i need a service appointment", ["SAY SERVICE CONTACT"]],
+      ["spare parts?", ["SAY SERVICE CONTACT"]],
+      ["range rover", ["SAY OTHER BRAND"]],
     ] as const) {
       const d = last([text]);
-      assert.deepEqual(facing(d).length, 1, text);
-      const f = d.actions[0];
-      assert.equal(f.type, "SEND_CONTACT_FALLBACK", text);
-      if (f.type === "SEND_CONTACT_FALLBACK") {
-        assert.deepEqual(f.reasons, [{ kind: "CONTACT_INTENT", intent, model: null }], text);
-      }
+      assert.deepEqual(labels(d), [...expected], text);
+      assert.ok(!d.actions.some((a) => a.type === "SEND_CONTACT_FALLBACK"), text);
     }
   });
 
-  test("a complaint also flags staff", () => {
+  test("a complaint alone gets the complaint contact and flags staff", () => {
     const d = last(["I have a problem with my car"]);
+    assert.deepEqual(textKeys(d), ["COMPLAINT_CONTACT"]);
     assert.ok(d.actions.some((a) => a.type === "FLAG_FOR_STAFF"));
+    assert.deepEqual(textKeys(last(["problem with my car, need service"])), ["SERVICE_CONTACT"]);
   });
 
-  test("location is sent when approved; the number when asked for it", () => {
-    assert.deepEqual(labels(last(["where are you located?"])), ["SEND LOCATION"]);
-    assert.deepEqual(fallbackKinds(last(["what's your number?"])), ["CONTACT_NUMBER"]);
+  test("the department menu's buttons", () => {
+    assert.deepEqual(labels(last([{ payload: "DEPT:SALES" }])), [VOYAH_MODELS]);
+    assert.deepEqual(labels(last([{ payload: "DEPT:SERVICE" }])), ["SAY SERVICE CONTACT"]);
+    assert.deepEqual(labels(last([{ payload: "DEPT:ADMIN" }])), ["SAY ADMIN CONTACT"]);
   });
 
-  test("opening hours are not approved: a gap and the number", () => {
-    const d = last(["what time do you open?"]);
+  test("the department menu answered with its number", () => {
+    // A typed number answers the department menu, exactly like tapping it.
+    const [menu, two] = talk(["hi", "2"]);
+    assert.deepEqual(labels(menu), ["SHOW DEPARTMENTS"]);
+    assert.deepEqual(labels(two), ["SAY SERVICE CONTACT"]);
+  });
+
+  test("location, opening hours and the sales number are the workbook's sentences", () => {
+    const location = last(["where are you located?"]);
+    assert.deepEqual(labels(location), ["SEND LOCATION"]);
+    const hours = last(["what time do you open?"]);
+    assert.deepEqual(labels(hours), ["SEND OPENING HOURS"]);
+    const sent = hours.actions[0];
+    assert.equal(sent.type === "SEND_GLOBAL_INFO" && sent.value, MONZA_KNOWLEDGE.global.OPENING_HOURS?.value);
+    assert.deepEqual(labels(last(["what's your number?"])), ["SEND CONTACT NUMBER"]);
+    assert.deepEqual(fallbackKinds(last(["what's your number?"])), []);
+  });
+
+  test("a global with no approved value: a gap and the number", () => {
+    const noHours: SalesKnowledge = { ...K, global: { ...K.global, OPENING_HOURS: undefined } };
+    const d = last(["what time do you open?"], { knowledge: noHours });
     assert.deepEqual(fallbackKinds(d), ["MISSING_GLOBAL"]);
-    assert.deepEqual(d.gaps.map((g) => g.detail), ["MISSING APPROVED FACT: OPENING_HOURS"]);
+    assert.deepEqual(d.gaps.map((g) => g.detail), ["MISSING: OPENING_HOURS"]);
   });
 
   test("however many reasons, ONE contact message", () => {
-    const d = last(["courage price, installments, warranty and test drive?"]);
+    const lookup = media({ "voyah-taishan": { ...MEDIA["voyah-taishan"], brochure: null } });
+    const d = last(["taishan, and mhero 1?"], { lookup });
     assert.equal(d.actions.filter((a) => a.type === "SEND_CONTACT_FALLBACK").length, 1);
-    assert.ok(fallbackKinds(d).length >= 4);
+    assert.deepEqual(fallbackKinds(d).sort(), ["CROSS_BRAND", "MISSING_BROCHURE"]);
+  });
+
+  test("price, installments, warranty and test drive at once: every answer, the number once", () => {
+    const d = last(["courage price, installments, warranty and test drive?"]);
+    assert.equal(facing(d)[0], "SEND COURAGE BROCHURE");
+    assert.ok(labels(d).includes("SEND COURAGE WARRANTY"));
+    assert.ok(labels(d).includes("SAY PRICE HANDOFF (COURAGE)"));
+    assert.ok(labels(d).includes("SAY FINANCING INFO (COURAGE)"));
+    assert.ok(labels(d).includes("ALERT SALES — PRICE (COURAGE)"));
+    assert.ok(!d.actions.some((a) => a.type === "SEND_CONTACT_FALLBACK"), "the hand-offs already give the number");
+    // One name question, and the lead still carries the installments request.
+    const nameQuestions = textKeys(d).filter((k) => k === "ASK_NAME" || k === "ASK_NAME_AND_PHONE" || k === "TEST_DRIVE_ASK_NAME");
+    assert.equal(nameQuestions.length, 1, labels(d).join(" | "));
+  });
+});
+
+/* ── The workbook's sales flows ──────────────────────────────────────────── */
+
+describe("leads, test drives, stock and trade-ins", () => {
+  test("installments: the information, the name, then an alert with it and a thank-you", () => {
+    const [ask, name] = talk(["do you have installments?", "Rabih Yazbek"]);
+    assert.equal(ask.nextState.awaiting, "LEAD_NAME");
+    assert.deepEqual(ask.nextState.lead, { kind: "FINANCING", models: [], captured: false });
+    assert.deepEqual(labels(name), ["SAY LEAD THANKS", "ALERT SALES — FINANCING WITH NAME"]);
+    const alert = name.actions.find((a) => a.type === "ALERT_SALES");
+    assert.equal(alert?.type === "ALERT_SALES" && alert.name, "Rabih Yazbek");
+    const thanks = name.actions[0];
+    assert.deepEqual(thanks.type === "SEND_TEXT" && thanks.vars, { name: "Rabih Yazbek" });
+    assert.equal(name.nextState.awaiting, "NONE");
+    assert.equal(name.nextState.lead?.captured, true);
+  });
+
+  test("off WhatsApp the number is asked for too, and read back", () => {
+    const [ask, name] = talk([
+      { text: "do you have installments?", channel: "instagram" },
+      { text: "my name is Mary 70123456", channel: "instagram" },
+    ]);
+    assert.deepEqual(textKeys(ask), ["FINANCING_INFO", "ASK_NAME_AND_PHONE"]);
+    const alert = name.actions.find((a) => a.type === "ALERT_SALES");
+    assert.ok(alert?.type === "ALERT_SALES");
+    if (alert?.type === "ALERT_SALES") {
+      assert.equal(alert.name, "Mary");
+      assert.equal(alert.phone, "70123456");
+    }
+  });
+
+  test("a test drive: the name, the free slots, then the booking", () => {
+    const [, ask, name, slot] = talk(["courage", "can i book a test drive", "Rabih", "1"]);
+    assert.deepEqual(labels(ask), ["SAY TEST DRIVE ASK NAME (COURAGE)"]);
+    assert.deepEqual(labels(name), ["SHOW 10 TEST-DRIVE SLOTS", "ALERT SALES — TEST DRIVE (COURAGE) WITH NAME"]);
+    assert.equal(name.nextState.awaiting, "TEST_DRIVE_SLOT");
+    const first = name.nextState.offeredSlots[0];
+    assert.deepEqual(labels(slot), [
+      "SAY TEST DRIVE BOOKED (COURAGE)",
+      "ALERT SALES — TEST DRIVE (COURAGE)",
+      `BOOK TEST DRIVE ${first}`,
+    ]);
+    assert.equal(slot.nextState.lead, null);
+  });
+
+  test("availability: brochure, stock hand-off and alert, then colours", () => {
+    assert.deepEqual(labels(last(["is the courage available?"])), [
+      "SEND COURAGE BROCHURE",
+      "SAY STOCK CONFIRM (COURAGE)",
+      "SHOW COURAGE COLOURS",
+      "ALERT SALES — STOCK (COURAGE)",
+    ]);
+  });
+
+  test("a trade-in with its details: thanks and an alert", () => {
+    const d = last(["do you accept trade in", "trade in my bmw x5 2019 120000 km"]);
+    assert.ok(labels(d).includes("SAY TRADE IN THANKS"));
+    assert.ok(labels(d).includes("ALERT SALES — TRADE IN"));
+    // The customer's own car details are the trade-in: only the thanks and the alert.
+    assert.deepEqual(facing(d), ["SAY TRADE IN THANKS"], labels(d).join(" | "));
+  });
+
+  test("a trade-in's details sent on their own, right after the trade-in answer", () => {
+    const d = last(["do you accept trade in", "bmw x5 2019 120000 km"]);
+    // Workbook C: the thanks and an alert when the details follow, even without "trade in".
+    assert.deepEqual(labels(d), ["SAY TRADE IN THANKS", "ALERT SALES — TRADE IN"]);
+  });
+
+  test("'ok' and 'thanks' never reopen a menu", () => {
+    for (const msgs of [["thanks"], ["ok"], ["courage", "thanks"], ["courage", "okay"]]) {
+      const d = last(msgs);
+      assert.deepEqual(d.understanding.intents, ["ACKNOWLEDGEMENT"], msgs.join(" / "));
+      assert.equal(d.outcome, "NO_AUTOMATIC_ACTION", msgs.join(" / "));
+      assert.deepEqual(d.actions, []);
+    }
   });
 });
 
@@ -415,12 +567,16 @@ describe("colours", () => {
     ]);
   });
 
-  test("a model with no colour video at all: a gap and the number", () => {
+  test("a model with no colour video at all: only a gap, no contact fallback", () => {
     const d = last(["the passion"]);
-    assert.deepEqual(labels(d), [
-      "SEND PASSION BROCHURE",
-      "SEND CONTACT FALLBACK — NO COLOUR VIDEOS PASSION",
-      "NO COLOUR VIDEOS: PASSION",
+    assert.deepEqual(labels(d), ["SEND PASSION BROCHURE", "NO COLOUR VIDEOS: PASSION"]);
+  });
+
+  test("a colour we don't have on a one-colour model: said, then its only video", () => {
+    assert.deepEqual(labels(last(["dream in red"])), [
+      "SEND DREAM BROCHURE",
+      "DREAM RED NOT AVAILABLE",
+      "SEND DREAM STANDARD VIDEO",
     ]);
   });
 
@@ -475,11 +631,29 @@ describe("colours", () => {
 /* ── Which model ─────────────────────────────────────────────────────────── */
 
 describe("which model", () => {
-  test("two cars at once asks which, of just those — and 'the first one' answers", () => {
-    const [both, pick] = talk(["which is better the dream or the passion?", "the first one"]);
-    assert.deepEqual(labels(both), ["SHOW MODEL CHOICES (DREAM, PASSION)"]);
+  test("two cars at once are kept: both brochures, key facts, then which first — and 'the first one' answers", () => {
+    const [both, pick] = talk(["the dream or the passion", "the first one"]);
+    assert.deepEqual(both.understanding.models, ["DREAM", "PASSION"]);
+    assert.deepEqual(facing(both), [
+      "SEND DREAM BROCHURE",
+      "SEND PASSION BROCHURE",
+      "SEND DREAM + PASSION HORSEPOWER + RANGE + POWERTRAIN",
+      "SHOW MODEL CHOICES (DREAM, PASSION)",
+    ]);
+    const facts = both.actions.find((a) => a.type === "SEND_FACTS");
+    assert.equal(facts?.type === "SEND_FACTS" && facts.scope, "several");
+    assert.deepEqual(both.nextState.selectedModels, ["DREAM", "PASSION"]);
     assert.equal(pick.understanding.model, "DREAM");
     assert.equal(pick.understanding.modelSource, "choice");
+  });
+
+  test("'which is better, X or Y' compares them side by side", () => {
+    const d = last(["which is better the dream or the passion?"]);
+    assert.deepEqual(d.understanding.intents, ["COMPARE"]);
+    assert.deepEqual(facing(d), ["COMPARE DREAM, PASSION"]);
+    const c = d.actions[0];
+    assert.ok(c.type === "SEND_COMPARISON" && c.rows.every((r) => r.model === "DREAM" || r.model === "PASSION"));
+    assert.deepEqual(d.nextState.selectedModels, ["DREAM", "PASSION"]);
   });
 
   test("a brand with no model asks which one", () => {
@@ -532,9 +706,15 @@ describe("the brand is the account's, never the text's", () => {
 /* ── The conversation over time ──────────────────────────────────────────── */
 
 describe("new, returning and expired conversations", () => {
-  test("a new conversation's hello is welcomed with the models", () => {
-    const a = last(["hi"])?.actions[0];
-    assert.equal(a?.type === "SHOW_MODEL_CHOICES" && a.greet, true);
+  test("a new conversation's hello is welcomed with the departments", () => {
+    assert.deepEqual(labels(last(["hi"])), ["SHOW DEPARTMENTS"]);
+  });
+
+  test("a hello with a question gets the welcome on the model choices", () => {
+    const d = last(["hello price plz"]);
+    assert.deepEqual(labels(d), [VOYAH_MODELS]);
+    const a = d.actions[0];
+    assert.equal(a.type === "SHOW_MODEL_CHOICES" && a.greet, true);
   });
 
   test("a bare hello in an old conversation with no context is left to a person", () => {
@@ -553,8 +733,8 @@ describe("new, returning and expired conversations", () => {
     assert.deepEqual(labels(within), ["SEND COURAGE RANGE"]);
     const expired = talk(["courage", "range?"], { gapMs: 73 * 3_600_000 })[1];
     assert.equal(expired.expired, true);
-    assert.deepEqual(labels(expired), [VOYAH_MODELS]);
-    assert.deepEqual(expired.nextState.pendingIntents, ["RANGE"]);
+    assert.deepEqual(facing(expired), [`SEND ${VOYAH_CARS} RANGE (ALL MODELS)`, VOYAH_MODELS]);
+    assert.equal(expired.nextState.activeModel, null);
   });
 
   test("an ad names a model only on an exact, configured match", () => {
@@ -571,6 +751,11 @@ describe("new, returning and expired conversations", () => {
     const d = last([{ text: "", hasMedia: true }]);
     assert.equal(d.outcome, "NO_AUTOMATIC_ACTION");
     assert.match(d.reasons[0], /never guessed from media/);
+    for (const text of ["", ".", "👍"]) {
+      const e = last([text]);
+      assert.equal(e.outcome, "NO_AUTOMATIC_ACTION", JSON.stringify(text));
+      assert.deepEqual(e.reasons, ["An empty message — nothing to answer."], JSON.stringify(text));
+    }
   });
 });
 
@@ -609,15 +794,16 @@ describe("hard exclusions", () => {
 describe("the openers the study found, as the engine answers them", () => {
   const PATTERNS: [string, string][] = [
     ["Can I know more info?", VOYAH_MODELS],
-    ["hi", VOYAH_MODELS],
+    ["hi", "SHOW DEPARTMENTS"],
     ["price?", VOYAH_MODELS],
     ["how much is the courage", "SEND COURAGE BROCHURE"],
+    ["hp?", `SEND ${VOYAH_CARS} HORSEPOWER (ALL MODELS)`],
     ["is the free available?", "SEND FREE 318 BROCHURE"],
     ["hi can i get more informations about the pasion l", "SEND PASSION L BROCHURE"],
-    ["do you have installments?", "SEND CONTACT FALLBACK — FINANCING"],
+    ["do you have installments?", "SAY FINANCING INFO"],
     ["where is your showroom?", "SEND LOCATION"],
     ["kifak, ade se3er el taishan?", "SEND TAISHAN BROCHURE"],
-    ["feel free to call me back", "SEND CONTACT FALLBACK — ASKED FOR THE NUMBER"],
+    ["feel free to call me back", "SEND CONTACT NUMBER"],
   ];
   for (const [text, first] of PATTERNS) {
     test(text, () => assert.equal(facing(last([text]))[0], first));
@@ -629,14 +815,28 @@ describe("the openers the study found, as the engine answers them", () => {
 /** §59: the fixed order, as this test states it independently of actions.ts. */
 const ORDER = [
   "SEND_BROCHURE",
-  "SEND_FACT",
+  "SEND_FACTS",
+  "SEND_COMPARISON",
+  "SEND_COLOUR_LIST",
   "SEND_GLOBAL_INFO",
-  "SEND_COLOUR_VIDEO",
   "COLOUR_NOT_AVAILABLE",
+  "SEND_COLOUR_VIDEO",
+  "SEND_TEXT",
   "SEND_CONTACT_FALLBACK",
+  "QUESTION_TEXT",
+  "SHOW_CATEGORY",
+  "SHOW_TEST_DRIVE_SLOTS",
   "SHOW_COLOUR_CHOICES",
   "SHOW_MODEL_CHOICES",
+  "SHOW_DEPARTMENTS",
 ];
+
+/** Sentences that ask the customer something: a question, so after every answer. */
+const QUESTION_KEYS = ["ASK_NAME", "ASK_NAME_AND_PHONE", "TEST_DRIVE_ASK_NAME"];
+
+function rank(a: EngineAction): number {
+  return ORDER.indexOf(a.type === "SEND_TEXT" && QUESTION_KEYS.includes(a.key) ? "QUESTION_TEXT" : a.type);
+}
 
 const SEQUENCES: Msg[][] = [
   ...SAMPLE_MESSAGES.map((s) => [s.text]),
@@ -645,6 +845,10 @@ const SEQUENCES: Msg[][] = [
   ["price?", "mhero", "2", "white", "hp", "courage"],
   ["dream or passion?", "the second one", "red", "black", "passion l"],
   ["info", "taishan", "blue", "location?", "installments", "test drive"],
+  ["hi", { payload: "DEPT:SALES" }, "3", "can i book a test drive", "Rabih", "2", "thanks"],
+  ["the dream or the passion", "hp?", "compare them", "the second one", "price?"],
+  ["do you have installments?", "Mary", "what EVs do you have?", "7 seater?", "hours?"],
+  ["range rover", "service please", "trade in my old car 90000 km", "any discount on the courage?"],
   ["سعر الكوراج", "اسود", "كم كيلو"],
   ["courage", "passion", "passion l", "passion", "colours?", "1"],
   ["hi", "hi", "?", "", "mhero 1", "black", "grey"],
@@ -664,10 +868,18 @@ describe("the invariants (§60), over every pattern on every account", () => {
           assert.ok(d.actions.filter((a) => a.type === "SEND_CONTACT_FALLBACK").length <= 1, where);
 
           // The fixed order; a question is always the last thing said.
-          const ranks = customer.map((a) => ORDER.indexOf(a.type));
+          const ranks = customer.map(rank);
+          assert.ok(ranks.every((r) => r >= 0), where);
           assert.deepEqual(ranks, [...ranks].sort((x, y) => x - y), where);
           const choice = customer.findIndex((a) => a.type.startsWith("SHOW_"));
           if (choice >= 0) assert.equal(choice, customer.length - 1, where);
+          assert.ok(customer.filter((a) => a.type.startsWith("SHOW_")).length <= 1, where);
+
+          // Nothing internal is ever customer-facing.
+          for (const a of d.actions) {
+            const internal = ["CONTENT_GAP", "FLAG_FOR_STAFF", "ALERT_SALES", "BOOK_TEST_DRIVE"].includes(a.type);
+            assert.equal(isCustomerFacing(a), !internal, where);
+          }
 
           // An activation opens with its own brochure.
           if (d.activation) {
@@ -681,15 +893,27 @@ describe("the invariants (§60), over every pattern on every account", () => {
 
           for (const a of d.actions) {
             // Only the account's own brand, ever.
-            if ("model" in a && typeof a.model === "string") {
-              const model = modelByCode(K, a.model);
-              assert.ok(model && sold && brandSells(sold, model), where);
+            const codes: string[] = [
+              ...("model" in a && typeof a.model === "string" ? [a.model] : []),
+              ...("models" in a ? a.models : []),
+              ...("rows" in a ? a.rows.map((r) => r.model) : []),
+              ...(a.type === "SHOW_CATEGORY" ? a.groups.flatMap((g) => g.models) : []),
+            ];
+            // A CONTENT_GAP or a cross-brand hand-off may NAME another brand's car; nothing else may.
+            if (a.type !== "CONTENT_GAP") {
+              for (const code of codes) {
+                const model = modelByCode(K, code);
+                assert.ok(model && sold && brandSells(sold, model), `${code} — ${where}`);
+              }
             }
-            // Only approved facts, exactly as approved.
-            if (a.type === "SEND_FACT") {
-              const model = modelByCode(K, a.model);
-              const fact = model ? lookupFact(model, a.fact) : null;
-              assert.ok(fact?.status === "OK" && fact.fact?.value === a.value, where);
+            // Only approved facts, exactly as approved; anything else is "not confirmed yet", with no value.
+            if (a.type === "SEND_FACTS" || a.type === "SEND_COMPARISON") {
+              for (const row of a.rows) {
+                const model = modelByCode(K, row.model);
+                const fact = model ? lookupFact(model, row.fact) : null;
+                if (row.confirmed) assert.ok(fact?.status === "OK" && fact.fact?.value === row.value, where);
+                else assert.ok(row.value === "" && fact?.status !== "OK", where);
+              }
             }
             // Only the model's OWN files — the Passion's never go to the Passion L.
             const id = "model" in a && typeof a.model === "string" ? modelByCode(K, a.model)?.catalogueId : undefined;
@@ -698,7 +922,9 @@ describe("the invariants (§60), over every pattern on every account", () => {
           }
 
           // Structure, never prose: the wording belongs to templates.ts.
-          assert.doesNotMatch(JSON.stringify(d.actions), /Here is|please call|Which colour|welcome/, where);
+          // (A showroom answer carries the workbook's own approved sentence as its value.)
+          const structural = d.actions.filter((a) => a.type !== "SEND_GLOBAL_INFO");
+          assert.doesNotMatch(JSON.stringify(structural), /Here is|please call|please contact|Which colour|welcome|not confirmed/, where);
 
           // Excluded events leave the conversation where it was.
           if (d.outcome === "EXCLUDED") {
@@ -735,8 +961,8 @@ describe("the invariants (§60), over every pattern on every account", () => {
     assert.ok(Object.isFrozen(MONZA_KNOWLEDGE));
     assert.ok(Object.isFrozen(MONZA_KNOWLEDGE.models[1].facts));
     for (const d of ds) {
-      for (const a of d.actions) {
-        if (a.type === "SEND_FACT") assert.equal(a.value, "TEST-HP-COURAGE");
+      for (const row of factRows(d)) {
+        if (row.confirmed) assert.equal(row.value, "TEST-HP-COURAGE");
       }
     }
     assert.equal(ds[3].understanding.model, null, "a typed MHERO payload on VOYAH is still another brand");

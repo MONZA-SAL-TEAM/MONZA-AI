@@ -848,13 +848,31 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   accounts sell both marques.
 - **Brochure first on every model activation**; never re-sent within one
   activation unless the customer asks for the brochure.
-- **A fact is sent only when approved.** Missing, unapproved, empty or zero →
-  "For more information, please call 70 70 85 85." plus a CONTENT_GAP. The
-  shipped knowledge approves NO fact; the values present are Monza's own video
-  captions, recorded unapproved. **Never fill a fact from memory or the
-  internet** — a person approves each one.
-- Price, installments, test drives, discounts, trade-ins, service, parts and
-  complaints get the contact number.
+- **Samer's workbook is the brain (2026-09-17)**: `Monza-Bot-Reply-Worksheet-Master-Logic-Expanded.xlsx`.
+  `python scripts/sales-import-workbook.py <xlsx>` regenerates `lib/wasales/knowledge-data.ts`
+  from A Car Facts (facts, powertrain bucket, aliases) and B Showroom (address, hours,
+  numbers, welcome, hand-off); it rewrites internal wording ("not confirmed in this
+  worksheet") and prints every change. A value the workbook says is not stated is
+  kept EMPTY and the bot says "not confirmed yet". **Never fill a fact from memory or
+  the internet** — edit the workbook and re-run the script.
+- **An intent is global** (workbook E): one car selected → its value; several kept
+  together → a labelled line each; no car → the value for every car the account
+  sells. Type questions ("what EVs", "7 seater") filter by bucket or seat count.
+  "Compare" gives a side-by-side. "ok" / "thanks" never reopen a menu.
+- **Never a price, an offer, stock or payment terms.** Price / offers / stock →
+  the sales number and a `sales_alerts` row (013); installments and test drives
+  take the customer's name first (`readName`); a test drive is booked into a
+  30-minute slot (Mon–Fri 10–17, Sat 10–14, Beirut) in `test_drive_bookings`
+  (014), whose partial unique index refuses a second booking of a slot. The
+  booking is held BEFORE the confirmation is sent; alerts are recorded only after
+  the reply went. Inbox shows open alerts ("clients to call"); `/test-drives`
+  lists and cancels bookings. A WhatsApp message to the salesperson needs
+  `SALES_ALERT_WHATSAPP_TO` + an approved template `SALES_ALERT_TEMPLATE` (one body
+  variable); unset, only the inbox alert. Alerts and bookings follow the 12-month
+  clean-up.
+- Service, parts and complaints get the service number (76 877 278); a greeting
+  alone gets the welcome and the departments (Sales · Service & After-Sales ·
+  Administration). Photos and story replies stay with a person (rules only, no AI).
 - The knowledge is deep-frozen: customer text cannot change it (rule 26).
 - Excluded outright: echoes, receipts, reactions, system events, fake
   Meta-support scams, vendor pitches, internal tests — each on two independent

@@ -64,8 +64,10 @@ describe("longest phrase wins", () => {
   });
 
   test("phrases that mean nothing make their words mean nothing", () => {
-    assert.deepEqual(intents("is it like a range rover"), []);
-    assert.deepEqual(intents("no problem, thanks"), ["GREETING"]);
+    // "range rover" is another brand's car, never a range question.
+    assert.deepEqual(intents("is it like a range rover"), ["OTHER_BRAND"]);
+    assert.deepEqual(intents("no problem"), []);
+    assert.deepEqual(intents("no problem, thanks"), ["ACKNOWLEDGEMENT"]);
     assert.deepEqual(intents("is delivery free of charge"), ["AVAILABILITY"]);
   });
 });

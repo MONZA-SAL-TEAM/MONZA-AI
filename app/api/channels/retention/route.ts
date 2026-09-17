@@ -19,6 +19,7 @@ import { cronSecret } from "@/lib/env";
 import { isCronAuthorized, retentionCutoff } from "@/lib/channels/retention";
 import { purgeWhatsApp } from "@/lib/channels/store";
 import { purgeSentFiles, purgeWhatsAppMedia, sweepPendingMedia } from "@/lib/channels/wa-media-store";
+import { purgeSalesAlerts } from "@/lib/wasales/sales-ops";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -53,6 +54,10 @@ export async function GET(request: Request): Promise<NextResponse> {
   // Files staff sent on Instagram and Facebook (migration 011), same 12 months.
   const sent = await purgeSentFiles(before);
   if (!sent.ok) console.error(`[channels/retention] old Instagram/Facebook files could not be deleted: ${sent.error}`);
+
+  // Sales alerts and test-drive bookings (migrations 013, 014): customer names and numbers, same 12 months.
+  const alerts = await purgeSalesAlerts(before);
+  if (!alerts.ok) console.error("[channels/retention] old sales alerts could not be deleted");
 
   // Counts only — never what was deleted.
   console.info(

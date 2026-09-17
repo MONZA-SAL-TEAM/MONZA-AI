@@ -158,6 +158,7 @@ export function suggestForThread(
       text: answered.map(customerWords).filter((t) => t !== "").join("\n"),
       hasMedia: answered.some(carriesMedia),
       brand: facts.brand,
+      channel: facts.channel,
       conversationIsNew: outs.length === 0,
       now: latest.at,
     },

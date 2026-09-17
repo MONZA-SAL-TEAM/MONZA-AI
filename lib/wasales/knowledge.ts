@@ -32,6 +32,7 @@
  */
 
 import { matchModel, type WaCar } from "@/lib/wasales/matcher";
+import { WORKBOOK } from "@/lib/wasales/knowledge-data";
 import type { FactIntent, GlobalIntent } from "@/lib/wasales/intent";
 
 /* ── Brands and models ───────────────────────────────────────────────────── */
@@ -70,7 +71,25 @@ export interface ModelKnowledge {
   readonly displayName: string;
   /** The catalogue car (lib/wasales/catalog.ts) holding its brochure, colours and videos. */
   readonly catalogueId: string;
+  /** EV, EREV or PHEV: what "which EVs / hybrids do you have?" filters on. */
+  readonly bucket: PowertrainBucket;
+  /** Seats as a number, for "7 seater?"; null when the workbook does not state it. */
+  readonly seatCount: number | null;
   readonly facts: Readonly<Partial<Record<FactKey, ApprovedFact>>>;
+}
+
+export type PowertrainBucket = "EV" | "EREV" | "PHEV";
+
+/** The fixed sentences of the showroom (workbook, B Showroom). */
+export interface ShowroomText {
+  readonly welcome: string;
+  /** "For further assistance, please contact us on 70 70 85 85." */
+  readonly handoff: string;
+  /** Service, maintenance, spare parts and vehicle problems. */
+  readonly serviceContact: string;
+  readonly serviceNumber: string;
+  /** Administration numbers, for the department menu. */
+  readonly administration: string;
 }
 
 export interface ContactNumber {
@@ -84,6 +103,7 @@ export interface SalesKnowledge {
   readonly models: readonly ModelKnowledge[];
   readonly global: Readonly<Partial<Record<GlobalKey, ApprovedFact>>>;
   readonly contact: ContactNumber;
+  readonly showroom: ShowroomText;
   /**
    * Ad or referral `ref` → model, ONLY where the mapping is known to be
    * right. Empty: no ad has been set up to carry a model yet, and a model is
@@ -103,101 +123,75 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-/** A value seen in one of Monza's own video captions, awaiting approval. */
-function fromCaption(value: string, caption: string, where: string): ApprovedFact {
+const WORKBOOK_SOURCE =
+  "Samer's workbook Monza-Bot-Reply-Worksheet-Master-Logic-Expanded.xlsx, A Car Facts (2026-09-17)";
+
+/** One model's facts, as the workbook approved them (knowledge-data.ts). */
+function workbookFacts(code: ModelCode): Partial<Record<FactKey, ApprovedFact>> {
+  const out: Partial<Record<FactKey, ApprovedFact>> = {};
+  for (const [key, fact] of Object.entries(WORKBOOK.models[code].facts)) {
+    // A value the workbook says is not stated is kept EMPTY: the bot says so, never guesses.
+    out[key as FactKey] = { value: fact.confirmed ? fact.value : "", approved: true, source: WORKBOOK_SOURCE };
+  }
+  return out;
+}
+
+function workbookModel(code: ModelCode, brand: "voyah" | "mhero"): ModelKnowledge {
+  const m = WORKBOOK.models[code];
   return {
-    value,
-    approved: false,
-    source:
-      `Unapproved — Monza's own video caption "${caption}" (${where}). ` +
-      `Confirm against the brochure before approving.`,
+    code,
+    brand,
+    displayName: m.officialName,
+    catalogueId: m.catalogueId,
+    bucket: m.bucket,
+    seatCount: m.seatCount,
+    facts: workbookFacts(code),
   };
 }
 
+const SHOWROOM_SOURCE = "Samer's workbook, B Showroom (2026-09-17)";
+
 /**
- * The knowledge the product runs on.
- *
- * FREE 318 ↔ catalogue "voyah-free-comp": the folder is "Voyah Free Comp", its
- * brochure is "Voyah free Competition 2026 catalogue.pdf" and its black video
- * says "The new Voyah Free 318 Competition". Samer to confirm the name.
+ * The knowledge the product runs on. Every fact and fixed sentence comes from
+ * Samer's workbook: scripts/sales-import-workbook.py regenerates
+ * knowledge-data.ts from it (Samer, 2026-09-17: "this is the brain of the chat bot").
  */
 export const MONZA_KNOWLEDGE: SalesKnowledge = deepFreeze({
   models: [
-    { code: "FREE_318", brand: "voyah", displayName: "Voyah Free 318", catalogueId: "voyah-free-comp", facts: {} },
-    {
-      code: "COURAGE",
-      brand: "voyah",
-      displayName: "Voyah Courage",
-      catalogueId: "voyah-courage",
-      facts: {
-        RANGE: fromCaption(
-          "470 km",
-          "All Black Voyah Courage Innovative design and technology.AWD Full-Electric with 470KM of range",
-          "Voyah Courage / Black — test cycle not stated"
-        ),
-        POWERTRAIN: fromCaption(
-          "AWD, full electric",
-          "All Black Voyah Courage Innovative design and technology.AWD Full-Electric with 470KM of range",
-          "Voyah Courage / Black"
-        ),
-      },
-    },
-    { code: "DREAM", brand: "voyah", displayName: "Voyah Dream", catalogueId: "voyah-dream", facts: {} },
-    { code: "PASSION", brand: "voyah", displayName: "Voyah Passion", catalogueId: "voyah-passion", facts: {} },
-    {
-      code: "PASSION_L",
-      brand: "voyah",
-      displayName: "Voyah Passion L",
-      catalogueId: "voyah-passion-l",
-      facts: {
-        POWERTRAIN: fromCaption(
-          "PHEV",
-          "The All-New Voyah Passion L PHEV has arrived.Finished in an elegant Titanium Grey with a bold Re",
-          "Voyah Passion L / Grey"
-        ),
-      },
-    },
-    {
-      code: "TAISHAN",
-      brand: "voyah",
-      displayName: "Voyah Taishan",
-      catalogueId: "voyah-taishan",
-      facts: {
-        HORSEPOWER: fromCaption(
-          "670 hp combined",
-          "The VOYAH Taishan - where flagship luxury meets intelligent performance.670 combined HP - Dual-M",
-          "Voyah Taishan / Grey"
-        ),
-      },
-    },
-    { code: "MHERO_1", brand: "mhero", displayName: "MHERO 1", catalogueId: "mhero-1", facts: {} },
-    {
-      code: "MHERO_2",
-      brand: "mhero",
-      displayName: "MHERO 2",
-      catalogueId: "mhero-2",
-      facts: {
-        HORSEPOWER: fromCaption(
-          "700 HP",
-          "Not for everyone.And that's the point.700HP.1,300KM combined range.Pearl White elegance.Bordeaux",
-          "MHERO 2 / White"
-        ),
-        RANGE: fromCaption(
-          "1,300 km combined (CLTC)",
-          "Welcoming a new model into our family. The All-New M-Hero II with 1,300KM (CLTC) of range!",
-          "MHERO 2 / Green, and \"1,300KM combined range\" on MHERO 2 / White"
-        ),
-      },
-    },
+    workbookModel("FREE_318", "voyah"),
+    workbookModel("COURAGE", "voyah"),
+    workbookModel("DREAM", "voyah"),
+    workbookModel("PASSION", "voyah"),
+    workbookModel("PASSION_L", "voyah"),
+    workbookModel("TAISHAN", "voyah"),
+    workbookModel("MHERO_1", "mhero"),
+    workbookModel("MHERO_2", "mhero"),
   ],
   global: {
-    CONTACT_NUMBER: {
-      value: "70 70 85 85",
+    LOCATION: {
+      value: [WORKBOOK.showroom.location, WORKBOOK.showroom.mapsLink].filter(Boolean).join("\n"),
       approved: true,
-      source: "Samer, engine specification 2026-09-14: 70708585, written 70 70 85 85.",
+      source: SHOWROOM_SOURCE,
+    },
+    OPENING_HOURS: {
+      value: [WORKBOOK.showroom.hoursWeek, WORKBOOK.showroom.hoursSaturday, WORKBOOK.showroom.hoursSunday].join("\n"),
+      approved: true,
+      source: SHOWROOM_SOURCE,
+    },
+    CONTACT_NUMBER: {
+      value: WORKBOOK.showroom.salesContact,
+      approved: true,
+      source: SHOWROOM_SOURCE,
     },
   },
   contact: { digits: "70708585", display: "70 70 85 85" },
+  showroom: {
+    welcome: WORKBOOK.showroom.welcome,
+    handoff: WORKBOOK.showroom.handoff,
+    serviceContact: WORKBOOK.showroom.serviceContact,
+    serviceNumber: "76 877 278",
+    administration: WORKBOOK.showroom.administration,
+  },
   referrals: {},
 });
 

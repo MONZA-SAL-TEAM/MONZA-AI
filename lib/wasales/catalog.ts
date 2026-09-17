@@ -21,6 +21,7 @@
  * offered is always traceable to a specific commit.
  */
 
+import { WORKBOOK } from "@/lib/wasales/knowledge-data";
 import { matchTokens, type WaAsset, type WaCar } from "@/lib/wasales/matcher";
 import type { WaColour } from "@/lib/wasales/colours";
 import type { MediaRef, ModelMedia, ModelMediaLookup } from "@/lib/wasales/knowledge";
@@ -100,6 +101,11 @@ function toColour(c: ManifestColour): WaColour {
   return { id: c.id, name: c.name, aliases: [...aliases] };
 }
 
+/** The aliases Samer's workbook lists for this car (A Car Facts, Keywords / aliases). */
+function workbookAliases(catalogueId: string): readonly string[] {
+  return Object.values(WORKBOOK.models).find((m) => m.catalogueId === catalogueId)?.aliases ?? [];
+}
+
 /**
  * The import's aliases plus CUSTOMER_WORDS, de-duplicated by how the matcher
  * reads them.
@@ -112,7 +118,7 @@ function toColour(c: ManifestColour): WaColour {
 function aliasesFor(m: ManifestCar): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
-  for (const alias of [...m.aliases, ...(CUSTOMER_WORDS[m.id] ?? [])]) {
+  for (const alias of [...m.aliases, ...(CUSTOMER_WORDS[m.id] ?? []), ...workbookAliases(m.id)]) {
     const tokens = matchTokens(alias);
     if (tokens.length === 0 || tokens.includes("i")) continue;
     const key = tokens.join(" ");

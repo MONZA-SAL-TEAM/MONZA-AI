@@ -111,14 +111,14 @@ describe("where a chat begins for the pilot", () => {
     assert.equal(suggestForThread({ brand: "monza", channel: "whatsapp", messages: [...history, m("c1", "in", "hi", 0)], windowOpen: true }, freshSaved(), deps, { liveSending: true }).kind, "handed_over");
   });
 
-  test("with a start just before the new message, it is a new conversation: welcome and the models", () => {
+  test("with a start just before the new message, it is a new conversation: welcome and the departments", () => {
     const saved = { ...freshSaved(), startedAt: new Date(T0 - 1).toISOString(), rev: 1 };
     const s = suggestForThread({ brand: "monza", channel: "whatsapp", messages: [...history, m("c1", "in", "hi", 0)], windowOpen: true }, saved, deps, { liveSending: true });
     assert.equal(s.kind, "suggestion");
     if (s.kind === "suggestion") {
-      assert.deepEqual(s.turn.decision.actions.map(actionLabel), ["SHOW MODEL CHOICES (COURAGE, MHERO 2)"]);
+      assert.deepEqual(s.turn.decision.actions.map(actionLabel), ["SHOW DEPARTMENTS"]);
       const first = s.turn.plan[0];
-      assert.ok(first.kind === "text" && first.text.startsWith("Hello and welcome to Monza!"));
+      assert.ok(first.kind === "text" && first.text.startsWith("Hello and welcome to Monza S.A.L. How can we help you today?"));
     }
   });
 

@@ -76,6 +76,12 @@ export const NAV: NavGroup[] = [
           "Cars whose status means a customer should hear from you.",
       },
       {
+        href: "/test-drives",
+        label: "Test drives",
+        icon: "testdrives",
+        blurb: "Test drives the sales bot booked, 30 minutes each.",
+      },
+      {
         href: "/sales",
         label: "Sales",
         icon: "sales",

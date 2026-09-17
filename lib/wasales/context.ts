@@ -21,10 +21,26 @@
  * all and is enforced by the send policy (actions.ts), not here.
  */
 
-import { INTENTS, type Intent } from "@/lib/wasales/intent";
+import { INTENTS, type CategoryFilter, type Intent } from "@/lib/wasales/intent";
 import { isModelCode, type ModelCode } from "@/lib/wasales/knowledge";
 
-export type Awaiting = "NONE" | "MODEL" | "COLOUR";
+export type Awaiting = "NONE" | "MODEL" | "COLOUR" | "LEAD_NAME" | "TEST_DRIVE_SLOT";
+
+/**
+ * A sales request the team must follow up (workbook, C Decisions): what it is
+ * about and which cars. The customer's NAME is never kept here — it goes
+ * straight into the sales alert — so this memory still holds no customer words.
+ */
+export type LeadKind = "FINANCING" | "TEST_DRIVE";
+
+export interface LeadState {
+  kind: LeadKind;
+  models: ModelCode[];
+  /** The name arrived and the team was alerted. */
+  captured: boolean;
+  /** Installments asked together with a test drive: after the name, the slots too. */
+  andTestDrive?: boolean;
+}
 
 export interface SearchEngineState {
   version: 1;
@@ -46,6 +62,17 @@ export interface SearchEngineState {
   offeredModels: ModelCode[];
   /** The colour ids offered in the last colour question, in order. */
   offeredColours: string[];
+  /**
+   * Every car the customer has in play (workbook E: "keep several models").
+   * One car here is the same as activeModel; two or more are answered together.
+   */
+  selectedModels: ModelCode[];
+  /** "which EVs / hybrids?": the type the customer narrowed to. */
+  categoryFilter: CategoryFilter | null;
+  /** Installments or a test drive being taken down for the team. */
+  lead: LeadState | null;
+  /** Test-drive slots offered, as ISO times, so a numbered answer can pick one. */
+  offeredSlots: string[];
   /** ISO time of the last message the engine read, from the message itself. */
   updatedAt: string | null;
 }
@@ -64,6 +91,10 @@ export function freshState(): SearchEngineState {
     colourPromptSentForCurrentActivation: false,
     offeredModels: [],
     offeredColours: [],
+    selectedModels: [],
+    categoryFilter: null,
+    lead: null,
+    offeredSlots: [],
     updatedAt: null,
   };
 }
@@ -105,14 +136,29 @@ export function isExpired(state: SearchEngineState, nowIso: string, ttlHours: nu
 export function hasContext(state: SearchEngineState): boolean {
   return (
     state.activeModel !== null ||
+    state.selectedModels.length > 0 ||
     state.pendingIntents.length > 0 ||
+    state.lead !== null ||
     state.awaiting !== "NONE"
   );
 }
 
 /* ── Reading a stored state ──────────────────────────────────────────────── */
 
-const AWAITING: readonly Awaiting[] = ["NONE", "MODEL", "COLOUR"];
+const AWAITING: readonly Awaiting[] = ["NONE", "MODEL", "COLOUR", "LEAD_NAME", "TEST_DRIVE_SLOT"];
+const CATEGORIES: readonly CategoryFilter[] = ["EV", "EREV", "PHEV", "HYBRID"];
+
+function leadOrNull(value: unknown): LeadState | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  if (v.kind !== "FINANCING" && v.kind !== "TEST_DRIVE") return null;
+  return {
+    kind: v.kind,
+    models: Array.isArray(v.models) ? v.models.map(modelOrNull).filter((m): m is ModelCode => m !== null) : [],
+    captured: v.captured === true,
+    ...(v.andTestDrive === true ? { andTestDrive: true } : {}),
+  };
+}
 const COLOUR_ID = /^[a-z0-9-]{1,64}$/;
 
 function isIntent(value: unknown): value is Intent {
@@ -160,6 +206,17 @@ export function parseState(stored: unknown): SearchEngineState {
       : [],
     offeredColours: Array.isArray(s.offeredColours)
       ? s.offeredColours.filter((c): c is string => typeof c === "string" && COLOUR_ID.test(c))
+      : [],
+    // Written by a version before several cars could be kept: the active car is the selection.
+    selectedModels: Array.isArray(s.selectedModels)
+      ? [...new Set(s.selectedModels.map(modelOrNull).filter((m): m is ModelCode => m !== null))]
+      : modelOrNull(s.activeModel)
+        ? [modelOrNull(s.activeModel) as ModelCode]
+        : [],
+    categoryFilter: CATEGORIES.includes(s.categoryFilter as CategoryFilter) ? (s.categoryFilter as CategoryFilter) : null,
+    lead: leadOrNull(s.lead),
+    offeredSlots: Array.isArray(s.offeredSlots)
+      ? s.offeredSlots.filter((t): t is string => typeof t === "string" && Number.isFinite(Date.parse(t))).slice(0, 13)
       : [],
     updatedAt:
       typeof s.updatedAt === "string" && Number.isFinite(Date.parse(s.updatedAt))

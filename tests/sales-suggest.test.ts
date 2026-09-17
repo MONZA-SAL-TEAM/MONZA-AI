@@ -95,11 +95,18 @@ function labels(s: ReturnType<typeof suggest>): string[] {
 }
 
 describe("what a suggestion answers", () => {
-  test("a new chat's hello: the welcome and the models", () => {
+  test("a new chat's hello: the welcome and the departments", () => {
     const s = suggest([msg("c1", "in", "hi", 0)]);
-    assert.deepEqual(labels(s), ["SHOW MODEL CHOICES (FREE 318, COURAGE, DREAM, PASSION, PASSION L, TAISHAN)"]);
+    assert.deepEqual(labels(s), ["SHOW DEPARTMENTS"]);
     if (s.kind === "suggestion") {
-      assert.match(planLines(s.turn.plan)[0], /^Hello and welcome to Voyah Lebanon!/);
+      // (The missing full stop after the brand is asserted, as a BUG, in sales-templates.test.ts.)
+      assert.match(planLines(s.turn.plan)[0], /^Hello and welcome to VOYAH Lebanon/);
+      const first = s.turn.plan[0];
+      assert.ok(first.kind === "text");
+      if (first.kind === "text") {
+        assert.deepEqual(first.choices.map((c) => c.title), ["Sales", "Service & Parts", "Administration"]);
+        assert.deepEqual(first.choices.map((c) => c.payload), ["DEPT:SALES", "DEPT:SERVICE", "DEPT:ADMIN"]);
+      }
       assert.deepEqual(s.answered, ["c1"]);
       assert.equal(s.turn.policy.wouldSend, true);
     }
@@ -109,8 +116,9 @@ describe("what a suggestion answers", () => {
     const s = suggest([msg("c1", "in", "hi", 0), msg("c2", "in", "courage", 1), msg("c3", "in", "price?", 2)]);
     assert.deepEqual(labels(s), [
       "SEND COURAGE BROCHURE",
-      "SEND CONTACT FALLBACK — PRICE (COURAGE)",
+      "SAY PRICE HANDOFF (COURAGE)",
       "SHOW COURAGE COLOURS",
+      "ALERT SALES — PRICE (COURAGE)",
     ]);
   });
 
@@ -181,7 +189,7 @@ describe("what it can and cannot send", () => {
     const s = suggest([msg("c1", "in", "courage", 0)], freshSaved(), {}, deps(31_000_000));
     assert.ok(s.kind === "suggestion");
     if (s.kind === "suggestion") {
-      assert.match(planLines(s.turn.plan)[0], /^Here is the Voyah Courage brochure: https:\/\//);
+      assert.match(planLines(s.turn.plan)[0], /^Here is the VOYAH Courage brochure: https:\/\//);
       assert.ok(!s.turn.plan.some((p) => p.kind === "file" && p.fileKind === "document"));
       assert.equal(s.turn.policy.wouldSend, true);
     }

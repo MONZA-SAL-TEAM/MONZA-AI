@@ -10,18 +10,25 @@
  *
  * THE ORDER IS FIXED, whatever order the engine found things in:
  *
- *   1  SEND_BROCHURE          the model's brochure always comes first
- *   2  SEND_FACT              approved facts, in the order asked
- *   3  SEND_GLOBAL_INFO       location / opening hours
- *   4  SEND_COLOUR_VIDEO
- *   5  COLOUR_NOT_AVAILABLE
- *   6  SEND_CONTACT_FALLBACK  at most one, however many reasons
- *   7  SHOW_COLOUR_CHOICES    a question always comes last…
- *   8  SHOW_MODEL_CHOICES     …so it is the thing the customer answers
- *   —  CONTENT_GAP, FLAG_FOR_STAFF   internal: never sent to a customer
+ *   SEND_BROCHURE            brochures always come first
+ *   SEND_FACTS               approved facts, one car or several, in the order asked
+ *   SEND_COMPARISON          several cars side by side
+ *   SEND_COLOUR_LIST         colours of several cars, as text
+ *   SEND_GLOBAL_INFO         location / opening hours / the sales number
+ *   SEND_COLOUR_VIDEO
+ *   COLOUR_NOT_AVAILABLE
+ *   SEND_TEXT                fixed sentences: hand-offs, service, trade-in, …
+ *   SEND_CONTACT_FALLBACK    at most one, however many reasons
+ *   SEND_TEXT (a question)   "please send your name"…
+ *   SHOW_CATEGORY            …a question always comes last,
+ *   SHOW_TEST_DRIVE_SLOTS
+ *   SHOW_COLOUR_CHOICES
+ *   SHOW_MODEL_CHOICES
+ *   SHOW_DEPARTMENTS         …so it is the thing the customer answers
+ *   —  CONTENT_GAP, FLAG_FOR_STAFF, ALERT_SALES, BOOK_TEST_DRIVE: internal, never sent
  */
 
-import type { FactIntent, GlobalIntent, Intent } from "@/lib/wasales/intent";
+import type { CategoryFilter, FactIntent, GlobalIntent, Intent } from "@/lib/wasales/intent";
 import {
   lookupFact,
   lookupGlobal,
@@ -30,6 +37,7 @@ import {
   type FactStatus,
   type MediaRef,
   type ModelCode,
+  type PowertrainBucket,
   type SalesChannel,
   type SalesKnowledge,
 } from "@/lib/wasales/knowledge";
@@ -59,9 +67,76 @@ export type FallbackReason =
 
 export type ContentGapKind = "BROCHURE" | "COLOUR_MEDIA" | "FACT" | "GLOBAL";
 
+/** One fact of one car, as a SEND_FACTS row. `value` is empty when the workbook says it is not stated. */
+export interface FactRow {
+  model: ModelCode;
+  fact: FactIntent;
+  value: string;
+  confirmed: boolean;
+}
+
+/**
+ * The fixed sentences the engine may choose (the words are in templates.ts).
+ * Keys ending in a question ask the customer something and so come last.
+ */
+export type TextKey =
+  | "PRICE_HANDOFF"
+  | "FINANCING_INFO"
+  | "ASK_NAME"
+  | "ASK_NAME_AND_PHONE"
+  | "LEAD_THANKS"
+  | "TEST_DRIVE_ASK_NAME"
+  | "TEST_DRIVE_BOOKED"
+  | "TEST_DRIVE_NO_SLOTS"
+  | "STOCK_CONFIRM"
+  | "DISCOUNT_HANDOFF"
+  | "TRADE_IN_INFO"
+  | "TRADE_IN_THANKS"
+  | "SERVICE_CONTACT"
+  | "COMPLAINT_CONTACT"
+  | "ADMIN_CONTACT"
+  | "MODEL_YEAR"
+  | "OTHER_BRAND"
+  | "HANDOFF";
+
+/** Sentences that already carry a phone number. */
+const GIVES_NUMBER: readonly TextKey[] = ["PRICE_HANDOFF", "DISCOUNT_HANDOFF", "STOCK_CONFIRM", "SERVICE_CONTACT", "COMPLAINT_CONTACT", "ADMIN_CONTACT", "HANDOFF"];
+
+const QUESTION_TEXT: readonly TextKey[] = ["ASK_NAME", "ASK_NAME_AND_PHONE", "TEST_DRIVE_ASK_NAME"];
+
+/** What the team is alerted about (inbox flag + WhatsApp to a salesperson). */
+export type AlertKind = "PRICE" | "FINANCING" | "TEST_DRIVE" | "STOCK" | "DISCOUNT" | "TRADE_IN" | "NEEDS_PERSON";
+
 export type EngineAction =
   | { type: "SEND_BROCHURE"; model: ModelCode; asset: MediaRef; explicit: boolean }
-  | { type: "SEND_FACT"; model: ModelCode; fact: FactIntent; value: string; source: string }
+  | {
+      type: "SEND_FACTS";
+      /** "one": sentences about one car · "several": labelled lines per car · "all": every car in scope. */
+      scope: "one" | "several" | "all";
+      rows: FactRow[];
+    }
+  | { type: "SEND_COMPARISON"; models: ModelCode[]; rows: FactRow[] }
+  | { type: "SEND_COLOUR_LIST"; rows: { model: ModelCode; colours: string[] }[] }
+  | { type: "SEND_TEXT"; key: TextKey; models: ModelCode[]; vars?: Record<string, string> }
+  | {
+      type: "SHOW_CATEGORY";
+      filter: CategoryFilter | "ALL_TYPES" | "SEATS";
+      seats?: number;
+      groups: { bucket: PowertrainBucket | null; models: ModelCode[] }[];
+    }
+  | { type: "SHOW_TEST_DRIVE_SLOTS"; models: ModelCode[]; slots: string[] }
+  | { type: "SHOW_DEPARTMENTS" }
+  | {
+      type: "ALERT_SALES";
+      kind: AlertKind;
+      models: ModelCode[];
+      /** The name the customer gave, when this message gave it. Never stored in the engine state. */
+      name: string | null;
+      /** A phone number the customer typed (Instagram, Messenger). */
+      phone: string | null;
+      slot: string | null;
+    }
+  | { type: "BOOK_TEST_DRIVE"; slot: string; models: ModelCode[] }
   | { type: "SEND_GLOBAL_INFO"; key: GlobalIntent; value: string; source: string }
   | {
       type: "SEND_COLOUR_VIDEO";
@@ -91,6 +166,8 @@ export type EngineAction =
       greet: boolean;
       /** A narrowed "which one?" of a few, rather than the whole range. */
       narrowed: boolean;
+      /** How to ask: "which" (default), "explore" (after a list of every car), "first" (after several brochures). */
+      prompt?: "which" | "explore" | "first";
     }
   | {
       type: "CONTENT_GAP";
@@ -108,20 +185,36 @@ export type ActionType = EngineAction["type"];
 
 const PRIORITY: Readonly<Record<ActionType, number>> = {
   SEND_BROCHURE: 1,
-  SEND_FACT: 2,
-  SEND_GLOBAL_INFO: 3,
-  SEND_COLOUR_VIDEO: 4,
-  COLOUR_NOT_AVAILABLE: 5,
-  SEND_CONTACT_FALLBACK: 6,
-  SHOW_COLOUR_CHOICES: 7,
-  SHOW_MODEL_CHOICES: 8,
-  CONTENT_GAP: 9,
-  FLAG_FOR_STAFF: 10,
+  SEND_FACTS: 2,
+  SEND_COMPARISON: 3,
+  SEND_COLOUR_LIST: 4,
+  SEND_GLOBAL_INFO: 5,
+  COLOUR_NOT_AVAILABLE: 6,
+  SEND_COLOUR_VIDEO: 7,
+  SEND_TEXT: 8,
+  SEND_CONTACT_FALLBACK: 9,
+  SHOW_CATEGORY: 11,
+  SHOW_TEST_DRIVE_SLOTS: 12,
+  SHOW_COLOUR_CHOICES: 13,
+  SHOW_MODEL_CHOICES: 14,
+  SHOW_DEPARTMENTS: 15,
+  CONTENT_GAP: 20,
+  FLAG_FOR_STAFF: 21,
+  ALERT_SALES: 22,
+  BOOK_TEST_DRIVE: 23,
 };
+
+function priorityOf(a: EngineAction): number {
+  // A sentence that asks something is a question: after the answers, before the buttons.
+  if (a.type === "SEND_TEXT" && QUESTION_TEXT.includes(a.key)) return 10;
+  return PRIORITY[a.type];
+}
+
+const INTERNAL: readonly ActionType[] = ["CONTENT_GAP", "FLAG_FOR_STAFF", "ALERT_SALES", "BOOK_TEST_DRIVE"];
 
 /** Actions that reach the customer; the rest are for staff only. */
 export function isCustomerFacing(action: EngineAction): boolean {
-  return action.type !== "CONTENT_GAP" && action.type !== "FLAG_FOR_STAFF";
+  return !INTERNAL.includes(action.type);
 }
 
 /** What makes two actions "the same" for de-duplication. */
@@ -129,8 +222,24 @@ function actionKey(a: EngineAction): string {
   switch (a.type) {
     case "SEND_BROCHURE":
       return `${a.type}:${a.model}`;
-    case "SEND_FACT":
-      return `${a.type}:${a.model}:${a.fact}`;
+    case "SEND_FACTS":
+      return `${a.type}:${a.scope}:${a.rows.map((r) => `${r.model}.${r.fact}`).join(",")}`;
+    case "SEND_COMPARISON":
+      return `${a.type}:${a.models.join(",")}`;
+    case "SEND_COLOUR_LIST":
+      return `${a.type}:${a.rows.map((r) => r.model).join(",")}`;
+    case "SEND_TEXT":
+      return `${a.type}:${a.key}`;
+    case "SHOW_CATEGORY":
+      return a.type;
+    case "SHOW_TEST_DRIVE_SLOTS":
+      return a.type;
+    case "SHOW_DEPARTMENTS":
+      return a.type;
+    case "ALERT_SALES":
+      return `${a.type}:${a.kind}`;
+    case "BOOK_TEST_DRIVE":
+      return a.type;
     case "SEND_GLOBAL_INFO":
       return `${a.type}:${a.key}`;
     case "SEND_COLOUR_VIDEO":
@@ -183,7 +292,9 @@ export function finalizeActions(actions: readonly EngineAction[]): EngineAction[
     seen.add(key);
     out.push(a);
   }
-  if (reasons.length > 0) out.push({ type: "SEND_CONTACT_FALLBACK", reasons });
+  // A sentence that already gives the number makes the generic hand-off a repeat.
+  const numberGiven = out.some((x) => x.type === "SEND_TEXT" && GIVES_NUMBER.includes(x.key));
+  if (reasons.length > 0 && !numberGiven) out.push({ type: "SEND_CONTACT_FALLBACK", reasons });
 
   const videoFor = new Set(
     out.filter((a) => a.type === "SEND_COLOUR_VIDEO").map((a) => a.model)
@@ -194,7 +305,7 @@ export function finalizeActions(actions: readonly EngineAction[]): EngineAction[
 
   return pruned
     .map((a, i) => ({ a, i }))
-    .sort((x, y) => PRIORITY[x.a.type] - PRIORITY[y.a.type] || x.i - y.i)
+    .sort((x, y) => priorityOf(x.a) - priorityOf(y.a) || x.i - y.i)
     .map(({ a }) => a);
 }
 
@@ -277,11 +388,15 @@ export function applySendPolicy(
         reasons.push("That file is only in the sales folder — upload it to the shared library on /sales first.");
       }
     }
-    if (action.type === "SEND_FACT") {
-      const model = modelByCode(knowledge, action.model);
-      const current = model ? lookupFact(model, action.fact) : null;
-      if (!current || current.status !== "OK" || current.fact?.value !== action.value) {
-        reasons.push("That fact is no longer approved as sent.");
+    if (action.type === "SEND_FACTS" || action.type === "SEND_COMPARISON") {
+      for (const row of action.rows) {
+        const model = modelByCode(knowledge, row.model);
+        const current = model ? lookupFact(model, row.fact) : null;
+        const approvedValue = current?.fact?.approved ? current.fact.value : null;
+        if (approvedValue === null || approvedValue !== row.value) {
+          reasons.push("A fact is no longer approved as sent.");
+          break;
+        }
       }
     }
     if (action.type === "SEND_GLOBAL_INFO") {

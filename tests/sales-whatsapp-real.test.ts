@@ -79,13 +79,18 @@ describe("what the customer meant", () => {
   });
 
   test("“Okay deal” is agreeing, not asking for a discount", () => {
-    assert.deepEqual(readMessage("Okay deal").intents, []);
+    assert.deepEqual(readMessage("Okay deal").intents, ["ACKNOWLEDGEMENT"]);
+    assert.deepEqual(last(["courage", "Okay deal"]), [], "agreeing reopens nothing");
     assert.deepEqual(readMessage("any deals?").intents, ["DISCOUNT"]);
   });
 
-  test("“the price of each” after MHERO 1 and 2 asks of just those two", () => {
+  test("“the price of each” after MHERO 1 and 2 hands off the price of just those two", () => {
     const a = last(["Hello, I would like to get more details about MHERO I and II", "Please can I know the price of each"]);
-    assert.deepEqual(a, ["SHOW MODEL CHOICES (MHERO 1, MHERO 2)"]);
+    assert.deepEqual(a, [
+      "SAY PRICE HANDOFF (MHERO 1, MHERO 2)",
+      "SHOW MODEL CHOICES (MHERO 1, MHERO 2)",
+      "ALERT SALES — PRICE (MHERO 1, MHERO 2)",
+    ]);
   });
 
   test("vendors are not customers", () => {
@@ -100,7 +105,7 @@ describe("what the customer meant", () => {
   test("words customers really wrote", () => {
     const cases: [string, string][] = [
       ["sabaho", "GREETING"],
-      ["Thk U", "GREETING"],
+      ["Thk U", "ACKNOWLEDGEMENT"],
       ["Pricr", "PRICE"],
       ["kif as3ar", "PRICE"],
       ["في ارخص ؟", "PRICE"],

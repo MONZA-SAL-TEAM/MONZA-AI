@@ -34,6 +34,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import DraftDock from "./DraftDock";
 import SalesSuggestion from "./SalesSuggestion";
+import SalesAlerts from "./SalesAlerts";
 import MediaComposer from "./MediaComposer";
 import { Attachments, LinkEmbeds, Lightbox, Ticks } from "./MediaBubble";
 import { carryUrls, isMetaCdn, previewText, waWebChatLink, withoutLinks } from "@/lib/inbox/media";
@@ -443,6 +444,8 @@ export default function InboxClient(props: Props) {
   const alertsRef = useRef<AlertsState>("unsupported");
   alertsRef.current = alerts;
   const [toast, setToast] = useState<Conversation | null>(null);
+  // Chats the sales bot handed to a person (app/inbox/SalesAlerts): thread id → why.
+  const [needsPerson, setNeedsPerson] = useState<ReadonlyMap<string, string>>(new Map());
 
   useEffect(() => {
     setMounted(true);
@@ -795,6 +798,12 @@ export default function InboxClient(props: Props) {
     },
     [markSeen]
   );
+
+  // "Open chat" from the test-drive calendar: /inbox?open=<thread id>.
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("open");
+    if (wanted) setOpenId(wanted);
+  }, []);
 
   useEffect(() => {
     if (!live || !openId) return;
@@ -1360,6 +1369,7 @@ export default function InboxClient(props: Props) {
             </p>
           )}
         </header>
+        {live && <SalesAlerts onOpen={(threadId) => setOpenId(threadId)} onChange={setNeedsPerson} />}
 
         <div className="ibx-scroll">
           {!mounted || !ready ? (
@@ -1446,6 +1456,9 @@ export default function InboxClient(props: Props) {
                                       ? `${CHANNEL_LABEL[c.channel]} · ${acct.handle}`
                                       : CHANNEL_LABEL[c.channel]}
                                 </span>
+                                {needsPerson.has(c.id) && (
+                                  <span className="ibx-needs" title={needsPerson.get(c.id)}>Needs a person</span>
+                                )}
                                 {unread && <span className="ibx-unread-dot" aria-label="Unread" />}
                               </span>
                             </span>

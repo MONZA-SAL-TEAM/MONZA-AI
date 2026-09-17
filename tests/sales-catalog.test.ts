@@ -12,7 +12,7 @@
  * the manifest contains, so it keeps its meaning when Monza fills an empty
  * colour folder or adds a car. The exceptions are the words customers use
  * for each model (Samer's list) and the definition of done, run over the
- * real, still-unapproved knowledge.
+ * real knowledge from Samer's workbook.
  */
 
 import { test, describe } from "node:test";
@@ -35,6 +35,7 @@ import { MONZA_KNOWLEDGE, videoCounts } from "@/lib/wasales/knowledge";
 import { actionLabel, renderPlan } from "@/lib/wasales/templates";
 import { isCustomerFacing } from "@/lib/wasales/actions";
 import { matchModel } from "@/lib/wasales/matcher";
+import { WORKBOOK } from "@/lib/wasales/knowledge-data";
 
 const CATALOG = loadCatalog();
 const K = MONZA_KNOWLEDGE;
@@ -172,26 +173,60 @@ describe("what the engine would really do", () => {
     }
   });
 
-  test("the definition of done over the REAL knowledge: no fact is approved, so the number", () => {
+  test("the definition of done over the REAL knowledge: every VOYAH's power, then the Courage", () => {
     const hp = say("hp?", "voyah");
+    assert.deepEqual(hp.actions.map(actionLabel), [
+      "SEND FREE 318 + COURAGE + DREAM + PASSION + PASSION L + TAISHAN HORSEPOWER (ALL MODELS)",
+      "SHOW MODEL CHOICES (FREE 318, COURAGE, DREAM, PASSION, PASSION L, TAISHAN)",
+    ]);
+    assert.deepEqual(hp.gaps, [], "the workbook states every VOYAH's power");
+    assert.match(
+      words(hp, "voyah"),
+      /^Here is the power output for our current models:\n• VOYAH Free 318 — 600 hp\n• VOYAH Courage — 320 kW \/ 435 PS\n/
+    );
+    assert.match(words(hp, "voyah"), /Which model would you like to explore further\?$/);
+
     const courage = decide(
       { text: "courage", brand: "voyah", conversationIsNew: false, now: "2026-09-14T09:01:00.000Z" },
       hp.nextState,
       { knowledge: K, catalog: CATALOG, media: folderMedia, ttlHours: 72 }
     );
-    assert.deepEqual(courage.actions.map(actionLabel), [
-      "SEND COURAGE BROCHURE",
-      "SEND CONTACT FALLBACK — MISSING FACT COURAGE / HORSEPOWER",
-      "SHOW COURAGE COLOURS",
-      "MISSING APPROVED FACT: COURAGE / HORSEPOWER",
-    ]);
-    assert.match(words(courage, "voyah"), /For more information, please call 70 70 85 85\./);
+    assert.deepEqual(courage.actions.map(actionLabel), ["SEND COURAGE BROCHURE", "SHOW COURAGE COLOURS"]);
   });
 
-  test("a caption awaiting approval is never sent", () => {
-    const d = say("courage range?", "voyah");
-    assert.ok(!d.actions.some((a) => a.type === "SEND_FACT"));
-    assert.deepEqual(d.gaps.map((g) => g.detail), ["FACT NOT APPROVED: COURAGE / RANGE"]);
+  test("a fact is sent exactly as the workbook states it — and 'not stated' says so", () => {
+    const range = say("courage range?", "voyah");
+    assert.deepEqual(range.gaps, []);
+    const rows = range.actions.flatMap((a) => (a.type === "SEND_FACTS" ? a.rows : []));
+    assert.deepEqual(rows, [{ model: "COURAGE", fact: "RANGE", value: "440 km WLTP", confirmed: true }]);
+    assert.match(words(range, "voyah"), /The VOYAH Courage offers 440 km WLTP\./);
+
+    const battery = say("passion l battery?", "voyah");
+    assert.deepEqual(battery.gaps, [], "EMPTY is the workbook's answer, not a gap");
+    assert.match(
+      words(battery, "voyah"),
+      /The exact battery capacity of the VOYAH Passion L is not confirmed yet\. Our team can confirm it for you on 70 70 85 85\./
+    );
+    assert.ok(!battery.actions.some((a) => a.type === "SEND_CONTACT_FALLBACK"));
+  });
+
+  test("every fact in every answer comes from the workbook, over every model and fact question", () => {
+    for (const m of K.models) {
+      const car = CATALOG.find((c) => c.id === m.catalogueId);
+      if (!car) continue;
+      for (const q of ["hp", "range", "battery", "charging", "seats", "dimensions", "warranty"]) {
+        const d = say(`${car.name} ${q}?`, m.brand);
+        for (const a of d.actions) {
+          if (a.type !== "SEND_FACTS") continue;
+          for (const row of a.rows) {
+            const book = (WORKBOOK.models[row.model].facts as Record<string, { value: string; confirmed: boolean }>)[row.fact];
+            assert.ok(book, `${car.name} ${q}: ${row.fact}`);
+            assert.equal(row.confirmed, book.confirmed, `${car.name} ${q}`);
+            assert.equal(row.value, book.confirmed ? book.value : "", `${car.name} ${q}`);
+          }
+        }
+      }
+    }
   });
 });
 

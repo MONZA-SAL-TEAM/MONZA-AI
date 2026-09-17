@@ -65,6 +65,13 @@ export const INTENTS = [
   "SERVICE",
   "PARTS",
   "COMPLAINT",
+  // Added from Samer's workbook, E Master Bot Logic (2026-09-17).
+  "SALES",
+  "MODEL_LIST",
+  "COMPARE",
+  "MODEL_YEAR",
+  "OTHER_BRAND",
+  "ACKNOWLEDGEMENT",
   "UNKNOWN",
 ] as const;
 
@@ -161,11 +168,9 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "salam", "salaam", "salam alaykom", "salamo alaykom", "assalamu alaikum",
     "marhaba", "mar7aba", "marhabtein", "hala", "ahla", "ahlan", "ahlein",
     "bonjour", "bonsoir", "salut", "kifak", "kifik", "kifkon",
-    "thanks", "thank you", "thankyou", "thx", "merci", "shukran", "choukran",
-    "thk u", "thku", "thnx", "tnx", "thanx", "sabaho", "saba7o", "sabah el kheir",
-    "saba7 el kheir",
+    "sabaho", "saba7o", "sabah el kheir", "saba7 el kheir",
     "مرحبا", "مرحبتين", "أهلا", "أهلين", "هلا", "السلام عليكم", "سلام",
-    "صباح الخير", "مسا الخير", "مساء الخير", "كيفك", "كيفكن", "شكرا",
+    "صباح الخير", "مسا الخير", "مساء الخير", "كيفك", "كيفكن",
   ],
   GENERAL_INFO: [
     "info", "infos", "information", "informations", "more info",
@@ -258,7 +263,7 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "prix", "combien", "se3er", "si3r", "sa3er", "se3r", weak("ade"),
     "adesh", "addesh", "2adesh", weak("adde"), "pricr", "prise", "as3ar",
     "asaar", "cheaper", "cheapest", "سعر", "السعر", "أسعار", "ارخص", "أرخص",
-    "الأسعار", "بكم", "قديش", weak("كم"), "تكلفة", "كلفة",
+    "الأسعار", "بكم", weak("قديش"), weak("كم"), "تكلفة", "كلفة",
   ],
   FINANCING: [
     "installment", "installments", "instalment", "instalments", "finance",
@@ -284,7 +289,7 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "mawjoud", "mawjoude", "mawjoudin", "متوفر", "متوفرة", "موجود", "موجودة",
   ],
   DISCOUNT: [
-    "discount", "discounts", "offer", "offers", "promo", "promotion",
+    "discount", "discounts", weak("offer"), "offers", "promo", "promotion",
     "promotions", "deal", "deals", "best price", "last price",
     "special price", "khasm", "5asm", "خصم", "حسم", "تخفيض", "عرض", "عروض",
     "آخر سعر",
@@ -310,6 +315,40 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "mechkle", "moshkle", "meshkle", "شكوى", "مشكلة", "مشاكل", "عطل",
     "خربان", "معطل", "زعلان",
   ],
+  SALES: [
+    "sales", "sales department", "buy a car", "buy a new car", "new car", weak("buy"),
+    weak("buying"), weak("purchase"), "مبيعات", "شراء سيارة",
+  ],
+  MODEL_LIST: [
+    "what cars", "which cars", "what models", "which models", "your models",
+    "all models", "all cars", "all your cars", "lineup", "line up", "models available",
+    "available models", "cars available", "available cars", "what do you have",
+    "what do you sell", "what cars do you have", "شو عندكم", "شو عندكن", "شو في سيارات",
+    "الموديلات", "شو الموديلات",
+  ],
+  COMPARE: [
+    "compare", "comparison", "difference", "differences", "vs", "versus",
+    "which is better", "better", "قارن", "مقارنة", "الفرق", "شو الفرق",
+  ],
+  MODEL_YEAR: [
+    "model year", "what year", "which year", weak("year"), weak("2024"), weak("2025"),
+    weak("2026"), weak("2027"), "سنة الصنع", weak("سنة"),
+  ],
+  OTHER_BRAND: [
+    "bmw", "mercedes", "benz", "audi", "toyota", "tesla", "byd", "kia", "hyundai",
+    "nissan", "porsche", "lexus", "jeep", "ford", "chevrolet", "honda", "mitsubishi",
+    "geely", "chery", "jetour", "zeekr", "xpeng", "volkswagen", "volvo", "land rover",
+    "range rover",
+  ],
+  // An acknowledgement only counts when nothing else was said: all weak.
+  ACKNOWLEDGEMENT: [
+    weak("thanks"), weak("thank you"), weak("thankyou"), weak("thx"), weak("merci"),
+    weak("shukran"), weak("choukran"), weak("thk u"), weak("thku"), weak("thnx"),
+    weak("tnx"), weak("thanx"), weak("شكرا"), weak("ok"), weak("okay"), weak("okk"),
+    weak("noted"), weak("great"), weak("perfect"), weak("alright"), weak("tamam"),
+    weak("تمام"), weak("ماشي"), weak("okay deal"), weak("ok deal"), weak("deal done"),
+    weak("pass by"), weak("stay in contact"), weak("will send them"), weak("i will send"),
+  ],
 };
 
 /**
@@ -318,7 +357,6 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
  * counts for nothing.
  */
 const IGNORE: readonly string[] = [
-  "range rover",
   "number of",
   "feel free",
   "for free",
@@ -329,10 +367,9 @@ const IGNORE: readonly string[] = [
   "not a problem",
   "no issue",
   "no issues",
-  // Agreeing, not asking for a discount (WhatsApp, 2026-09-16).
-  "okay deal",
-  "ok deal",
-  "deal done",
+  // A forwarded offer's "2 years free maintenance" is not a service request.
+  "free maintenance",
+  "free service",
 ];
 
 /**
@@ -556,7 +593,27 @@ export function detectLanguage(tokens: readonly string[]): Language {
  */
 export type ChoicePayload =
   | { kind: "MODEL"; model: string }
-  | { kind: "COLOUR"; model: string; colour: string };
+  | { kind: "COLOUR"; model: string; colour: string }
+  /** The welcome's department menu (workbook, B Showroom / Replies row 3). */
+  | { kind: "DEPARTMENT"; department: Department }
+  /** A powertrain type menu: EV, EREV, PHEV. */
+  | { kind: "CATEGORY"; bucket: "EV" | "EREV" | "PHEV" }
+  /** A test-drive slot, as an ISO time. */
+  | { kind: "SLOT"; at: string };
+
+export type Department = "SALES" | "SERVICE" | "ADMIN";
+
+export function departmentPayload(d: Department): string {
+  return `DEPT:${d}`;
+}
+
+export function categoryPayload(bucket: "EV" | "EREV" | "PHEV"): string {
+  return `CATEGORY:${bucket}`;
+}
+
+export function slotPayload(iso: string): string {
+  return `SLOT:${iso}`;
+}
 
 export function modelPayload(model: string): string {
   return `MODEL:${model}`;
@@ -571,6 +628,12 @@ export function parsePayload(raw: string | null | undefined): ChoicePayload | nu
   const s = raw.trim();
   const model = /^MODEL:([A-Z0-9_]{1,20})$/i.exec(s);
   if (model) return { kind: "MODEL", model: model[1].toUpperCase() };
+  const dept = /^DEPT:(SALES|SERVICE|ADMIN)$/i.exec(s);
+  if (dept) return { kind: "DEPARTMENT", department: dept[1].toUpperCase() as Department };
+  const category = /^CATEGORY:(EV|EREV|PHEV)$/i.exec(s);
+  if (category) return { kind: "CATEGORY", bucket: category[1].toUpperCase() as "EV" | "EREV" | "PHEV" };
+  const slot = /^SLOT:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z)$/.exec(s);
+  if (slot && Number.isFinite(Date.parse(slot[1]))) return { kind: "SLOT", at: new Date(slot[1]).toISOString() };
   const colour = /^COLOUR:([A-Z0-9_]{1,20}):([A-Z0-9_-]{1,64})$/i.exec(s);
   if (colour) {
     return { kind: "COLOUR", model: colour[1].toUpperCase(), colour: colour[2].toLowerCase() };
@@ -592,6 +655,64 @@ export function readChoiceNumber(tokens: readonly string[]): number | null {
   return n >= 1 ? n : null;
 }
 
+/* ── Filters: which kind of car, how many seats, how many cars ──────────── */
+
+export type CategoryFilter = "EV" | "EREV" | "PHEV" | "HYBRID";
+
+const EV_WORDS = ["ev", "evs", "bev", "electric", "fully electric", "full electric", "electric cars", "كهربا", "كهرباء", "كهربائي", "كهربائية"];
+const EREV_WORDS = ["erev", "erevs", "reev", "range extender", "extended range", "range extended"];
+const PHEV_WORDS = ["phev", "phevs", "plug in", "plugin", "plug in hybrid"];
+const HYBRID_WORDS = ["hybrid", "hybrids", "هايبرد", "هايبريد"];
+
+function hasRun(tokens: readonly string[], phrase: string): boolean {
+  const words = normalize(phrase).split(" ");
+  for (let s = 0; s + words.length <= tokens.length; s++) {
+    if (words.every((w, j) => sameWord(w, tokens[s + j]))) return true;
+  }
+  return false;
+}
+
+/** Which powertrain kinds the message names, in a fixed order. */
+export function readCategories(tokens: readonly string[]): CategoryFilter[] {
+  const out: CategoryFilter[] = [];
+  if (EV_WORDS.some((w) => hasRun(tokens, w))) out.push("EV");
+  if (EREV_WORDS.some((w) => hasRun(tokens, w))) out.push("EREV");
+  if (PHEV_WORDS.some((w) => hasRun(tokens, w))) out.push("PHEV");
+  else if (HYBRID_WORDS.some((w) => hasRun(tokens, w))) out.push("HYBRID");
+  return out;
+}
+
+/** "7 seater", "7 seats", "seven seats" → 7; null when no seat count is named. */
+export function readSeatCount(tokens: readonly string[]): number | null {
+  const words: Record<string, number> = { five: 5, six: 6, seven: 7, "5": 5, "6": 6, "7": 7 };
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    const joined = /^([567])(seater|seaters|seats|seat)$/.exec(t);
+    if (joined) return Number(joined[1]);
+    if (words[t] !== undefined && /^(seater|seaters|seats|seat|مقاعد|ركاب)$/.test(tokens[i + 1] ?? "")) return words[t];
+  }
+  return null;
+}
+
+/** "all", "every", "كل": the customer wants every car in scope. */
+export function readsAll(tokens: readonly string[]): boolean {
+  return tokens.some((t) => ["all", "every", "everything", "كل", "كلن", "كلها"].includes(t));
+}
+
+/** Words that turn a type into a question about the range ("what EVs do you have"). */
+export function asksForOptions(tokens: readonly string[]): boolean {
+  return tokens.some((t) =>
+    ["what", "which", "any", "options", "models", "cars", "have", "offer", "show", "list", "شو", "في", "عندكم"].includes(t)
+  );
+}
+
+/** A body type that names a group of cars: "the sedan", "mpv". */
+export function readBodyType(tokens: readonly string[]): "SEDAN" | "MPV" | null {
+  if (tokens.some((t) => ["sedan", "sedans", "saloon", "سيدان"].includes(t))) return "SEDAN";
+  if (tokens.some((t) => ["mpv", "minivan", "van"].includes(t))) return "MPV";
+  return null;
+}
+
 /* ── Hard exclusions ─────────────────────────────────────────────────────── */
 
 export type ExclusionKind = "META_SCAM" | "VENDOR_PITCH" | "SYSTEM_NOTICE" | "INTERNAL_TEST";
@@ -611,7 +732,7 @@ const THREAT =
   /\b(?:disabled|deactivated|suspended|restricted|removed|deleted|banned|terminated|unpublished|violat\w*|infringement|appeal|permanently|verify your (?:account|page)|confirm your (?:account|page))\b/g;
 
 const SERVICE =
-  /\b(?:seo|web design|website design|web development|app development|digital marketing|social media (?:marketing|management)|shipments?|freight|logistics|do business with|followers|likes|lead generation|leads generation|backlinks|google ranking|graphic design|video editing|logo design|content creation|ugc)\b/;
+  /\b(?:seo|web design|website design|web development|app development|digital marketing|social media (?:marketing|management)|shipments?|freight|logistics|do business with|more leads|leads|followers|likes|lead generation|leads generation|backlinks|google ranking|graphic design|video editing|logo design|content creation|ugc)\b/;
 
 const PITCH =
   /\b(?:we (?:offer|provide|can help|specialize|are a)|i (?:offer|provide|can help you|am a (?:freelancer|professional|digital))|our (?:agency|company|team|services|best services)|company profile|we would like to do business|would you be interested|boost your|grow your|increase your (?:sales|followers|revenue|reach)|free (?:audit|consultation|trial)|dm me|let me know if you)\b/;

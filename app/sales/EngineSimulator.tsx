@@ -161,7 +161,9 @@ function usedLines(actions: readonly EngineAction[]): string[] {
   for (const a of actions) {
     if (a.type === "SEND_BROCHURE") out.push(`Brochure: ${a.asset.name} (${formatBytes(a.asset.bytes)})`);
     if (a.type === "SEND_COLOUR_VIDEO") out.push(`Video: ${a.asset.name} (${formatBytes(a.asset.bytes)})`);
-    if (a.type === "SEND_FACT") out.push(`${code(a.fact)}: ${a.value} — ${a.source}`);
+    if (a.type === "SEND_FACTS" || a.type === "SEND_COMPARISON") {
+      for (const r of a.rows) out.push(`${code(r.model)} ${code(r.fact)}: ${r.confirmed ? r.value : "not confirmed yet"} — workbook`);
+    }
     if (a.type === "SEND_GLOBAL_INFO") out.push(`${code(a.key)}: ${a.value}`);
   }
   return out.length > 0 ? out : ["—"];

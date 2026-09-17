@@ -37,26 +37,53 @@ const BROCHURE: EngineAction = {
 };
 
 describe("the words", () => {
-  test("the contact fallback is Samer's sentence, exactly", () => {
-    assert.equal(contactFallbackText(K), "For more information, please call 70 70 85 85.");
+  test("the contact fallback is the workbook's hand-off, exactly", () => {
+    assert.equal(contactFallbackText(K), "For further assistance, please contact us on 70 70 85 85.");
     assert.deepEqual(texts(render([{ type: "SEND_CONTACT_FALLBACK", reasons: [{ kind: "CONTACT_NUMBER" }] }])), [
-      "For more information, please call 70 70 85 85.",
+      "For further assistance, please contact us on 70 70 85 85.",
     ]);
   });
 
   test("a brochure is a sentence, then the PDF — two messages", () => {
     const parts = render([BROCHURE]);
     assert.deepEqual(planLines(parts), [
-      "Here is the Voyah Courage brochure.",
+      "Here is the VOYAH Courage brochure.",
       "[PDF: Voyah courage 2026 catalogue.pdf]",
     ]);
   });
 
   test("a fact carries its approved value and nothing else", () => {
-    const parts = render([
-      { type: "SEND_FACT", model: "PASSION_L", fact: "RANGE", value: "TEST-RANGE", source: "test" },
+    const one = (fact: "RANGE" | "HORSEPOWER", value: string): EngineAction => ({
+      type: "SEND_FACTS",
+      scope: "one",
+      rows: [{ model: "PASSION_L", fact, value, confirmed: true }],
+    });
+    assert.deepEqual(texts(render([one("RANGE", "TEST-RANGE")])), ["The VOYAH Passion L offers TEST-RANGE."]);
+    assert.deepEqual(texts(render([one("HORSEPOWER", "TEST-HP")])), ["The VOYAH Passion L produces TEST-HP."]);
+  });
+
+  test("a fact the workbook does not state is 'not confirmed yet', with the number", () => {
+    const empty: EngineAction = {
+      type: "SEND_FACTS",
+      scope: "one",
+      rows: [{ model: "PASSION_L", fact: "BATTERY", value: "", confirmed: false }],
+    };
+    assert.deepEqual(texts(render([empty])), [
+      "The exact battery capacity of the VOYAH Passion L is not confirmed yet. Our team can confirm it for you on 70 70 85 85.",
     ]);
-    assert.deepEqual(texts(parts), ["Range of the Voyah Passion L: TEST-RANGE."]);
+  });
+
+  test("several cars: one labelled line each; every car: the workbook's header", () => {
+    const rows = [
+      { model: "COURAGE" as const, fact: "HORSEPOWER" as const, value: "320 kW / 435 PS", confirmed: true },
+      { model: "MHERO_1" as const, fact: "HORSEPOWER" as const, value: "805 hp", confirmed: true },
+    ];
+    assert.deepEqual(texts(render([{ type: "SEND_FACTS", scope: "several", rows }])), [
+      "Power:\n• VOYAH Courage — 320 kW / 435 PS\n• MHERO 1 — 805 hp",
+    ]);
+    assert.deepEqual(texts(render([{ type: "SEND_FACTS", scope: "all", rows }])), [
+      "Here is the power output for our current models:\n• VOYAH Courage — 320 kW / 435 PS\n• MHERO 1 — 805 hp",
+    ]);
   });
 
   test("a single-colour video names no colour; a picked one says so", () => {
@@ -69,16 +96,50 @@ describe("the words", () => {
       chosenForThem,
       onlyOption,
     });
-    assert.deepEqual(texts(render([video(true, false)])), ["Here is a video of the Voyah Dream."]);
+    assert.deepEqual(texts(render([video(true, false)])), ["Here is a video of the VOYAH Dream."]);
     assert.deepEqual(texts(render([video(false, true)])), [
-      "Here is the Voyah Dream in Standard — a favourite of ours.",
+      "Here is the VOYAH Dream in Standard — a favourite of ours.",
     ]);
   });
 
   test("the welcome names the account's own brand", () => {
     const hello: EngineAction = { type: "SHOW_MODEL_CHOICES", models: ["MHERO_1", "MHERO_2"], greet: true, narrowed: false };
-    assert.match(texts(render([hello], "instagram", "mhero"))[0], /^Hello and welcome to MHERO Lebanon!/);
-    assert.match(texts(render([hello], "whatsapp", "monza"))[0], /^Hello and welcome to Monza!/);
+    // The brand replaces "Monza S.A.L." and the sentence keeps its full stop.
+    assert.equal(
+      texts(render([hello], "instagram", "mhero"))[0],
+      "Hello and welcome to MHERO Lebanon. How can we help you today?\n\nWhich model are you interested in?"
+    );
+    assert.match(texts(render([hello], "whatsapp", "monza"))[0], /^Hello and welcome to Monza S\.A\.L\. How can we help you today\?/);
+    assert.match(texts(render([hello], "whatsapp", "voyah"))[0], /^Hello and welcome to VOYAH Lebanon\./);
+  });
+
+  test("the department menu: the welcome, then Sales / Service & Parts / Administration", () => {
+    // The same full stop on the department menu.
+    const [p] = render([{ type: "SHOW_DEPARTMENTS" }], "whatsapp", "voyah");
+    assert.ok(p.kind === "text");
+    if (p.kind === "text") {
+      assert.equal(p.text, "Hello and welcome to VOYAH Lebanon. How can we help you today?\n\nPlease choose an option:");
+      assert.deepEqual(p.choices.map((c) => c.title), ["Sales", "Service & Parts", "Administration"]);
+      assert.deepEqual(p.choices.map((c) => c.payload), ["DEPT:SALES", "DEPT:SERVICE", "DEPT:ADMIN"]);
+    }
+  });
+
+  test("the fixed hand-offs, word for word", () => {
+    const say = (key: "PRICE_HANDOFF" | "SERVICE_CONTACT" | "OTHER_BRAND", models: "COURAGE"[] = []) =>
+      texts(render([{ type: "SEND_TEXT", key, models }]))[0];
+    assert.equal(say("PRICE_HANDOFF", ["COURAGE"]), "For current pricing of the VOYAH Courage, please contact our sales team on 70 70 85 85.");
+    assert.equal(say("SERVICE_CONTACT"), "For Service, Maintenance, or Spare Parts, please contact 76 877 278.");
+    assert.equal(say("OTHER_BRAND"), "We currently specialize in VOYAH and MHERO vehicles in Lebanon.");
+  });
+
+  test("the colour question names the car and its colours", () => {
+    const [p] = render([
+      { type: "SHOW_COLOUR_CHOICES", model: "COURAGE", colours: [{ id: "black", name: "Black" }, { id: "grey", name: "Grey" }] },
+    ]);
+    assert.ok(p.kind === "text");
+    if (p.kind === "text") {
+      assert.equal(p.text, "Which exterior colour would you like to see? We can show you the VOYAH Courage in Black or Grey.");
+    }
   });
 
   test("gaps and staff flags are never shown to a customer", () => {
@@ -119,7 +180,7 @@ describe("choices, shaped for the channel", () => {
     const p = render([models(11)], "whatsapp")[0];
     assert.ok(p.kind === "text");
     if (p.kind === "text") {
-      assert.match(p.text, /\n1\. Voyah Free 318\n2\. Voyah Courage\n/);
+      assert.match(p.text, /\n1\. VOYAH Free 318\n2\. VOYAH Courage\n/);
       assert.match(p.text, /Reply with the number\.$/);
     }
   });
@@ -148,6 +209,14 @@ describe("choices, shaped for the channel", () => {
 describe("the staff labels", () => {
   test("read the way the specification writes them", () => {
     assert.equal(actionLabel(BROCHURE), "SEND COURAGE BROCHURE");
+    assert.equal(
+      actionLabel({ type: "SEND_FACTS", scope: "all", rows: [{ model: "COURAGE", fact: "RANGE", value: "x", confirmed: true }] }),
+      "SEND COURAGE RANGE (ALL MODELS)"
+    );
+    assert.equal(
+      actionLabel({ type: "SEND_TEXT", key: "PRICE_HANDOFF", models: ["MHERO_1", "MHERO_2"] }),
+      "SAY PRICE HANDOFF (MHERO 1, MHERO 2)"
+    );
     assert.equal(
       actionLabel({ type: "SHOW_COLOUR_CHOICES", model: "PASSION_L", colours: [] }),
       "SHOW PASSION L COLOURS"
@@ -237,8 +306,20 @@ describe("the send policy", () => {
   });
 
   test("a fact that is not approved as sent is blocked, whatever the engine said", () => {
-    const forged: EngineAction = { type: "SEND_FACT", model: "COURAGE", fact: "RANGE", value: "470 km", source: "x" };
-    assert.equal(applySendPolicy([forged], LIVE, K).wouldSend, false, "470 km is a caption awaiting approval");
+    const forged: EngineAction = {
+      type: "SEND_FACTS",
+      scope: "one",
+      rows: [{ model: "COURAGE", fact: "RANGE", value: "470 km", confirmed: true }],
+    };
+    const p = applySendPolicy([forged], LIVE, K);
+    assert.equal(p.wouldSend, false, "470 km is not the workbook's value");
+    assert.match(p.verdicts[0].blocked[0], /no longer approved/);
+    const real: EngineAction = {
+      type: "SEND_FACTS",
+      scope: "one",
+      rows: [{ model: "COURAGE", fact: "RANGE", value: "440 km WLTP", confirmed: true }],
+    };
+    assert.equal(applySendPolicy([real], LIVE, K).wouldSend, true, "the workbook's own value may go");
   });
 });
 

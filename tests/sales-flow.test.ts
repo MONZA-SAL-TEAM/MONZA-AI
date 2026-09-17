@@ -55,24 +55,34 @@ describe("the definition of done, as a customer on Instagram would receive it", 
   const said = turns.map((t) => planLines(t.plan));
 
   test("each step, word for word", () => {
+    // No car yet: the power of every VOYAH, then which to explore. The Passion L here has
+    // no horsepower in the fixture, so it reads "not confirmed yet" — never a borrowed figure.
     assert.deepEqual(said[0], [
-      "Which model are you interested in? [quick_replies: Voyah Free 318 | Voyah Courage | Voyah Dream | Voyah Passion | Voyah Passion L | Voyah Taishan]",
+      [
+        "Here is the power output for our current models:",
+        "• VOYAH Free 318 — 600 hp",
+        "• VOYAH Courage — TEST-HP-COURAGE",
+        "• VOYAH Dream — 416 hp / 310 kW",
+        "• VOYAH Passion — 523 hp / 390 kW",
+        "• VOYAH Passion L — not confirmed yet",
+        "• VOYAH Taishan — 657 hp",
+      ].join("\n"),
+      "Which model would you like to explore further? [quick_replies: VOYAH Free 318 | VOYAH Courage | VOYAH Dream | VOYAH Passion | VOYAH Passion L | VOYAH Taishan]",
     ]);
     assert.deepEqual(said[1], [
-      "Here is the Voyah Courage brochure.",
+      "Here is the VOYAH Courage brochure.",
       "[PDF: Voyah courage 2026 catalogue.pdf]",
-      "Horsepower of the Voyah Courage: TEST-HP-COURAGE.",
-      "Which colour would you like to see? We can show you the Voyah Courage in Black, Grey or White. [quick_replies: Black | Grey | White]",
+      "Which exterior colour would you like to see? We can show you the VOYAH Courage in Black, Grey or White. [quick_replies: Black | Grey | White]",
     ]);
-    assert.equal(said[2][0], "Here is the Voyah Courage in Black.");
+    assert.equal(said[2][0], "Here is the VOYAH Courage in Black.");
     assert.match(said[2][1], /^\[Video: All Black Voyah Courage/);
-    assert.deepEqual(said[3], ["Range of the Voyah Courage: TEST-RANGE-COURAGE."]);
+    assert.deepEqual(said[3], ["The VOYAH Courage offers TEST-RANGE-COURAGE."]);
     assert.deepEqual(said[4], [
-      "Here is the Voyah Passion L brochure.",
+      "Here is the VOYAH Passion L brochure.",
       "[PDF: VOYAH PASSION L Catalogue 2026.pdf]",
-      "Which colour would you like to see? We can show you the Voyah Passion L in Black or Grey. [quick_replies: Black | Grey]",
+      "Which exterior colour would you like to see? We can show you the VOYAH Passion L in Black or Grey. [quick_replies: Black | Grey]",
     ]);
-    assert.deepEqual(said[5], ["Range of the Voyah Passion L: TEST-RANGE-PASSION-L."]);
+    assert.deepEqual(said[5], ["The VOYAH Passion L offers TEST-RANGE-PASSION-L."]);
   });
 
   test("and none of it is sent: live sending is off", () => {

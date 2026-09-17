@@ -42,6 +42,7 @@ import {
   type ThreadFacts,
 } from "@/lib/wasales/suggest";
 import { loadSuggestion, saveSuggestion } from "@/lib/wasales/suggestion-store";
+import { bookedSlotsFrom, bookTestDrive, recordAlert, type ChatRef } from "@/lib/wasales/sales-ops";
 
 /** What the inbox card shows. Template wording and file names — never customer words. */
 export interface SuggestionView {
@@ -131,10 +132,11 @@ async function load(threadId: unknown): Promise<Loaded | Failure> {
   if (!brand || !channel) return { ok: false, status: 404, problem: "Suggestions are not available for this account." };
 
   const catalog = loadCatalog();
-  const [view, memory, library] = await Promise.all([
+  const [view, memory, library, booked] = await Promise.all([
     readThreadForStaff(threadId),
     loadSuggestion(account.id, ids.metaConversationId),
     listLibraryFiles(catalog.map((c) => c.id)),
+    bookedSlotsFrom(new Date().toISOString()),
   ]);
   if (!view.ok) return { ok: false, status: view.status, problem: view.problem };
 
@@ -157,6 +159,7 @@ async function load(threadId: unknown): Promise<Loaded | Failure> {
       catalog: withLibraryColours(catalog, files),
       media: libraryMedia(files),
       ttlHours: salesContextTtlHours(process.env.SALES_CONTEXT_TTL_HOURS),
+      bookedSlots: booked,
     },
     notes,
   };
@@ -248,8 +251,51 @@ async function deliver(
     };
   }
 
+  // The customer's number, for the sales follow-up: WhatsApp gives it; Instagram and Facebook do not.
+  const chat: ChatRef = {
+    accountId: c.account.id,
+    brand: c.account.brand,
+    conversationRef: c.ref,
+    threadId: String(threadId),
+    customerPhone: c.channel === "whatsapp" && target.target.channel === "whatsapp" ? target.target.to.replace(/\D/g, "") : null,
+  };
+
+  // A test drive is held BEFORE its confirmation goes out: never confirm a slot we do not hold.
+  for (const a of s.turn.decision.actions) {
+    if (a.type !== "BOOK_TEST_DRIVE") continue;
+    const booked = await bookTestDrive(chat, a.slot, a.models);
+    if (booked !== "booked") {
+      const released = afterSend(claimed, null, []);
+      await saveSuggestion({ accountId: c.account.id, brand: c.account.brand, conversationRef: c.ref, saved: released, expectedRev: claimed.rev });
+      return {
+        status: 409,
+        body: {
+          ok: false,
+          retry: booked === "taken",
+          message:
+            booked === "taken"
+              ? "That test-drive time was just booked by someone else — nothing was sent. The next suggestion offers the free times."
+              : "The test-drive calendar is not available (migration 014) — nothing was sent.",
+        },
+      };
+    }
+  }
+
   const result = await executePlan(s.turn.plan, target.target);
   const at = new Date().toISOString();
+
+  // The sales team is told only about answers that actually went out.
+  if (!result.failed) {
+    for (const a of s.turn.decision.actions) {
+      if (a.type !== "ALERT_SALES") continue;
+      const ok = await recordAlert(chat, { kind: a.kind, models: a.models, name: a.name, phone: a.phone, slot: a.slot });
+      if (!ok) console.error(`[sales/alert] ${a.kind} on ${c.account.id} could not be recorded (migration 013?)`);
+    }
+    for (const a of s.turn.decision.actions) {
+      if (a.type !== "FLAG_FOR_STAFF") continue;
+      await recordAlert(chat, { kind: "NEEDS_PERSON", models: [], name: null, phone: null, slot: null, reason: a.reason });
+    }
+  }
 
   if (c.channel === "whatsapp") {
     for (const part of result.sent) {
@@ -351,6 +397,25 @@ export async function resumeSuggestions(threadId: unknown): Promise<Reply> {
   return suggestionFor(threadId);
 }
 
+/** Engine reasons that mean a customer is waiting for a person, not a quiet "ok". */
+function needsPerson(reasons: readonly string[]): boolean {
+  return reasons.some((r) => /a person (reads|looks|says|answers)|switched off|another brand/i.test(r));
+}
+
+/** A "Needs a person" alert for the inbox — the engine's reason only, never the customer's words. */
+async function alertPerson(threadId: string, c: Loaded, reason: string): Promise<void> {
+  const peer = c.channel === "whatsapp" ? await threadPeerId(threadId) : null;
+  const chat: ChatRef = {
+    accountId: c.account.id,
+    brand: c.account.brand,
+    conversationRef: c.ref,
+    threadId,
+    customerPhone: peer ? peer.replace(/\D/g, "") || null : null,
+  };
+  const ok = await recordAlert(chat, { kind: "NEEDS_PERSON", models: [], name: null, phone: null, slot: null, reason });
+  if (!ok) console.error(`[sales/alert] needs-a-person on ${c.account.id} could not be recorded (migration 015?)`);
+}
+
 export interface AutoreplyOutcome {
   rounds: number;
   sent: number;
@@ -408,8 +473,15 @@ export async function autoreplyThread(
     const s = suggestForThread(c.facts, saved, c.deps, { liveSending: live });
     if (s.kind !== "suggestion") return { rounds: round, sent, stopped: s.kind };
     const view = viewOf(s, true, c.notes);
-    if (view.outcome !== "ACTIONS") return { rounds: round, sent, stopped: `no action (${view.outcome})` };
+    if (view.outcome !== "ACTIONS") {
+      // The bot has nothing it may say: mark the chat for a person (Samer, 2026-09-17).
+      if (view.outcome === "NO_AUTOMATIC_ACTION" && needsPerson(s.turn.decision.reasons)) {
+        await alertPerson(threadId, c, s.turn.decision.reasons.join(" "));
+      }
+      return { rounds: round, sent, stopped: `no action (${view.outcome})` };
+    }
     if (!view.canSend) {
+      await alertPerson(threadId, c, "The bot's answer could not be sent automatically.");
       // Policy and file wording only — no customer words.
       return { rounds: round, sent, stopped: `blocked: ${(view.blocked ?? []).join(" | ").slice(0, 400)}` };
     }
@@ -419,8 +491,10 @@ export async function autoreplyThread(
       name: "Sales engine",
       prefix: AUTOREPLY_AUTOMATION_PREFIX,
     });
-    const body = d.body as { ok?: boolean; sent?: number; message?: string };
+    const body = d.body as { ok?: boolean; sent?: number; message?: string; retry?: boolean };
     sent += body.sent ?? 0;
+    // A slot taken a moment ago: look again, and the engine offers the free ones.
+    if (!body.ok && body.retry) continue;
     if (!body.ok) return { rounds: round, sent, stopped: `send ${d.status}: ${(body.message ?? "").slice(0, 200)}` };
     if (Date.now() > deadlineMs) return { rounds: round, sent, stopped: "time budget used" };
   }

@@ -19,6 +19,7 @@ import {
   readinessReport,
   salesBrandOf,
 } from "@/lib/wasales/knowledge";
+import { WORKBOOK } from "@/lib/wasales/knowledge-data";
 import { folderMedia, libraryMedia, loadCatalog } from "@/lib/wasales/catalog";
 import {
   DEFAULT_SALES_CONTEXT_TTL_HOURS,
@@ -50,22 +51,62 @@ describe("the knowledge that ships", () => {
     assert.equal(salesBrandOf("kia"), null);
   });
 
-  test("NO fact is approved: nothing was invented, and captions await a person", () => {
+  test("every fact is the workbook's, approved — nothing invented, and 'not stated' is kept EMPTY", () => {
     for (const m of K.models) {
+      const book = WORKBOOK.models[m.code];
+      assert.equal(m.displayName, book.officialName, m.code);
+      assert.equal(m.bucket, book.bucket, m.code);
+      assert.equal(m.seatCount, book.seatCount, m.code);
+      const bookFacts = book.facts as Record<string, { value: string; confirmed: boolean }>;
+      // Exactly the workbook's facts: none added, none dropped.
+      assert.deepEqual(Object.keys(m.facts).sort(), Object.keys(bookFacts).sort(), m.code);
       for (const key of FACT_KEYS) {
         const fact = m.facts[key];
-        if (!fact) continue;
-        assert.equal(fact.approved, false, `${m.code} / ${key}`);
-        assert.match(fact.source, /^Unapproved — Monza's own video caption/, `${m.code} / ${key}`);
+        const source = bookFacts[key];
+        if (!source) {
+          assert.equal(fact, undefined, `${m.code} / ${key}`);
+          continue;
+        }
+        assert.ok(fact, `${m.code} / ${key}`);
+        assert.equal(fact.approved, true, `${m.code} / ${key}`);
+        assert.match(fact.source, /workbook/, `${m.code} / ${key}`);
+        if (source.confirmed) {
+          assert.equal(fact.value, source.value, `${m.code} / ${key}`);
+          assert.equal(factStatus(fact), "OK", `${m.code} / ${key}`);
+        } else {
+          assert.equal(factStatus(fact), "EMPTY", `${m.code} / ${key}`);
+        }
       }
     }
+    // The official names, and facts the workbook says are not stated.
+    assert.equal(modelByCode(K, "COURAGE")?.displayName, "VOYAH Courage");
+    assert.equal(modelByCode(K, "FREE_318")?.displayName, "VOYAH Free 318");
+    assert.equal(modelByCode(K, "MHERO_1")?.displayName, "MHERO 1");
+    assert.equal(modelByCode(K, "COURAGE")?.facts.HORSEPOWER?.value, "320 kW / 435 PS");
+    assert.equal(factStatus(modelByCode(K, "PASSION_L")?.facts.BATTERY), "EMPTY");
+    assert.equal(factStatus(modelByCode(K, "MHERO_1")?.facts.SEATS), "EMPTY");
   });
 
-  test("the contact number is Samer's, and the only approved global", () => {
+  test("the showroom's globals are the workbook's sentences, all approved", () => {
     assert.deepEqual(K.contact, { digits: "70708585", display: "70 70 85 85" });
     assert.equal(factStatus(K.global.CONTACT_NUMBER), "OK");
-    assert.equal(factStatus(K.global.LOCATION), "MISSING");
-    assert.equal(factStatus(K.global.OPENING_HOURS), "MISSING");
+    assert.equal(factStatus(K.global.LOCATION), "OK");
+    assert.equal(factStatus(K.global.OPENING_HOURS), "OK");
+    assert.equal(K.global.CONTACT_NUMBER?.value, "For sales enquiries, please contact us on 70 70 85 85.");
+    assert.equal(
+      K.global.LOCATION?.value,
+      "Our showroom is located in Horch Tabet, Beirut.\nhttps://maps.app.goo.gl/orJMduowHtVqQgR58"
+    );
+    assert.equal(
+      K.global.OPENING_HOURS?.value,
+      [
+        "Our showroom is open Monday to Friday, from 8:00 AM to 6:00 PM.",
+        "Our showroom is open on Saturday, from 8:00 AM to 2:00 PM.",
+        "Sunday and public-holiday availability should be confirmed by a team member.",
+      ].join("\n")
+    );
+    assert.equal(K.showroom.handoff, "For further assistance, please contact us on 70 70 85 85.");
+    assert.equal(K.showroom.serviceContact, "For Service, Maintenance, or Spare Parts, please contact 76 877 278.");
   });
 
   test("it is frozen all the way down", () => {
