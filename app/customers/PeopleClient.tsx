@@ -19,13 +19,18 @@ import { longDate } from "@/lib/format";
 import { peopleCsv, personMatches, summarisePeople, type Person } from "@/lib/leads/people";
 import "../board.css";
 
-type Filter = "all" | "waiting" | "ads" | "untracked";
+type Filter = "all" | "waiting" | "ads" | "untracked" | "crm" | "not_in_crm";
+
+/** Whether the CRM answered for the person looking: its customers are joined in only when it did. */
+type CrmState = "ok" | "not_connected" | "unavailable";
 
 const FILTERS: readonly { key: Filter; label: string }[] = [
   { key: "all", label: "Everyone" },
   { key: "waiting", label: "Waiting for a person" },
   { key: "ads", label: "Came from an ad" },
   { key: "untracked", label: "Not tracked" },
+  { key: "crm", label: "In the CRM" },
+  { key: "not_in_crm", label: "Chatted, not in the CRM" },
 ];
 
 const ALERT_LABEL: Readonly<Record<string, string>> = {
@@ -45,7 +50,7 @@ const ALERT_LABEL: Readonly<Record<string, string>> = {
 const day = (iso: string | null) => (iso ? longDate(iso.slice(0, 10)) : "—");
 const PAGE = 100;
 
-export default function PeopleClient({ people }: { people: Person[] }) {
+export default function PeopleClient({ people, crm }: { people: Person[]; crm: CrmState }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [source, setSource] = useState<string | null>(null);
@@ -60,6 +65,8 @@ export default function PeopleClient({ people }: { people: Person[] }) {
         if (filter === "waiting" && p.alerts.length === 0) return false;
         if (filter === "ads" && p.source !== "Ad click") return false;
         if (filter === "untracked" && p.source !== "Not tracked") return false;
+        if (filter === "crm" && p.crm === null) return false;
+        if (filter === "not_in_crm" && (p.crm !== null || p.threads.length === 0)) return false;
         if (source && (p.sourceDetail ? `${p.source}: ${p.sourceDetail}` : p.source) !== source) return false;
         return personMatches(p, search);
       }),
@@ -68,7 +75,7 @@ export default function PeopleClient({ people }: { people: Person[] }) {
 
   const download = () => {
     // The list as filtered, so "everyone from the Courage ad" is one click.
-    const blob = new Blob(["﻿" + peopleCsv(visible)], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob([String.fromCharCode(0xfeff) + peopleCsv(visible)], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -86,9 +93,14 @@ export default function PeopleClient({ people }: { people: Person[] }) {
       </header>
 
       <p className="board-note">
-        These are real people, from Monza AI&apos;s own records: everyone with a WhatsApp, Instagram or Facebook chat
-        since the channel was connected. Nothing here can be edited, and no message text is shown. Their cars and
-        payment plans will appear once the CRM is connected — they are never invented.
+        These are real people: everyone with a WhatsApp, Instagram or Facebook chat since the channel was connected
+        (Monza AI&apos;s own records)
+        {crm === "ok"
+          ? ", joined with the customers of the CRM as your own CRM sign-in may see them — their cars and payment plans are the CRM's figures, read now and never copied. A chat is matched to a CRM customer only by the same Lebanese mobile number, never by name."
+          : crm === "unavailable"
+            ? ". The CRM could not be read for your account just now, so CRM customers, cars and payment plans are missing from this view — they are not shown as empty."
+            : ". The CRM is not connected here, so cars and payment plans are absent — they are never invented."}{" "}
+        Nothing here can be edited, and no message text is shown.
       </p>
 
       <div className="rowcard-tags" role="group" aria-label="Totals">
@@ -96,6 +108,8 @@ export default function PeopleClient({ people }: { people: Person[] }) {
         <span className={summary.waiting > 0 ? "tag urgent" : "tag"}>{summary.waiting} waiting for a person</span>
         <span className="tag">{summary.fromAds} came from an ad</span>
         <span className="tag">{summary.notTracked} not tracked</span>
+        {crm === "ok" && <span className="tag">{summary.inCrm} in the CRM</span>}
+        {crm === "ok" && <span className="tag">{summary.chattedNotInCrm} chatted, not in the CRM</span>}
       </div>
 
       {(summary.sources.length > 0 || summary.cars.length > 0) && (
@@ -154,7 +168,7 @@ export default function PeopleClient({ people }: { people: Person[] }) {
         />
       </div>
       <div className="rowcard-tags" role="group" aria-label="Filter">
-        {FILTERS.map((f) => (
+        {FILTERS.filter((f) => crm === "ok" || (f.key !== "crm" && f.key !== "not_in_crm")).map((f) => (
           <button
             key={f.key}
             type="button"
@@ -190,7 +204,7 @@ export default function PeopleClient({ people }: { people: Person[] }) {
                 <div className="grow">
                   <p className="rowcard-name">{p.name}</p>
                   <p className="rowcard-sub">
-                    {[p.phone ? `+${p.phone}` : null, channels.map((c) => CHANNEL_LABEL[c]).join(" · "), `last active ${day(p.lastSeenAt)}`]
+                    {[p.phone ? `+${p.phone}` : null, channels.map((c) => CHANNEL_LABEL[c]).join(" · ") || null, p.threads.length > 0 ? `last active ${day(p.lastSeenAt)}` : `in the CRM since ${day(p.firstSeenAt)}`]
                       .filter(Boolean)
                       .join(" · ")}
                   </p>
@@ -198,6 +212,9 @@ export default function PeopleClient({ people }: { people: Person[] }) {
                 <div className="rowcard-tags">
                   {p.alerts.length > 0 && <span className="tag urgent">{ALERT_LABEL[p.alerts[0].kind] ?? "Needs a person"}</span>}
                   {unread > 0 && <span className="tag">{unread} unread</span>}
+                  {p.crm && <span className="tag">CRM customer</span>}
+                  {p.crm && p.crm.cars.length > 0 && <span className="tag">{p.crm.cars.length === 1 ? "1 car" : `${p.crm.cars.length} cars`}</span>}
+                  {p.crm && p.crm.activePlans > 0 && <span className="tag">{p.crm.activePlans === 1 ? "1 payment plan" : `${p.crm.activePlans} payment plans`}</span>}
                   {p.interests.map((car) => (
                     <span className="tag" key={car}>
                       {car}
@@ -249,7 +266,39 @@ export default function PeopleClient({ people }: { people: Person[] }) {
                       ))}
                     </ul>
                   </div>
-                  <p className="cap">Cars owned and payment plans: not connected yet (they live in the CRM).</p>
+                  <div className="ctx-card">
+                    <p className="ctx-title">In the CRM</p>
+                    {p.crm ? (
+                      <>
+                        <p className="cap">
+                          {p.crm.name || "Unnamed"} · customer since {day(p.crm.since)}
+                          {p.crm.leadSource ? ` · lead source: ${p.crm.leadSource}` : ""}
+                          {p.crm.email ? ` · ${p.crm.email}` : ""}
+                        </p>
+                        {p.crm.cars.length === 0 ? (
+                          <p className="cap">No car on a sales order.</p>
+                        ) : (
+                          <ul className="ctx-list">
+                            {p.crm.cars.map((car) => (
+                              <li key={car}>{car}</li>
+                            ))}
+                          </ul>
+                        )}
+                        <p className="cap">
+                          {p.crm.activePlans === 0 ? "No active payment plan." : `${p.crm.activePlans} active payment plan${p.crm.activePlans === 1 ? "" : "s"} — see Installments.`}{" "}
+                          As the CRM reports it; not a figure Monza AI keeps.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="cap">
+                        {crm === "ok"
+                          ? "No CRM customer has this mobile number (or your CRM access does not show them)."
+                          : crm === "unavailable"
+                            ? "The CRM could not be read just now."
+                            : "The CRM is not connected here."}
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -261,6 +310,11 @@ export default function PeopleClient({ people }: { people: Person[] }) {
                   <Link className="btn quiet" href={`/inbox?open=${encodeURIComponent(newest.threadId)}`}>
                     Open the chat
                   </Link>
+                )}
+                {!newest && p.phone && (
+                  <a className="btn quiet" href={`https://wa.me/${p.phone}`} target="_blank" rel="noreferrer">
+                    WhatsApp them
+                  </a>
                 )}
               </div>
             </li>

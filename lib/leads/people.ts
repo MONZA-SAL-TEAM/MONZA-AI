@@ -23,6 +23,7 @@
 
 import { encodeThreadId } from "@/lib/channels/live-map";
 import { MONZA_KNOWLEDGE, modelByCatalogueId } from "@/lib/wasales/knowledge";
+import { isAutoLinkable, normalizeLebanesePhone } from "@/lib/leads/phone";
 
 export type PersonChannel = "whatsapp" | "instagram" | "facebook";
 
@@ -60,6 +61,23 @@ export interface Person {
   alerts: PersonAlert[];
   firstSeenAt: string | null;
   lastSeenAt: string | null;
+  /** Their record in the CRM, when the staff member looking may see it. Read live, never stored. */
+  crm: CrmRecord | null;
+}
+
+/** A customer as the CRM holds them (its words, its figures — MONZA AI keeps no copy). */
+export interface CrmRecord {
+  customerId: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  /** "lead_source", in the CRM's own words. */
+  leadSource: string | null;
+  /** ISO date the CRM record was created. */
+  since: string | null;
+  /** "VOYAH Free 2026 · plate 123456 · delivered" */
+  cars: string[];
+  activePlans: number;
 }
 
 /* ── Rows, exactly as the tables give them ───────────────────────────────── */
@@ -143,6 +161,7 @@ export function buildPeople(rows: PeopleRows): Person[] {
         alerts: [],
         firstSeenAt: lead?.first_seen_at ?? null,
         lastSeenAt: lead?.last_seen_at ?? null,
+        crm: null,
       };
       people.set(key, person);
     }
@@ -191,13 +210,56 @@ export function buildPeople(rows: PeopleRows): Person[] {
   );
 }
 
+/**
+ * Add the CRM's customers to the people who chatted.
+ *
+ * A chat is linked to a CRM customer ONLY by a Lebanese MOBILE number that is
+ * the same on both sides — never by a name, never by a landline (a household
+ * shares one): the rule of lib/leads, applied at display time. Nothing is
+ * written anywhere: the link exists for this page view, for this staff member,
+ * under their own CRM access. A CRM customer who never wrote becomes a person
+ * too, so the list is every customer Monza has, not only the ones who chatted.
+ */
+export function mergeCrm(people: readonly Person[], customers: readonly CrmRecord[]): Person[] {
+  const byMobile = new Map<string, CrmRecord>();
+  for (const c of customers) {
+    const n = normalizeLebanesePhone(c.phone);
+    if (n && isAutoLinkable(c.phone) && !byMobile.has(n)) byMobile.set(n, c);
+  }
+  const used = new Set<string>();
+  const merged = people.map((p) => {
+    const n = p.phone ? normalizeLebanesePhone(p.phone) : null;
+    const match = n && isAutoLinkable(p.phone) ? byMobile.get(n) ?? null : null;
+    if (!match || used.has(match.customerId)) return p;
+    used.add(match.customerId);
+    return { ...p, crm: match, name: p.name.startsWith("+") || p.name === "Unnamed" ? match.name || p.name : p.name };
+  });
+  const crmOnly: Person[] = customers
+    .filter((c) => !used.has(c.customerId))
+    .map((c) => ({
+      id: `crm:${c.customerId}`,
+      name: c.name || "Unnamed",
+      phone: (c.phone ?? "").replace(/\D/g, "") || null,
+      threads: [],
+      source: "CRM record",
+      sourceDetail: c.leadSource,
+      sourceRef: null,
+      interests: [],
+      alerts: [],
+      firstSeenAt: c.since,
+      lastSeenAt: c.since,
+      crm: c,
+    }));
+  return [...merged, ...crmOnly];
+}
+
 /** Name, phone number (with or without the country code, spaces ignored) or a car they asked about. */
 export function personMatches(person: Person, search: string): boolean {
   const q = search.trim().toLowerCase();
   if (q === "") return true;
   const qDigits = q.replace(/\D/g, "").replace(/^0+/, "");
   if (qDigits.length >= 3 && person.phone?.includes(qDigits)) return true;
-  return [person.name, person.source, person.sourceDetail ?? "", ...person.interests].some((s) => s.toLowerCase().includes(q));
+  return [person.name, person.source, person.sourceDetail ?? "", ...person.interests, person.crm?.email ?? "", ...(person.crm?.cars ?? [])].some((s) => s.toLowerCase().includes(q));
 }
 
 /* ── The summary above the list, and the export ──────────────────────────── */
@@ -207,6 +269,10 @@ export interface PeopleSummary {
   waiting: number;
   fromAds: number;
   notTracked: number;
+  /** People with a CRM record (as far as this staff member may see). */
+  inCrm: number;
+  /** People who chatted and have no CRM record: leads still to be entered. */
+  chattedNotInCrm: number;
   /** Each ad or post that brought somebody, most people first. */
   sources: { label: string; people: number }[];
   /** Each car somebody asked about, most people first. */
@@ -230,6 +296,8 @@ export function summarisePeople(people: readonly Person[]): PeopleSummary {
     fromAds: people.filter((p) => p.source === "Ad click").length,
     // "Not tracked" is a real number somebody spends money by: it is shown, never folded away.
     notTracked: people.filter((p) => p.source === "Not tracked").length,
+    inCrm: people.filter((p) => p.crm !== null).length,
+    chattedNotInCrm: people.filter((p) => p.crm === null && p.threads.length > 0).length,
     sources: [...sources].map(([label, n]) => ({ label, people: n })).sort(byCount),
     cars: [...cars].map(([car, n]) => ({ car, people: n })).sort(byCount),
   };
@@ -241,7 +309,7 @@ export function peopleCsv(people: readonly Person[]): string {
     const safe = /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
     return `"${safe.replace(/"/g, '""')}"`;
   };
-  const head = ["Name", "Phone", "Channels", "Came from", "Ad or post", "Asked about", "Waiting for a person", "First seen", "Last seen"];
+  const head = ["Name", "Phone", "Channels", "Came from", "Ad or post", "Asked about", "Waiting for a person", "First seen", "Last seen", "In the CRM", "Cars (CRM)", "Active payment plans"];
   const lines = people.map((p) =>
     [
       p.name,
@@ -253,6 +321,9 @@ export function peopleCsv(people: readonly Person[]): string {
       p.alerts.length > 0 ? "yes" : "",
       (p.firstSeenAt ?? "").slice(0, 10),
       (p.lastSeenAt ?? "").slice(0, 10),
+      p.crm ? "yes" : "",
+      (p.crm?.cars ?? []).join(" / "),
+      p.crm && p.crm.activePlans > 0 ? String(p.crm.activePlans) : "",
     ]
       .map(cell)
       .join(",")

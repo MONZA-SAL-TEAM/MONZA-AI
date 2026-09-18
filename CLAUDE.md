@@ -666,9 +666,14 @@ per-car counts, "Open the chat" (`/inbox?open=<thread>`) and a CSV of the list a
 - Read-only; no message text is read or returned; an Instagram/Messenger id is never a phone.
 - `direct` is shown as "Not tracked" and counted, never relabelled organic (see Leads below).
 - It covers what is STORED: WhatsApp fully; Instagram/Facebook only once their webhooks deliver.
-- Cars owned and payment plans stay absent until the CRM is connected — the screen says so.
-  The labelled example screen remains only where MONZA AI's database cannot be read (a local
-  preview without keys).
+- **Joined with the CRM, per page view** (`lib/leads/people-crm.ts`, `mergeCrm`): the CRM's
+  customers, their cars (sales orders) and active payment plans are read AS THE STAFF MEMBER
+  looking (`makeUserClient`, their own token — CRM row-level security decides), never stored,
+  and linked to a chat ONLY by the same Lebanese MOBILE number (never a name, never a
+  landline). A CRM customer who never wrote is listed too. If the CRM refuses or fails, the
+  screen says it could not be read — CRM data is never shown as empty, and never invented.
+  The labelled example screen remains only where MONZA AI's own database cannot be read (a
+  local preview without keys).
 - CSV cells that begin with = + - @ are defused: a customer chooses their own display name.
 
 ## The customer assistant (`/care`)

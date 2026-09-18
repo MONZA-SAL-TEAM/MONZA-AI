@@ -92,14 +92,68 @@ describe("the people behind /customers", () => {
   test("the export is the list as shown, and a name can never start a spreadsheet formula", () => {
     const csv = peopleCsv(people);
     const lines = csv.split("\r\n");
-    assert.equal(lines[0], '"Name","Phone","Channels","Came from","Ad or post","Asked about","Waiting for a person","First seen","Last seen"');
-    assert.equal(lines[1], '"Test One","\'+9613000001","instagram / whatsapp","Ad click","Voyah COURAGE","VOYAH Courage / VOYAH Taishan","yes","2026-09-16","2026-09-18"');
+    assert.equal(lines[0], '"Name","Phone","Channels","Came from","Ad or post","Asked about","Waiting for a person","First seen","Last seen","In the CRM","Cars (CRM)","Active payment plans"');
+    assert.equal(lines[1], '"Test One","\'+9613000001","instagram / whatsapp","Ad click","Voyah COURAGE","VOYAH Courage / VOYAH Taishan","yes","2026-09-16","2026-09-18","","",""');
     assert.ok(csv.includes(`"'=cmd|calc"`), "a leading = is defused");
     assert.ok(!/(^|,)"=/.test(csv));
   });
 
   test("no message text is part of a person", () => {
     assert.ok(one);
-    assert.deepEqual(Object.keys(one ?? {}).sort(), ["alerts", "firstSeenAt", "id", "interests", "lastSeenAt", "name", "phone", "source", "sourceDetail", "sourceRef", "threads"]);
+    assert.deepEqual(Object.keys(one ?? {}).sort(), ["alerts", "crm", "firstSeenAt", "id", "interests", "lastSeenAt", "name", "phone", "source", "sourceDetail", "sourceRef", "threads"]);
+  });
+});
+
+describe("joined with the CRM (read as the staff member, never stored)", () => {
+  const people = buildPeople(ROWS);
+  const crm = [
+    { customerId: "K1", name: "Test One Buyer", phone: "03 000 001", email: "one@example.test", leadSource: "Showroom walk-in", since: "2026-01-10T00:00:00Z", cars: ["VOYAH Free 2026 · plate 123456 · delivered"], activePlans: 1 },
+    // Same NAME as a chat, different number: a name never links.
+    { customerId: "K2", name: "+9613000002", phone: "01 555 555", email: null, leadSource: null, since: "2025-05-01T00:00:00Z", cars: [], activePlans: 0 },
+    { customerId: "K3", name: "Only In Crm", phone: "+961 71 222 333", email: null, leadSource: "Referral", since: "2025-03-01T00:00:00Z", cars: [], activePlans: 0 },
+  ];
+
+  test("a chat links to a CRM customer by the same Lebanese MOBILE number, however it is written", async () => {
+    const { mergeCrm } = await import("@/lib/leads/people");
+    const merged = mergeCrm(people, crm);
+    const one = merged.find((p) => p.name === "Test One");
+    assert.equal(one?.crm?.customerId, "K1");
+    assert.deepEqual(one?.crm?.cars, ["VOYAH Free 2026 · plate 123456 · delivered"]);
+    assert.equal(one?.crm?.activePlans, 1);
+    assert.equal(one?.threads.length, 2, "the chats stay");
+  });
+
+  test("a name never links, and neither does a landline", async () => {
+    const { mergeCrm } = await import("@/lib/leads/people");
+    const merged = mergeCrm(people, crm);
+    assert.equal(merged.find((p) => p.id === "chat:c3")?.crm, null);
+    assert.ok(merged.some((p) => p.id === "crm:K2" && p.threads.length === 0), "the landline customer stands alone");
+  });
+
+  test("a CRM customer who never wrote is a person too; the totals say who is where", async () => {
+    const { mergeCrm } = await import("@/lib/leads/people");
+    const merged = mergeCrm(people, crm);
+    assert.equal(merged.length, 5);
+    const only = merged.find((p) => p.id === "crm:K3");
+    assert.deepEqual([only?.name, only?.source, only?.sourceDetail, only?.phone], ["Only In Crm", "CRM record", "Referral", "96171222333"]);
+    const s = summarisePeople(merged);
+    assert.deepEqual([s.people, s.inCrm, s.chattedNotInCrm], [5, 3, 2]);
+    // A CRM-only customer is not "not tracked": that label is about how a CHAT began.
+    assert.equal(s.notTracked, 2);
+    assert.ok(personMatches(merged.find((p) => p.name === "Test One")!, "123456"), "found by the plate");
+  });
+
+  test("one CRM customer is never attached to two chats", async () => {
+    const { mergeCrm } = await import("@/lib/leads/people");
+    const twice = [...people, { ...people[0], id: "chat:dup", threads: [] }];
+    const merged = mergeCrm(twice, crm);
+    assert.equal(merged.filter((p) => p.crm?.customerId === "K1").length, 1);
+  });
+
+  test("the export carries the CRM columns", async () => {
+    const { mergeCrm } = await import("@/lib/leads/people");
+    const csv = peopleCsv(mergeCrm(people, crm));
+    assert.match(csv.split("\r\n")[0], /"In the CRM","Cars \(CRM\)","Active payment plans"$/);
+    assert.match(csv, /"yes","VOYAH Free 2026 · plate 123456 · delivered","1"/);
   });
 });

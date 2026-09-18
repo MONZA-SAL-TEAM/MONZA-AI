@@ -3,6 +3,8 @@ import { requireStaffForPage } from "@/lib/auth-server";
 import { getSource, isDemoSource, readContext } from "@/lib/domain";
 import { DEMO_CONVERSATIONS } from "@/lib/inbox/demo-conversations";
 import { listPeople } from "@/lib/leads/people-server";
+import { listCrmCustomers } from "@/lib/leads/people-crm";
+import { mergeCrm } from "@/lib/leads/people";
 import CustomersClient from "./CustomersClient";
 import PeopleClient from "./PeopleClient";
 
@@ -30,8 +32,12 @@ export default async function CustomersPage() {
   // THE REAL PEOPLE (Samer, 2026-09-18: "all my customers need to be tracked"): everyone Monza
   // has a chat with, from Monza AI's own records. Null only where those records cannot be read
   // (a local preview with no keys) — then, and only then, the labelled example screen below.
-  const people = await listPeople();
-  if (people) return <PeopleClient people={people} />;
+  // …joined, for this page view only, with the CRM's customers as THIS staff member may see them
+  // (their own CRM sign-in; a Lebanese mobile number is the only link; nothing is stored).
+  const [people, crm] = await Promise.all([listPeople(), listCrmCustomers(user)]);
+  if (people) {
+    return <PeopleClient people={crm.state === "ok" ? mergeCrm(people, crm.customers) : people} crm={crm.state} />;
+  }
 
   const source = getSource();
   const ctx = readContext(user);
