@@ -88,8 +88,8 @@ describe("the knowledge that ships", () => {
     assert.equal(modelByCode(K, "TAISHAN")?.facts.SEATS?.value, "6 to 7 seats");
     assert.deepEqual(modelByCode(K, "TAISHAN")?.seatOptions, [6, 7], "a 6-seat and a 7-seat question both find it");
     assert.deepEqual(modelByCode(K, "FREE_318")?.colourNames, ["Midnight Black", "British Racing Green", "Titanium Grey", "Sage Green", "Pearl White"]);
-    // The one fact still held: A Car Facts says 440 km WLTP, the F sheet says 550 / 440 uphill.
-    assert.equal(factStatus(modelByCode(K, "COURAGE")?.facts.RANGE), "EMPTY");
+    // Settled by Samer in chat, 2026-09-18 (CONFIRMED_BY_SAMER in the import script).
+    assert.equal(modelByCode(K, "COURAGE")?.facts.RANGE?.value, "550 km of WLTP range on a full charge, and 440 km if uphill");
     assert.equal(modelByCode(K, "MHERO_1")?.facts.SEATS?.value, "5", "the workbook writes 5-seat");
   });
 

@@ -75,10 +75,14 @@ REWRITES = [
 # 2026-09-18: Samer's "Updated Logic" workbook re-states every fact held on 2026-09-17
 # (Taishan 700 hp and 410 km, Passion L 657 hp, the 43 kWh CATL packs) and names A Car Facts
 # the single source of truth — that is his confirmation, so those holds are lifted.
-# Still held: the Courage range. A Car Facts says "440 km WLTP"; the same workbook's
-# F Model Answer Coverage says "550 km of WLTP range on a full charge if up hill 440 km".
-PENDING_CONFIRMATION = {
-    ("VOYAH Courage", "RANGE"),
+PENDING_CONFIRMATION = set()
+
+# Samer's own word, given in chat, where the workbook's sheets disagree. The value here wins
+# until cell A Car Facts says the same; the importer prints the difference on every run.
+#   Courage range (2026-09-18): A said "440 km WLTP", F said "550 km of WLTP range on a full
+#   charge if up hill 440 km", the video 470. Samer: "its 550 km and if uphill 440 km".
+CONFIRMED_BY_SAMER = {
+    ("VOYAH Courage", "RANGE"): "550 km of WLTP range on a full charge, and 440 km if uphill",
 }
 
 SAVED_MAPS_LINK = "https://maps.app.goo.gl/CVPJQqXfnnbBmubZ8"
@@ -99,6 +103,10 @@ def clean_value(model, key, raw):
         warnings.append(f"PENDING {model} {key}: {raw!r} awaits Samer's confirmation — the bot says not confirmed yet")
         return {"value": "", "confirmed": False, "pending": raw}
     value = raw
+    settled = CONFIRMED_BY_SAMER.get((model, key))
+    if settled and settled != raw:
+        warnings.append(f"CONFIRMED BY SAMER {model} {key}: the workbook says {raw!r}, the bot says {settled!r} — update A Car Facts to match")
+        value = settled
     for pattern, replacement in REWRITES:
         value = re.sub(pattern, replacement, value, flags=re.I)
     if value != raw:

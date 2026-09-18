@@ -207,6 +207,14 @@ export function modelLabel(code: ModelCode): string {
   return code.replace(/_/g, " ");
 }
 
+/**
+ * "Passion S", "passion-s", "باشن اس" — but not "the passion's price" and not "passion sedan".
+ */
+export function asksAboutPassionS(raw: string): boolean {
+  const text = raw.replace(/[’']s\b/gi, "");
+  return /(^|[^a-z])passion[\s-]+s(?![a-z])/i.test(text) || /(باشن|باسيون)\s+(اس|إس)(\s|$)/.test(text);
+}
+
 /** The catalogue cars of every model the knowledge knows. */
 export function engineCars(k: SalesKnowledge, catalog: readonly WaCar[]): WaCar[] {
   const out: WaCar[] = [];
@@ -941,6 +949,15 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     text("HUMAN_HANDOFF", u.models.length > 0 ? u.models : u.model ? [u.model] : []);
     alert("HUMAN", u.models.length > 0 ? u.models : u.model ? [u.model] : [], { reason: "Asked to talk to a person" });
     next.awaiting = "PERSON";
+    return finish();
+  }
+
+  /* 0c2. The Passion S (Samer, 2026-09-18: "leave passion s only to be answered by sales team
+     instead of chat bot"). It is not in A Car Facts, so the bot has nothing approved to say about
+     it — and it must never be answered as the Passion. "the passion's price" is not the Passion S. */
+  if (!payload && asksAboutPassionS(reading.raw)) {
+    text("SALES_FOLLOWUP", []);
+    alert("QUESTION", [], { reason: "Asked about the Passion S — the Sales team answers, not the bot" });
     return finish();
   }
 

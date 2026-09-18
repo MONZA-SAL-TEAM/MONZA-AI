@@ -14,25 +14,19 @@ of truth: Taishan 700 hp and 410 km EV / 1,400 km combined; Passion L 657 hp, 41
 combined, 65 kWh CATL; the 43 kWh CATL packs of the Free 318, Dream and Passion; MHERO 1 = 5 seats.
 The bot now states all of them exactly as written.
 
-## Still held: 1 fact
+## Settled by Samer in chat, 2026-09-18
 
-| Car | Fact | A Car Facts | Conflicts with | Confirm |
-|---|---|---|---|---|
-| VOYAH Courage | Range | 440 km WLTP | the same workbook's *F Model Answer Coverage*: "550 km of WLTP range on a full charge if up hill 440 km"; Monza's own Courage video says 470 km | ☐ 440 km WLTP · ☐ the 550 / 440 sentence · ☐ other: ____ |
-
-## A sentence I did not switch on: "Do you mean Voyah passion S?"
-
-Replies rows 113, 118, 120, 122, 126, 131, 134 and 139 (a customer asks for a colour we do not
-have, e.g. red) now say: *"Sorry we don't have a Voyah Free 318 in red. Do you mean Voyah passion
-S?"* — the same text on every car's row, including the Courage and the MHERO rows.
-
-There is no "Passion S" in *A Car Facts*, so the bot has no brochure, video or fact for it and
-would be naming a car it cannot show. Today the bot answers: *"Sorry — we don't have a video of the
-VOYAH Courage in red."* and offers that car's real colours. Tell me which you want:
-
-- ☐ Passion S is a real car we sell: add its row to *A Car Facts* (and its brochure/video), and I switch the sentence on.
-- ☐ It should say "VOYAH Passion" (or "Passion L"): tell me which, and for which colour(s).
-- ☐ Keep today's answer.
+- **Courage range** — "its 550 km and if uphill 440 km". The bot says: *"The VOYAH Courage offers
+  550 km of WLTP range on a full charge, and 440 km if uphill."* Nothing is held any more.
+  **Your workbook still says "440 km WLTP" in A Car Facts (cell C6)** — please change that cell to
+  the same sentence, so the workbook and the bot agree; until then `CONFIRMED_BY_SAMER` in
+  `scripts/sales-import-workbook.py` carries your word and the importer prints the difference.
+  Monza's own Courage video still says 470 km.
+- **Passion S** — "leave passion s only to be answered by sales team instead of chat bot". Any
+  message naming the Passion S gets only *"Our Sales Team will assist you further right here with
+  all the details you need."* and a "Question for the team" alert — no brochure, no video, and it
+  is never answered as the Passion. The "Do you mean Voyah passion S?" sentence is NOT sent by the
+  bot: a customer who asks for a colour we do not have is told so and offered the real colours.
 
 ## Colours: the workbook names more than the library can show
 

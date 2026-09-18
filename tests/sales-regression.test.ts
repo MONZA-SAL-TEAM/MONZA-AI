@@ -219,7 +219,14 @@ const CASES: Case[] = [
   // Facts: A Car Facts of 2026-09-18, exactly as stored
   { category: "spec", name: "horsepower, as stored", messages: ["courage hp"], say: [/produces 430 HP\./], notSay: [/435/, /320/] },
   { category: "spec", name: "every model's power", messages: ["hp?"], say: [/Courage — 430 HP/, /Passion — 550 hp/, /Taishan — 700 hp/, /MHERO 1 — 815 hp/] },
-  { category: "spec", name: "the one held fact says so, and Sales is told", messages: ["courage range"], say: [/not confirmed yet/, HERE], notSay: [/440/, /470/, /550/, SALES], alert: "QUESTION" },
+  // Samer, 2026-09-18: "its 550 km and if uphill 440 km" — never the video's 470.
+  { category: "spec", name: "Courage range, as Samer settled it", messages: ["courage range"], say: [/offers 550 km of WLTP range on a full charge, and 440 km if uphill\./], notSay: [/470/, /not confirmed/] },
+  { category: "spec", name: "Courage range in the list of every model", messages: ["range?"], say: [/Courage — 550 km of WLTP range on a full charge, and 440 km if uphill/] },
+  // Samer, 2026-09-18: "leave passion s only to be answered by sales team instead of chat bot".
+  { category: "passion s", name: "Passion S: Sales answers, the bot sends nothing about any car", messages: ["how much is the passion s"], say: [HANDOFF], notSay: [/brochure/i, SALES], alert: "QUESTION", files: 0 },
+  { category: "passion s", name: "Passion S mid-conversation", messages: ["courage", "do you have the passion S in red?"], say: [HANDOFF], notSay: [/Passion/, /red/i], alert: "QUESTION", files: 0 },
+  { category: "passion s", name: "'the passion's price' is the Passion, not the Passion S", messages: ["what is the passion's price"], say: [/Passion brochure/, HANDOFF], alert: "PRICE", files: 1 },
+  { category: "passion s", name: "'passion sedan' is the Passion", messages: ["passion sedan hp"], say: [/produces 550 hp/] },
   { category: "spec", name: "Passion L range is confirmed now", messages: ["passion l range"], say: [/410 km EV \/ 1,400 km combined \(CLTC\)/] },
   { category: "spec", name: "Passion L battery is stated now", messages: ["passion l battery"], say: [/65 kWh CATL ternary lithium/] },
   { category: "spec", name: "battery", messages: ["taishan battery"], say: [/Taishan battery/i, /65 kWh CATL/] },

@@ -97,9 +97,8 @@ export const WORKBOOK = {
           "confirmed": true
         },
         "RANGE": {
-          "value": "",
-          "confirmed": false,
-          "pending": "440 km WLTP"
+          "value": "550 km of WLTP range on a full charge, and 440 km if uphill",
+          "confirmed": true
         },
         "BATTERY": {
           "value": "80 kWh CATL nominal / 77.3 kWh usable LFP",

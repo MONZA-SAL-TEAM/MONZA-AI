@@ -940,8 +940,11 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   in Arabic (`templates.ts` `renderTextAr`), Arabizi in English. Conflicting
   workbook facts are HELD (`PENDING_CONFIRMATION` in the import script,
   `docs/SALES-FACTS-DISCREPANCIES.md`) and read "not confirmed yet" until Samer
-  confirms — since the 2026-09-18 workbook only the Courage range (A says 440 km
-  WLTP, F says 550 / 440 uphill). `tests/sales-regression.test.ts` is the mandatory set: every reply
+  confirms — nothing is held since 2026-09-18: Samer settled the Courage range in
+  chat ("550 km, and 440 km if uphill"; `CONFIRMED_BY_SAMER` in the import script
+  until the workbook cell says the same). The **Passion S** is not in A Car Facts
+  and is answered by Sales only (`asksAboutPassionS`): the hand-off sentence and
+  an alert, never the Passion's material. `tests/sales-regression.test.ts` is the mandatory set: every reply
   classified, no figure outside the approved knowledge, no internal label.
 - **Memory:** `database/migrations/012_sales_suggestion_state.sql` — engine
   state and our own sent ids per chat, never words. NOT applied until Samer

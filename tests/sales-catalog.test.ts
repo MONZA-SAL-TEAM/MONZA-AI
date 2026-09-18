@@ -201,16 +201,11 @@ describe("what the engine would really do", () => {
     assert.deepEqual(rows, [{ model: "COURAGE", fact: "HORSEPOWER", value: "430 HP", confirmed: true }]);
     assert.match(words(hp, "voyah"), /The VOYAH Courage produces 430 HP\./);
 
-    // HELD (docs/SALES-FACTS-DISCREPANCIES.md): A Car Facts says 440 km WLTP, the same workbook's
-    // F sheet says "550 km … if up hill 440 km", Monza's video says 470 km. The bot never picks one.
+    // Settled by Samer, 2026-09-18 ("its 550 km and if uphill 440 km"); the video's 470 km is never said.
     const range = say("courage range?", "voyah");
     assert.deepEqual(range.gaps, []);
-    assert.match(words(range, "voyah"), /The exact range of the VOYAH Courage is not confirmed yet\./);
-    for (const figure of ["440", "470", "550"]) assert.ok(!words(range, "voyah").includes(figure), figure);
-
-    assert.match(words(range, "voyah"), /Our Sales Team can confirm it with you right here\./);
-    assert.ok(!range.actions.some((a) => a.type === "SEND_CONTACT_FALLBACK"));
-    assert.ok(range.actions.some((a) => a.type === "ALERT_SALES" && a.kind === "QUESTION"), "the promise of a person reaches a person");
+    assert.match(words(range, "voyah"), /The VOYAH Courage offers 550 km of WLTP range on a full charge, and 440 km if uphill\./);
+    assert.ok(!words(range, "voyah").includes("470"));
 
     // Stated since the 2026-09-18 workbook (it was "not currently stated" before).
     const battery = say("passion l battery?", "voyah");

@@ -342,13 +342,13 @@ describe("the send policy", () => {
     const p = applySendPolicy([forged], LIVE, K);
     assert.equal(p.wouldSend, false, "470 km is not the workbook's value");
     assert.match(p.verdicts[0].blocked[0], /no longer approved/);
-    // The workbook's 440 km is HELD (pending Samer's confirmation), so even that figure is blocked.
-    const held: EngineAction = {
+    // The old 440 km WLTP is no longer the approved value (Samer, 2026-09-18), so it is blocked too.
+    const stale: EngineAction = {
       type: "SEND_FACTS",
       scope: "one",
       rows: [{ model: "COURAGE", fact: "RANGE", value: "440 km WLTP", confirmed: true }],
     };
-    assert.equal(applySendPolicy([held], LIVE, K).wouldSend, false, "a held fact never goes, whatever the engine said");
+    assert.equal(applySendPolicy([stale], LIVE, K).wouldSend, false, "a stale figure never goes, whatever the engine said");
     const real: EngineAction = {
       type: "SEND_FACTS",
       scope: "one",
