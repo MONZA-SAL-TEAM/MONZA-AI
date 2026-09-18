@@ -41,6 +41,8 @@ export const AUTOREPLY_PILOT: AutoreplyPilot = Object.freeze({
     Object.freeze({ accountId: "wa-monza", peer: "96176877278" }),
     /** +961 70 708 383, a third TEST phone (Samer, 2026-09-18: "add 70708383 to test the chat bot like 03195955"). */
     Object.freeze({ accountId: "wa-monza", peer: "96170708383" }),
+    /** +961 81 659 640, a fourth TEST phone (Samer, 2026-09-18: "81659640 add to the testing pool like 03195955"). */
+    Object.freeze({ accountId: "wa-monza", peer: "96181659640" }),
   ]),
 });
 

@@ -27,7 +27,8 @@ describe("who the pilot may answer", () => {
 
   test("only listed chats: an account AND its customer", () => {
     // Widened by Samer on 2026-09-18 to his second test phone, 76 877 278. Every other number stays out.
-    assert.deepEqual(AUTOREPLY_PILOT.chats.map((c) => `${c.accountId}:${c.peer}`), ["wa-monza:9613195955", "wa-monza:96176877278", "wa-monza:96170708383"]);
+    assert.deepEqual(AUTOREPLY_PILOT.chats.map((c) => `${c.accountId}:${c.peer}`), ["wa-monza:9613195955", "wa-monza:96176877278", "wa-monza:96170708383", "wa-monza:96181659640"]);
+    assert.equal(isPilotChat({ accountId: "wa-monza", channel: "whatsapp", peerExternalId: "96181659640" }), true);
     assert.equal(isPilotChat({ accountId: "wa-monza", channel: "whatsapp", peerExternalId: "96170708383" }), true);
     // The business line itself (70 70 85 85) is one digit pair away and is NOT a pilot chat.
     assert.equal(isPilotChat({ accountId: "wa-monza", channel: "whatsapp", peerExternalId: "96170708585" }), false);
