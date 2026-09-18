@@ -209,7 +209,7 @@ const CASES: Case[] = [
   { category: "colours", name: "a colour we don't have", messages: ["courage", "red"], say: [/don't have a video .* in red/i, /Pearl Black/] },
   { category: "colours", name: "interior colours: honest, no folder names", messages: ["what interior colours for the courage"], say: [/interior/i, HERE], notSay: [SALES], alert: "QUESTION" },
   { category: "colours", name: "Dream: one video, never 'Standard'", messages: ["dream colours"], say: [/video of the VOYAH Dream/i], files: 2 },
-  { category: "colours", name: "MHERO 1 offers only what has a video", messages: ["mhero 1 colours"], say: [/Storm Grey/], notSay: [/Recon Green/] },
+  { category: "colours", name: "MHERO 1 has one video: sent, never a one-answer question, never a colour without a video", messages: ["mhero 1 colours"], say: [/video of the MHERO 1/], notSay: [/Recon Green/, /Obsidian Black/, /Which exterior colour/], files: 2 },
   { category: "colours", name: "MHERO 2 never offers Polar Silver without a video", messages: ["mhero 2 colours"], say: [/Piano Black/, /Olive Green/, /Clouds White/], notSay: [/Polar Silver/] },
   { category: "brochure", name: "one brochure", messages: ["send me the courage brochure"], say: [/Courage brochure/], files: 1 },
   { category: "brochure", name: "all brochures", messages: ["all brochures"], files: 8 },

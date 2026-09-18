@@ -206,16 +206,22 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
   HORSEPOWER: [
     "hp", "horsepower", "horse power", "horses", "bhp", "power", "kw",
     "حصان", "أحصنة", "قوة", "قوة المحرك", "7san", "a7sne",
+    // Workbook E/F wordings (2026-09-18).
+    "how powerful", "powerful", "how many horses", "قوة السيارة", "قديش قوتها", "قوتها",
   ],
   RANGE: [
     "range", "autonomy", "autonomie", "how far", "km range", "kilometers",
     "kilometres", "kilometer", "kilometre", "km", "kms", "how many km",
     "per charge", "masafe", "masafeh",
+    // Workbook E/F wordings (2026-09-18). "full charge" yields to a charging question beside it.
+    weak("full charge"), "electric range", "combined range", "كم كيلو", "كم كيلو بتمشي", "قديش بتمشي", "بتمشي",
     "مسافة", "مدى", "كم كيلو", "كيلومتر",
   ],
   BATTERY: [
     "battery", "batteries", "batterie", "battery capacity", "battery size",
     "kwh", "بطارية",
+    // Workbook E/F wordings (2026-09-18). "capacity" alone is the battery; "trunk capacity" is longer and wins.
+    weak("capacity"), "what battery", "سعة البطارية", "قديش البطارية",
   ],
   POWERTRAIN: [
     "electric", "full electric", "fully electric", "ev", "bev", "hybrid",
@@ -229,16 +235,22 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "charging", "charge", "charger", "chargers", "charging time",
     "fast charging", "fast charge", "supercharge", "dc", "wallbox",
     "charging station", "plug", "sha7en", "شحن", "شاحن",
+    // Workbook E/F wordings (2026-09-18): "AC / DC?", "20–80", "30–80", "how long to charge".
+    weak("ac"), "ac dc", "20 80", "30 80", "charge time", "how long to charge", "قديش بدو شحن",
   ],
   SEATS: [
     "seats", "seat", "seater", "seaters", "7 seater", "7seater", "5 seater",
     "how many seats", "number of seats", "passengers", "passenger",
     "مقاعد", "مقعد", "ركاب", "كم راكب",
+    // Workbook E/F wordings (2026-09-18).
+    "how many people", "6 seater", "6seater",
   ],
   DIMENSIONS: [
     "dimensions", "dimension", "size", "length", "width", "height",
     "wheelbase", "trunk", "boot", "boot space", "cargo", "ground clearance",
     "clearance", "قياس", "قياسات", "طول", "ارتفاع", "أبعاد", "صندوق",
+    // Workbook E/F wordings (2026-09-18).
+    "luggage", "trunk size", "trunk capacity", "حجم",
   ],
   SPECIFICATIONS: [
     "specs", "spec", "specifications", "specification", "features",
@@ -283,11 +295,15 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "interest", "daf3a", "daf3a oula", "awal daf3a", "dafe3", "طريقة الدفع",
     "تقسيط", "بالتقسيط", "أقساط", "قسط", "قرض", "دفعة أولى", "دفعة",
     "شهري", "تسهيلات",
+    // Workbook E wording "0%" (2026-09-18): read as "zero percent" by readMessage, never a bare 0.
+    "zero percent", "zero interest", "0 interest", "0 percent",
   ],
   TEST_DRIVE: [
     "test drive", "testdrive", "test driving", "try the car", "book a drive",
     "tajrobe", "tajribe", "tajrbe", "تجربة", "تجربة قيادة", "تست درايف",
     "جرب", "اجرب", "جربها", "اجربها", "jarrib", "jarreb",
+    // Workbook E wordings (2026-09-18).
+    "drive it", "book test drive",
   ],
   WARRANTY: [
     "warranty", "warranties", "guarantee", "guaranty", "garantie",
@@ -307,6 +323,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
   TRADE_IN: [
     "trade in", "tradein", "trade", "exchange", "swap", "part exchange",
     "my old car", "badal", "بدل", "مبادلة", "تبديل",
+    // Workbook E wordings (2026-09-18).
+    "exchange my car", "take my old car", "بتاخدو سيارتي", "بتاخدو",
   ],
   SERVICE: [
     "service", "servicing", "maintenance", "repair", "repairs", "workshop",
@@ -895,7 +913,8 @@ function mileageAsTradeIn(hits: IntentHit[], tokens: readonly string[], raw: str
  */
 export function readMessage(text: string, payload?: string | null): MessageReading {
   const raw = typeof text === "string" ? text : "";
-  const normalized = normalize(raw);
+  // "0%" is an installments question (workbook E); "0% - 100%" and "0-100" are not.
+  const normalized = normalize(raw.replace(/(^|\s)0\s?%(?!\s*[-–]\s*\d)/g, "$1zero percent "));
   const tokens = normalized === "" ? [] : normalized.split(" ");
   const parsedPayload = parsePayload(payload) ?? parsePayload(raw);
   const hits = parsedPayload ? [] : mileageAsTradeIn(findIntents(tokens), tokens, raw);

@@ -378,3 +378,22 @@ regenerated `knowledge-data.ts`. What changed, and where:
   (`needsPerson`), never "nothing new was asked".
 - Not switched on: "Do you mean Voyah passion S?" (no such car in A Car Facts) — see
   `docs/SALES-FACTS-DISCREPANCIES.md`.
+
+## 2026-09-18: symmetry (Samer: "every question in the table should be applied to every car")
+
+`tests/sales-symmetry.test.ts` holds Samer's own wordings, copied from the workbook (sheet E
+section 2, sheet F column B), and runs every one of them against every car, named in the
+message and chosen earlier: 8 spec intents, 75 wordings, 8 cars, two ways = 1,200 answers, each
+of which must carry that car's A Car Facts value. The sales and material questions (colours,
+video, brochure, price, installments, test drive, stock, trade-in, model year) must have the same
+SHAPE for every car; the only thing allowed to change it is what the library holds (several
+colour videos / one video / none).
+
+What it found and fixed: 14 of the workbook's wordings were not in the vocabulary ("how
+powerful", "full charge", "capacity", "AC", "20–80", "30–80", "how many people", "luggage",
+"drive it", "0%", "قديش قوتها", "قديش بتمشي", "حجم", "بتاخدو سيارتي") — each failed for all eight
+cars alike; and a car with exactly ONE video behaved two ways (the Dream sent it, the MHERO 1
+asked a one-button colour question). Now every one-video car sends its video.
+
+What still differs between cars is content, not logic: the Passion has no video; the Dream and
+the MHERO 1 have one; see `docs/SALES-FACTS-DISCREPANCIES.md`.

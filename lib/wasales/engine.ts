@@ -1432,8 +1432,9 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
         next.colourPromptSentForCurrentActivation = true;
         return;
       }
-      if (choices.length === 0) {
-        // One video with no colour choice (the Dream): send it rather than offer "Standard".
+      if (choices.length === 0 || sendable.length === 1) {
+        // One video only — no colour choice (the Dream) or a single colour (the MHERO 1): a question
+        // with one answer is no question. Every one-video car behaves the same (symmetry, 2026-09-18).
         sendVideo(sendable[0], false);
         return;
       }

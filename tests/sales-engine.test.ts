@@ -618,14 +618,19 @@ describe("colours", () => {
   });
 
   test("a colour with no video: said honestly, then the real choices", () => {
-    const d = last(["mhero 1 in black"], { brand: "mhero" });
-    assert.deepEqual(labels(d), [
-      "SEND MHERO 1 BROCHURE",
-      "MHERO 1 BLACK NOT AVAILABLE",
-      "SHOW MHERO 1 COLOURS",
-    ]);
+    const d = last(["taishan in white"]);
+    assert.deepEqual(labels(d), ["SEND TAISHAN BROCHURE", "TAISHAN WHITE NOT AVAILABLE", "SHOW TAISHAN COLOURS"]);
     const choices = d.actions.find((a) => a.type === "SHOW_COLOUR_CHOICES");
-    assert.deepEqual(choices?.type === "SHOW_COLOUR_CHOICES" && choices.colours.map((c) => c.id), ["grey"]);
+    assert.deepEqual(choices?.type === "SHOW_COLOUR_CHOICES" && choices.colours.map((c) => c.id), ["black", "blue", "grey"]);
+  });
+
+  test("a car with ONE video never asks a one-answer colour question (symmetry, 2026-09-18)", () => {
+    // The MHERO 1 has a single colour with a video; the Dream a single video with no colour. Same behaviour.
+    const black = last(["mhero 1 in black"], { brand: "mhero" });
+    assert.deepEqual(labels(black), ["SEND MHERO 1 BROCHURE", "MHERO 1 BLACK NOT AVAILABLE", "SEND MHERO 1 GREY VIDEO"]);
+    const colours = last(["mhero 1 colours"], { brand: "mhero" });
+    assert.deepEqual(labels(colours), ["SEND MHERO 1 BROCHURE", "SEND MHERO 1 GREY VIDEO"]);
+    assert.ok(!colours.actions.some((a) => a.type === "SHOW_COLOUR_CHOICES"));
   });
 
   test("a colour the car does not come in", () => {
