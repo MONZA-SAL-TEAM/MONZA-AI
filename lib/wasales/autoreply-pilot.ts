@@ -33,6 +33,12 @@ export const AUTOREPLY_PILOT: AutoreplyPilot = Object.freeze({
   chats: Object.freeze([
     /** Samer's test phone, +961 3 195 955, writing to +961 70 708 585. */
     Object.freeze({ accountId: "wa-monza", peer: "9613195955" }),
+    /**
+     * +961 76 877 278, writing to +961 70 708 585 (Samer, 2026-09-18: "76877278 needs to have
+     * access to the chat bot like 03195955"). A second TEST phone — it is also Monza's own
+     * service line, so nothing a real customer writes reaches the bot through it.
+     */
+    Object.freeze({ accountId: "wa-monza", peer: "96176877278" }),
   ]),
 });
 

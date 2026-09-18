@@ -26,7 +26,11 @@ describe("who the pilot may answer", () => {
   const samer = { accountId: "wa-monza", channel: "whatsapp", peerExternalId: "9613195955" };
 
   test("only listed chats: an account AND its customer", () => {
-    assert.deepEqual(AUTOREPLY_PILOT.chats.map((c) => `${c.accountId}:${c.peer}`), ["wa-monza:9613195955"]);
+    // Widened by Samer on 2026-09-18 to his second test phone, 76 877 278. Every other number stays out.
+    assert.deepEqual(AUTOREPLY_PILOT.chats.map((c) => `${c.accountId}:${c.peer}`), ["wa-monza:9613195955", "wa-monza:96176877278"]);
+    assert.equal(isPilotChat({ accountId: "wa-monza", channel: "whatsapp", peerExternalId: "96176877278" }), true);
+    assert.equal(isPilotChat({ accountId: "wa-monza", channel: "whatsapp", peerExternalId: "+961 76 877 278" }), true, "however WhatsApp writes it");
+    assert.equal(isPilotChat({ accountId: "wa-monza", channel: "whatsapp", peerExternalId: "96176877279" }), false, "one digit off is a customer");
     assert.equal(isPilotChat(samer), true);
     assert.equal(isPilotChat({ ...samer, peerExternalId: "+961 3 195 955" }), true);
   });
