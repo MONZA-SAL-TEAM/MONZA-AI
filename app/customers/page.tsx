@@ -36,7 +36,13 @@ export default async function CustomersPage() {
   // (their own CRM sign-in; a Lebanese mobile number is the only link; nothing is stored).
   const [people, crm] = await Promise.all([listPeople(), listCrmCustomers(user)]);
   if (people) {
-    return <PeopleClient people={crm.state === "ok" ? mergeCrm(people, crm.customers) : people} crm={crm.state} />;
+    return (
+      <PeopleClient
+        people={crm.state === "ok" ? mergeCrm(people, crm.customers) : people}
+        crm={crm.state}
+        crmMissing={crm.state === "ok" ? crm.missing : []}
+      />
+    );
   }
 
   const source = getSource();

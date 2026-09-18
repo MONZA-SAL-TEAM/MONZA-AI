@@ -16,7 +16,8 @@ import type { StaffIdentity } from "@/lib/connectors/types";
 import type { CrmRecord } from "@/lib/leads/people";
 
 export type CrmRead =
-  | { state: "ok"; customers: CrmRecord[] }
+  /** `missing` names what the CRM refused while the customers themselves were read. */
+  | { state: "ok"; customers: CrmRecord[]; missing: ("cars" | "payment plans")[] }
   /** No CRM configured here, or the credential-free demo sign-in. */
   | { state: "not_connected" }
   /** The CRM refused or failed: shown as "could not be read", never as "no customers". */
@@ -41,10 +42,26 @@ export async function listCrmCustomers(identity: StaffIdentity): Promise<CrmRead
       return out;
     };
 
+    // The customers are the read that matters; their cars and plans are read beside it, and a
+    // failure there costs only that part (2026-09-18: one ambiguous join hid every CRM customer).
+    const missing: ("cars" | "payment plans")[] = [];
+    const optional = async (what: "cars" | "payment plans", read: () => Promise<Record<string, unknown>[]>) => {
+      try {
+        return await read();
+      } catch (e) {
+        console.error(`[people] the CRM read of ${what} failed:`, e instanceof Error ? e.message : JSON.stringify(e));
+        missing.push(what);
+        return [];
+      }
+    };
     const [customers, orders, plans] = await Promise.all([
       pages("customers", "id, first_name, last_name, phone_primary, email, lead_source, created_at", (q) => q.is("deleted_at", null).order("created_at", { ascending: false })),
-      pages("sales_orders", "customer_id, status, cars ( brand, model, model_year, plate_number, status )", (q) => q.is("deleted_at", null)),
-      pages("payment_plans", "customer_id, status", (q) => q.eq("status", "active")),
+      // sales_orders points at cars TWICE (car_id and vin), so the join must be named or PostgREST
+      // refuses it as ambiguous (PGRST201).
+      optional("cars", () =>
+        pages("sales_orders", "customer_id, status, cars!sales_orders_car_id_fkey ( brand, model, model_year, plate_number, status )", (q) => q.is("deleted_at", null))
+      ),
+      optional("payment plans", () => pages("payment_plans", "customer_id, status", (q) => q.eq("status", "active").is("deleted_at", null))),
     ]);
 
     const carsByCustomer = new Map<string, string[]>();
@@ -63,6 +80,7 @@ export async function listCrmCustomers(identity: StaffIdentity): Promise<CrmRead
 
     return {
       state: "ok",
+      missing,
       customers: customers.map((c) => ({
         customerId: String(c.id),
         name: [c.first_name, c.last_name].filter((x) => typeof x === "string" && x.trim() !== "").join(" ").trim(),
@@ -75,7 +93,8 @@ export async function listCrmCustomers(identity: StaffIdentity): Promise<CrmRead
       })),
     };
   } catch (e) {
-    console.error("[people] the CRM read failed:", e instanceof Error ? e.message : "unknown error");
+    // A PostgREST error is a plain object, not an Error: its message says which table or column.
+    console.error("[people] the CRM read failed:", e instanceof Error ? e.message : JSON.stringify(e));
     return { state: "unavailable" };
   }
 }

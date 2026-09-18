@@ -50,7 +50,7 @@ const ALERT_LABEL: Readonly<Record<string, string>> = {
 const day = (iso: string | null) => (iso ? longDate(iso.slice(0, 10)) : "—");
 const PAGE = 100;
 
-export default function PeopleClient({ people, crm }: { people: Person[]; crm: CrmState }) {
+export default function PeopleClient({ people, crm, crmMissing = [] }: { people: Person[]; crm: CrmState; crmMissing?: string[] }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [source, setSource] = useState<string | null>(null);
@@ -101,6 +101,7 @@ export default function PeopleClient({ people, crm }: { people: Person[]; crm: C
             ? ". The CRM could not be read for your account just now, so CRM customers, cars and payment plans are missing from this view — they are not shown as empty."
             : ". The CRM is not connected here, so cars and payment plans are absent — they are never invented."}{" "}
         Nothing here can be edited, and no message text is shown.
+        {crmMissing.length > 0 && ` The CRM's ${crmMissing.join(" and ")} could not be read just now, so they are missing below — not zero.`}
       </p>
 
       <div className="rowcard-tags" role="group" aria-label="Totals">

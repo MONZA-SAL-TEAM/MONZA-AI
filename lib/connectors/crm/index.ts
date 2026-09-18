@@ -200,7 +200,7 @@ const customerSummary = {
       const { data: orders, error: oErr } = await db
         .from("sales_orders")
         .select(
-          "id, status, selling_price, currency, created_at, cars ( brand, model, model_year, vin, plate_number, status )"
+          "id, status, selling_price, currency, created_at, cars!sales_orders_car_id_fkey ( brand, model, model_year, vin, plate_number, status )"
         )
         .eq("customer_id", customerId)
         .is("deleted_at", null)
