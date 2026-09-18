@@ -98,9 +98,13 @@ const FACTS: Partial<Record<ModelCode, Partial<Record<FactKey, ApprovedFact>>>> 
 
 const K: SalesKnowledge = {
   ...MONZA_KNOWLEDGE,
-  models: MONZA_KNOWLEDGE.models.map((m) => ({ ...m, facts: FACTS[m.code] ?? {} })),
+  // Fixture colours keep their fixture names: the workbook's official names are tested over the real data.
+  models: MONZA_KNOWLEDGE.models.map((m) => ({ ...m, colourNames: [], facts: FACTS[m.code] ?? {} })),
   global: { ...MONZA_KNOWLEDGE.global, LOCATION: ok("TEST-LOCATION") },
 };
+
+/** The decisions of 2026-09-17, kept and tested: the bot books the slot itself and takes a name first. */
+const K_BOOKS: SalesKnowledge = { ...K, decisions: { botBooksTestDrives: true, askLeadName: true } };
 
 type Msg = string | Partial<EngineInput>;
 
@@ -145,9 +149,13 @@ function last(msgs: readonly Msg[], o: Opts = {}): EngineDecision {
   return all[all.length - 1];
 }
 
-/** Every action, as staff read it. */
+/**
+ * Every action, as staff read it. The "follow up the lead" alert that rides on
+ * every colour video (workbook Replies, 2026-09-18) has its own test below, so
+ * it is left out of these lists.
+ */
 function labels(d: EngineDecision): string[] {
-  return d.actions.map(actionLabel);
+  return d.actions.filter((a) => !(a.type === "ALERT_SALES" && a.kind === "LEAD")).map(actionLabel);
 }
 
 /** Only what a customer would receive. */
@@ -291,6 +299,8 @@ describe("brochure first, on every activation", () => {
       "SEND CONTACT FALLBACK — NO BROCHURE TAISHAN",
       "SHOW TAISHAN COLOURS",
       "MISSING BROCHURE: TAISHAN",
+      // "Our Sales Team will assist you right here" is a promise, so Sales is told.
+      "ALERT SALES — QUESTION (TAISHAN)",
     ]);
     assert.ok(!d.actions.some((a) => a.type === "SEND_BROCHURE"));
   });
@@ -304,10 +314,11 @@ describe("questions asked before the model", () => {
     assert.deepEqual(price.nextState.pendingIntents, ["PRICE"]);
     assert.deepEqual(again.nextState.pendingIntents, ["PRICE"]);
     assert.deepEqual(info.nextState.pendingIntents, ["PRICE", "GENERAL_INFO"]);
+    // Workbook C (2026-09-18): brochure + model video, then Sales in the same chat — no colour question.
     assert.deepEqual(labels(courage), [
       "SEND COURAGE BROCHURE",
+      "SEND COURAGE BLACK VIDEO",
       "SAY PRICE HANDOFF (COURAGE)",
-      "SHOW COURAGE COLOURS",
       "ALERT SALES — PRICE (COURAGE)",
     ]);
     assert.deepEqual(courage.nextState.pendingIntents, []);
@@ -319,24 +330,29 @@ describe("questions asked before the model", () => {
     assert.deepEqual(labels(courage), ["SEND COURAGE BROCHURE", "SHOW COURAGE COLOURS"]);
   });
 
-  test("PRICE waits for the model, then gets brochure → price hand-off → colours", () => {
+  test("PRICE waits for the model, then gets brochure → model video → same-chat hand-off", () => {
     const [price, free] = talk(["price?", "the free"]);
     assert.deepEqual(labels(price), [VOYAH_MODELS]);
     assert.deepEqual(labels(free), [
       "SEND FREE 318 BROCHURE",
+      "SEND FREE 318 BLACK VIDEO",
       "SAY PRICE HANDOFF (FREE 318)",
-      "SHOW FREE 318 COLOURS",
       "ALERT SALES — PRICE (FREE 318)",
     ]);
-    assert.ok(!free.actions.some((a) => a.type === "SEND_CONTACT_FALLBACK"), "the hand-off already gives the number");
+    assert.ok(!free.actions.some((a) => a.type === "SEND_CONTACT_FALLBACK"), "the hand-off is said once");
+  });
+
+  test("a price question after the video was already seen sends no second video", () => {
+    const [, , price] = talk(["courage", "white", "how much is it?"]);
+    assert.deepEqual(labels(price), ["SAY PRICE HANDOFF (COURAGE)", "ALERT SALES — PRICE (COURAGE)"]);
   });
 
   test("PRICE with the model: the hand-off and a sales alert, never a figure", () => {
     const d = last(["how much is the courage"]);
     assert.deepEqual(labels(d), [
       "SEND COURAGE BROCHURE",
+      "SEND COURAGE BLACK VIDEO",
       "SAY PRICE HANDOFF (COURAGE)",
-      "SHOW COURAGE COLOURS",
       "ALERT SALES — PRICE (COURAGE)",
     ]);
   });
@@ -390,8 +406,9 @@ describe("facts: the approved value, or 'not confirmed yet'", () => {
 describe("questions a person answers", () => {
   test("each gets its own workbook sentence — never the generic contact fallback", () => {
     for (const [text, expected] of [
-      ["do you have installments?", ["SAY FINANCING INFO", "SAY ASK NAME"]],
-      ["can i book a test drive", ["SAY TEST DRIVE ASK NAME"]],
+      // Workbook C (2026-09-18): no name is taken; the model is asked when missing, and Sales is told.
+      ["do you have installments?", ["SAY FINANCING INFO", VOYAH_MODELS, "ALERT SALES — FINANCING"]],
+      ["can i book a test drive", ["SAY TEST DRIVE REQUEST", VOYAH_MODELS, "ALERT SALES — TEST DRIVE"]],
       ["any discount?", ["SAY DISCOUNT HANDOFF", "ALERT SALES — DISCOUNT"]],
       ["do you accept trade in", ["SAY TRADE IN INFO"]],
       ["i need a service appointment", ["SAY SERVICE CONTACT"]],
@@ -449,15 +466,22 @@ describe("questions a person answers", () => {
     assert.deepEqual(fallbackKinds(d).sort(), ["CROSS_BRAND", "MISSING_BROCHURE"]);
   });
 
-  test("price, installments, warranty and test drive at once: every answer, the number once", () => {
+  test("price, installments, warranty and test drive at once: every answer, no name asked, Sales told of each", () => {
     const d = last(["courage price, installments, warranty and test drive?"]);
     assert.equal(facing(d)[0], "SEND COURAGE BROCHURE");
     assert.ok(labels(d).includes("SEND COURAGE WARRANTY"));
+    assert.ok(labels(d).includes("SEND COURAGE BLACK VIDEO"), "the model video goes with the brochure");
     assert.ok(labels(d).includes("SAY PRICE HANDOFF (COURAGE)"));
     assert.ok(labels(d).includes("SAY FINANCING INFO (COURAGE)"));
-    assert.ok(labels(d).includes("ALERT SALES — PRICE (COURAGE)"));
-    assert.ok(!d.actions.some((a) => a.type === "SEND_CONTACT_FALLBACK"), "the hand-offs already give the number");
-    // One name question, and the lead still carries the installments request.
+    assert.ok(labels(d).includes("SAY TEST DRIVE REQUEST (COURAGE)"));
+    for (const kind of ["PRICE", "FINANCING", "TEST DRIVE"]) assert.ok(labels(d).includes(`ALERT SALES — ${kind} (COURAGE)`), kind);
+    assert.ok(!d.actions.some((a) => a.type === "SEND_CONTACT_FALLBACK"), "the hand-off is already said");
+    const nameQuestions = textKeys(d).filter((k) => k === "ASK_NAME" || k === "ASK_NAME_AND_PHONE" || k === "TEST_DRIVE_ASK_NAME");
+    assert.equal(nameQuestions.length, 0, labels(d).join(" | "));
+  });
+
+  test("under the 2026-09-17 decisions the same message asks for the name exactly once", () => {
+    const d = last(["courage price, installments, warranty and test drive?"], { knowledge: K_BOOKS });
     const nameQuestions = textKeys(d).filter((k) => k === "ASK_NAME" || k === "ASK_NAME_AND_PHONE" || k === "TEST_DRIVE_ASK_NAME");
     assert.equal(nameQuestions.length, 1, labels(d).join(" | "));
   });
@@ -466,8 +490,49 @@ describe("questions a person answers", () => {
 /* ── The workbook's sales flows ──────────────────────────────────────────── */
 
 describe("leads, test drives, stock and trade-ins", () => {
-  test("installments: the information, the name, then an alert with it and a thank-you", () => {
-    const [ask, name] = talk(["do you have installments?", "Rabih Yazbek"]);
+  test("installments (workbook C, 2026-09-18): facilities confirmed, model asked, then brochure + video + Sales here", () => {
+    const [ask, model] = talk(["do you have installments?", "courage"]);
+    assert.deepEqual(labels(ask), ["SAY FINANCING INFO", VOYAH_MODELS, "ALERT SALES — FINANCING"]);
+    assert.equal(ask.nextState.awaiting, "MODEL");
+    assert.deepEqual(ask.nextState.lead, { kind: "FINANCING", models: [], captured: true });
+    // The facilities were confirmed already: not repeated once the model is known.
+    assert.deepEqual(labels(model), [
+      "SEND COURAGE BROCHURE",
+      "SEND COURAGE BLACK VIDEO",
+      "SAY SALES FOLLOWUP (COURAGE)",
+      "ALERT SALES — FINANCING (COURAGE)",
+    ]);
+  });
+
+  test("in-house financing may be confirmed when asked; nothing else about terms", () => {
+    const d = last(["is the financing in house for the courage?"]);
+    const info = d.actions.find((a) => a.type === "SEND_TEXT" && a.key === "FINANCING_INFO");
+    assert.deepEqual(info?.type === "SEND_TEXT" && info.vars, { inHouse: "yes" });
+  });
+
+  test("a test drive (workbook C, 2026-09-18): Sales arranges it — never a slot list, never a booking", () => {
+    const [, ask, time, change, cancel] = talk(["courage", "can i book a test drive", "tomorrow at 3", "change it to monday 11am", "cancel my test drive"]);
+    assert.deepEqual(labels(ask), ["SEND COURAGE BLACK VIDEO", "SAY TEST DRIVE REQUEST (COURAGE)", "ALERT SALES — TEST DRIVE (COURAGE)"]);
+    assert.deepEqual(labels(time), ["SAY TEST DRIVE TIME PASSED (COURAGE)", "ALERT SALES — TEST DRIVE (COURAGE)"]);
+    assert.deepEqual(labels(change), ["SAY TEST DRIVE TIME PASSED (COURAGE)", "ALERT SALES — TEST DRIVE (COURAGE)"]);
+    assert.deepEqual(labels(cancel), ["SAY TEST DRIVE TEAM (COURAGE)", "ALERT SALES — TEST DRIVE (COURAGE)"]);
+    for (const d of [ask, time, change, cancel]) {
+      assert.ok(!d.actions.some((a) => a.type === "BOOK_TEST_DRIVE" || a.type === "CANCEL_TEST_DRIVE" || a.type === "SHOW_TEST_DRIVE_SLOTS"), labels(d).join(" | "));
+      assert.equal(d.nextState.booking, null);
+    }
+    const alert = time.actions.find((a) => a.type === "ALERT_SALES");
+    assert.equal(alert?.type === "ALERT_SALES" && alert.slot, "2026-09-15T12:00:00.000Z", "the preferred time reaches Sales");
+  });
+
+  test("brochure and video received: Sales is told to follow up the lead", () => {
+    const [, colour] = talk(["courage", "white"]);
+    const alert = colour.actions.find((a) => a.type === "ALERT_SALES");
+    assert.ok(alert?.type === "ALERT_SALES" && alert.kind === "LEAD");
+    assert.deepEqual(alert?.type === "ALERT_SALES" && alert.models, ["COURAGE"]);
+  });
+
+  test("2026-09-17 decisions — installments: the information, the name, then an alert with it and a thank-you", () => {
+    const [ask, name] = talk(["do you have installments?", "Rabih Yazbek"], { knowledge: K_BOOKS });
     assert.equal(ask.nextState.awaiting, "LEAD_NAME");
     // On WhatsApp the number is already known, so only the name is asked for.
     assert.deepEqual(ask.nextState.lead, { kind: "FINANCING", models: [], captured: false, havePhone: true });
@@ -480,11 +545,14 @@ describe("leads, test drives, stock and trade-ins", () => {
     assert.equal(name.nextState.lead?.captured, true);
   });
 
-  test("off WhatsApp the number is asked for too, and read back", () => {
-    const [ask, name] = talk([
-      { text: "do you have installments?", channel: "instagram" },
-      { text: "my name is Mary 70123456", channel: "instagram" },
-    ]);
+  test("2026-09-17 decisions — off WhatsApp the number is asked for too, and read back", () => {
+    const [ask, name] = talk(
+      [
+        { text: "do you have installments?", channel: "instagram" },
+        { text: "my name is Mary 70123456", channel: "instagram" },
+      ],
+      { knowledge: K_BOOKS }
+    );
     assert.deepEqual(textKeys(ask), ["FINANCING_INFO", "ASK_NAME_AND_PHONE"]);
     const alert = name.actions.find((a) => a.type === "ALERT_SALES");
     assert.ok(alert?.type === "ALERT_SALES");
@@ -494,8 +562,8 @@ describe("leads, test drives, stock and trade-ins", () => {
     }
   });
 
-  test("a test drive: the name, the free slots, then the booking", () => {
-    const [, ask, name, slot] = talk(["courage", "can i book a test drive", "Rabih", "1"]);
+  test("2026-09-17 decisions — a test drive: the name, the free slots, then the booking", () => {
+    const [, ask, name, slot] = talk(["courage", "can i book a test drive", "Rabih", "1"], { knowledge: K_BOOKS });
     assert.deepEqual(labels(ask), ["SAY TEST DRIVE ASK NAME (COURAGE)"]);
     assert.deepEqual(labels(name), ["SHOW 10 TEST-DRIVE SLOTS", "ALERT SALES — TEST DRIVE (COURAGE) WITH NAME"]);
     assert.equal(name.nextState.awaiting, "TEST_DRIVE_SLOT");

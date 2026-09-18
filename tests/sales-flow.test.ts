@@ -62,26 +62,26 @@ describe("the definition of done, as a customer on Instagram would receive it", 
         "Here is the power output for our current models:",
         "• VOYAH Free 318 — 600 hp",
         "• VOYAH Courage — TEST-HP-COURAGE",
-        "• VOYAH Dream — 416 hp / 310 kW",
-        "• VOYAH Passion — 523 hp / 390 kW",
+        "• VOYAH Dream — 416 hp",
+        "• VOYAH Passion — 550 hp",
         "• VOYAH Passion L — not confirmed yet",
-        // Held pending Samer's confirmation (657 vs the video's 670): docs/SALES-FACTS-DISCREPANCIES.md
-        "• VOYAH Taishan — not confirmed yet",
+        "• VOYAH Taishan — 700 hp",
       ].join("\n"),
       "Which model would you like to explore further? [quick_replies: VOYAH Free 318 | VOYAH Courage | VOYAH Dream | VOYAH Passion | VOYAH Passion L | VOYAH Taishan]",
     ]);
     assert.deepEqual(said[1], [
       "Here is the VOYAH Courage brochure.",
       "[PDF: Voyah courage 2026 catalogue.pdf]",
-      "Which exterior colour would you like to see? We can show you the VOYAH Courage in Black, Grey or White. [quick_replies: Black | Grey | White]",
+      "Which exterior colour would you like to see? We can show you the VOYAH Courage in Pearl Black, Crayon Grey or Pearl White. [quick_replies: Pearl Black | Crayon Grey | Pearl White]",
     ]);
-    assert.equal(said[2][0], "Here is the VOYAH Courage in Black.");
+    // "BLACK" still finds it; the customer reads the workbook's official name.
+    assert.equal(said[2][0], "Here is the VOYAH Courage in Pearl Black.");
     assert.match(said[2][1], /^\[Video: All Black Voyah Courage/);
     assert.deepEqual(said[3], ["The VOYAH Courage offers TEST-RANGE-COURAGE."]);
     assert.deepEqual(said[4], [
       "Here is the VOYAH Passion L brochure.",
       "[PDF: VOYAH PASSION L Catalogue 2026.pdf]",
-      "Which exterior colour would you like to see? We can show you the VOYAH Passion L in Black or Grey. [quick_replies: Black | Grey]",
+      "Which exterior colour would you like to see? We can show you the VOYAH Passion L in Obsidian Black or Titanium Grey. [quick_replies: Obsidian Black | Titanium Grey]",
     ]);
     assert.deepEqual(said[5], ["The VOYAH Passion L offers TEST-RANGE-PASSION-L."]);
   });

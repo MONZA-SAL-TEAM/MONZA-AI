@@ -38,9 +38,10 @@ const BROCHURE: EngineAction = {
 
 describe("the words", () => {
   test("the contact fallback is the workbook's hand-off, exactly", () => {
-    assert.equal(contactFallbackText(K), "For further assistance, please contact us on 70 70 85 85.");
+    // Workbook B (2026-09-18): the customer is already in the Sales chat — never sent back to 70 70 85 85.
+    assert.equal(contactFallbackText(K), "Our Sales Team will assist you further right here with all the details you need.");
     assert.deepEqual(texts(render([{ type: "SEND_CONTACT_FALLBACK", reasons: [{ kind: "CONTACT_NUMBER" }] }])), [
-      "For further assistance, please contact us on 70 70 85 85.",
+      "Our Sales Team will assist you further right here with all the details you need.",
     ]);
   });
 
@@ -62,14 +63,14 @@ describe("the words", () => {
     assert.deepEqual(texts(render([one("HORSEPOWER", "TEST-HP")])), ["The VOYAH Passion L produces TEST-HP."]);
   });
 
-  test("a fact the workbook does not state is 'not confirmed yet', with the number", () => {
+  test("a fact the workbook does not state is 'not confirmed yet', and Sales confirms it in this chat", () => {
     const empty: EngineAction = {
       type: "SEND_FACTS",
       scope: "one",
       rows: [{ model: "PASSION_L", fact: "BATTERY", value: "", confirmed: false }],
     };
     assert.deepEqual(texts(render([empty])), [
-      "The exact battery capacity of the VOYAH Passion L is not confirmed yet. Our team can confirm it for you on 70 70 85 85.",
+      "The exact battery capacity of the VOYAH Passion L is not confirmed yet. Our Sales Team can confirm it with you right here.",
     ]);
   });
 
@@ -113,23 +114,50 @@ describe("the words", () => {
     assert.match(texts(render([hello], "whatsapp", "voyah"))[0], /^Hello and welcome to VOYAH Lebanon\./);
   });
 
-  test("the department menu: the welcome, then Sales / Service & Parts / Administration", () => {
+  test("the department menu: the welcome, then the five departments of workbook D", () => {
     // The same full stop on the department menu.
     const [p] = render([{ type: "SHOW_DEPARTMENTS" }], "whatsapp", "voyah");
     assert.ok(p.kind === "text");
     if (p.kind === "text") {
       assert.equal(p.text, "Hello and welcome to VOYAH Lebanon. How can we help you today?\n\nPlease choose an option:");
-      assert.deepEqual(p.choices.map((c) => c.title), ["Sales", "Service & Parts", "Administration"]);
-      assert.deepEqual(p.choices.map((c) => c.payload), ["DEPT:SALES", "DEPT:SERVICE", "DEPT:ADMIN"]);
+      assert.deepEqual(p.choices.map((c) => c.title), ["Sales", "Customer Service", "After-Sales", "Service & Maintenance", "Administration"]);
+      assert.deepEqual(p.choices.map((c) => c.payload), ["DEPT:SALES", "DEPT:CUSTOMER_SERVICE", "DEPT:AFTER_SALES", "DEPT:SERVICE", "DEPT:ADMIN"]);
+      // Five choices: a WhatsApp list (reply buttons stop at three).
+      assert.equal(p.style, "list");
     }
   });
 
   test("the fixed hand-offs, word for word", () => {
-    const say = (key: "PRICE_HANDOFF" | "SERVICE_CONTACT" | "OTHER_BRAND", models: "COURAGE"[] = []) =>
+    const say = (key: "PRICE_HANDOFF" | "DISCOUNT_HANDOFF" | "SERVICE_CONTACT" | "COMPLAINT_CONTACT" | "ADMIN_CONTACT" | "FINANCING_INFO" | "OTHER_BRAND", models: "COURAGE"[] = []) =>
       texts(render([{ type: "SEND_TEXT", key, models }]))[0];
-    assert.equal(say("PRICE_HANDOFF", ["COURAGE"]), "For current pricing of the VOYAH Courage, please contact our sales team on 70 70 85 85.");
-    assert.equal(say("SERVICE_CONTACT"), "For Service, Maintenance, or Spare Parts, please contact 76 877 278.");
+    assert.equal(say("PRICE_HANDOFF", ["COURAGE"]), "Our Sales Team will assist you further right here with all the details you need.");
+    assert.equal(say("DISCOUNT_HANDOFF", ["COURAGE"]), "Our Sales Team will assist you further right here with all the details you need.");
+    assert.equal(say("FINANCING_INFO"), "Yes, we offer installment and payment facilities, with options depending on the model and payment plan.");
+    // Workbook D, word for word.
+    assert.equal(say("SERVICE_CONTACT"), "For Service, Maintenance, Spare Parts, After-Sales, or a vehicle problem, please contact us on WhatsApp at 76 877 278.");
+    assert.equal(say("COMPLAINT_CONTACT"), say("SERVICE_CONTACT"));
+    assert.equal(say("ADMIN_CONTACT"), "For Administration, please call 01 488 333 or 01 488 666.");
     assert.equal(say("OTHER_BRAND"), "We currently specialize in VOYAH and MHERO vehicles in Lebanon.");
+  });
+
+  test("price and offers asked together: the hand-off is said once", () => {
+    const parts = texts(
+      render([
+        { type: "SEND_TEXT", key: "PRICE_HANDOFF", models: ["COURAGE"] },
+        { type: "SEND_TEXT", key: "DISCOUNT_HANDOFF", models: ["COURAGE"] },
+      ])
+    );
+    assert.deepEqual(parts, ["Our Sales Team will assist you further right here with all the details you need."]);
+  });
+
+  test("a test drive is arranged by a person: never 'booked'", () => {
+    const say = (key: "TEST_DRIVE_REQUEST" | "TEST_DRIVE_TIME_PASSED" | "TEST_DRIVE_TEAM", vars?: Record<string, string>) =>
+      texts(render([{ type: "SEND_TEXT", key, models: ["COURAGE"], ...(vars ? { vars } : {}) }]))[0];
+    assert.equal(say("TEST_DRIVE_REQUEST"), "We'd be happy to arrange a test drive of the VOYAH Courage. Our Sales Team will assist you further right here with all the details you need.");
+    assert.match(say("TEST_DRIVE_REQUEST", { slot: "Fri 18 Sep, 15:00" }), /noted Fri 18 Sep, 15:00 as your preferred time, and a team member will confirm it/);
+    for (const s of [say("TEST_DRIVE_REQUEST"), say("TEST_DRIVE_REQUEST", { slot: "x" }), say("TEST_DRIVE_TIME_PASSED", { slot: "x" }), say("TEST_DRIVE_TEAM")]) {
+      assert.doesNotMatch(s, /is booked|is confirmed|is cancelled/i);
+    }
   });
 
   test("the colour question names the car and its colours", () => {
@@ -324,7 +352,7 @@ describe("the send policy", () => {
     const real: EngineAction = {
       type: "SEND_FACTS",
       scope: "one",
-      rows: [{ model: "COURAGE", fact: "HORSEPOWER", value: "320 kW / 435 PS", confirmed: true }],
+      rows: [{ model: "COURAGE", fact: "HORSEPOWER", value: "430 HP", confirmed: true }],
     };
     assert.equal(applySendPolicy([real], LIVE, K).wouldSend, true, "the workbook's own confirmed value may go");
   });

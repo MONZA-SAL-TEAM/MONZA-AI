@@ -72,16 +72,16 @@ REWRITES = [
 # model's figure (docs/SALES-FACTS-DISCREPANCIES.md, 2026-09-17). Samer: "do not
 # silently choose between conflicting specifications". Until he confirms each,
 # the bot says the figure is not confirmed yet. Remove an entry once confirmed.
+# 2026-09-18: Samer's "Updated Logic" workbook re-states every fact held on 2026-09-17
+# (Taishan 700 hp and 410 km, Passion L 657 hp, the 43 kWh CATL packs) and names A Car Facts
+# the single source of truth — that is his confirmation, so those holds are lifted.
+# Still held: the Courage range. A Car Facts says "440 km WLTP"; the same workbook's
+# F Model Answer Coverage says "550 km of WLTP range on a full charge if up hill 440 km".
 PENDING_CONFIRMATION = {
-    ("VOYAH Courage", "RANGE"),        # workbook 440 km WLTP, Monza's video says 470 km
-    ("VOYAH Taishan", "HORSEPOWER"),   # workbook 657 hp, Monza's video says 670 hp; same as Passion L
-    ("VOYAH Taishan", "RANGE"),        # 1,400 km combined, same as Passion L
-    ("VOYAH Passion L", "HORSEPOWER"), # 657 hp, same as Taishan
-    ("VOYAH Passion L", "RANGE"),      # 1,400 km combined, same as Taishan
-    ("VOYAH Free 318", "BATTERY"),     # 43 kWh, same as Dream and Passion
-    ("VOYAH Dream", "BATTERY"),        # 43 kWh, same as Free 318 and Passion
-    ("VOYAH Passion", "BATTERY"),      # 43 kWh, same as Free 318 and Dream
+    ("VOYAH Courage", "RANGE"),
 }
+
+SAVED_MAPS_LINK = "https://maps.app.goo.gl/orJMduowHtVqQgR58"
 
 # A value that is ONLY a statement that the figure is missing.
 UNCONFIRMED = re.compile(r"not (currently )?(stated|published|confirmed|mapped)", re.I)
@@ -103,6 +103,11 @@ def clean_value(model, key, raw):
         value = re.sub(pattern, replacement, value, flags=re.I)
     if value != raw:
         warnings.append(f"reworded {model} {key}: {raw!r} -> {value!r}")
+    if key == "SEATS":
+        m = re.fullmatch(r"\s*(\d+)\s*-\s*seat\s*", value, re.I)
+        if m:
+            warnings.append(f"reworded {model} {key}: {raw!r} -> {m.group(1)!r}")
+            value = m.group(1)
     if key == "WARRANTY":
         m = re.match(r"^\s*(\d+)\s*yr vehicle\s*/\s*(\d+)\s*yr battery\s*$", value, re.I)
         if m:
@@ -144,6 +149,15 @@ def main(path):
                 warnings.append(f"MISSING {official} {key}")
         seats = facts.get("SEATS", {})
         seat_count = int(re.match(r"\d+", seats["value"]).group(0)) if seats.get("confirmed") and re.match(r"\d+", seats["value"]) else None
+        # "6 to 7 seats" answers both a 6-seat and a 7-seat question (workbook E, seat-count filter).
+        seat_options = sorted({int(n) for n in re.findall(r"\d+", seats["value"])}) if seats.get("confirmed") else []
+        if len(seat_options) == 2 and re.search(r"\bto\b|–|-", seats["value"]) and seat_options[1] - seat_options[0] <= 3 and not re.match(r"^\d+-seat$", seats["value"]):
+            seat_options = list(range(seat_options[0], seat_options[1] + 1))
+        colour_names = [
+            c.strip(" .\n")
+            for c in re.split(r"\s*·\s*|\s*,\s*|\s+or\s+", text(ws.cell(r, cols["Available colour media"]).value))
+            if c.strip(" .\n") and not UNCONFIRMED.search(c)
+        ]
         bucket_raw = text(ws.cell(r, cols["Powertrain bucket"]).value)
         bucket = BUCKETS.get(bucket_raw)
         if not bucket:
@@ -158,6 +172,8 @@ def main(path):
             "catalogueId": catalogue_id,
             "bucket": bucket,
             "seatCount": seat_count,
+            "seatOptions": seat_options,
+            "colourNames": colour_names,
             "facts": facts,
             "aliases": aliases,
             "workbookColours": text(ws.cell(r, cols["Available colour media"]).value),
@@ -206,7 +222,10 @@ def main(path):
         if maps:
             break
     if not maps:
-        warnings.append("No maps.app.goo.gl link found in Replies — location goes without a map link")
+        # The 2026-09-18 workbook carries only the <iframe> embed (never sent: workbook E says
+        # "use saved map card; do not paste raw iframe"). The link Samer wrote on 2026-09-17 is kept.
+        maps = SAVED_MAPS_LINK
+        warnings.append(f"No maps.app.goo.gl link in Replies — keeping the saved link {SAVED_MAPS_LINK}")
     showroom["mapsLink"] = maps
 
     # Administration numbers, from the department menu Samer wrote (Replies row 3).

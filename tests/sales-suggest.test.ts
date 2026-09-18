@@ -104,8 +104,8 @@ describe("what a suggestion answers", () => {
       const first = s.turn.plan[0];
       assert.ok(first.kind === "text");
       if (first.kind === "text") {
-        assert.deepEqual(first.choices.map((c) => c.title), ["Sales", "Service & Parts", "Administration"]);
-        assert.deepEqual(first.choices.map((c) => c.payload), ["DEPT:SALES", "DEPT:SERVICE", "DEPT:ADMIN"]);
+        assert.deepEqual(first.choices.map((c) => c.title), ["Sales", "Customer Service", "After-Sales", "Service & Maintenance", "Administration"]);
+        assert.deepEqual(first.choices.map((c) => c.payload), ["DEPT:SALES", "DEPT:CUSTOMER_SERVICE", "DEPT:AFTER_SALES", "DEPT:SERVICE", "DEPT:ADMIN"]);
       }
       assert.deepEqual(s.answered, ["c1"]);
       assert.equal(s.turn.policy.wouldSend, true);
@@ -115,9 +115,10 @@ describe("what a suggestion answers", () => {
   test("every customer message since our last reply is read as one", () => {
     const s = suggest([msg("c1", "in", "hi", 0), msg("c2", "in", "courage", 1), msg("c3", "in", "price?", 2)]);
     assert.deepEqual(labels(s), [
+      // Workbook C (2026-09-18): brochure + model video, then Sales in the same chat.
       "SEND COURAGE BROCHURE",
+      "SEND COURAGE PEARL BLACK VIDEO",
       "SAY PRICE HANDOFF (COURAGE)",
-      "SHOW COURAGE COLOURS",
       "ALERT SALES — PRICE (COURAGE)",
     ]);
   });
@@ -149,7 +150,8 @@ describe("what a suggestion answers", () => {
 
   test("the brand is the account's", () => {
     const s = suggest([msg("c1", "in", "mhero 2 hp?", 0)]);
-    assert.deepEqual(labels(s), ["SEND CONTACT FALLBACK — OTHER BRAND MHERO 2"]);
+    // The hand-off promises a person, so one is told.
+    assert.deepEqual(labels(s), ["SEND CONTACT FALLBACK — OTHER BRAND MHERO 2", "ALERT SALES — QUESTION"]);
   });
 });
 

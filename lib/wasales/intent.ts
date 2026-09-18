@@ -287,6 +287,7 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
   TEST_DRIVE: [
     "test drive", "testdrive", "test driving", "try the car", "book a drive",
     "tajrobe", "tajribe", "tajrbe", "تجربة", "تجربة قيادة", "تست درايف",
+    "جرب", "اجرب", "جربها", "اجربها", "jarrib", "jarreb",
   ],
   WARRANTY: [
     "warranty", "warranties", "guarantee", "guaranty", "garantie",
@@ -672,7 +673,7 @@ export type ChoicePayload =
   /** A test-drive slot, as an ISO time. */
   | { kind: "SLOT"; at: string };
 
-export type Department = "SALES" | "SERVICE" | "ADMIN";
+export type Department = "SALES" | "CUSTOMER_SERVICE" | "AFTER_SALES" | "SERVICE" | "ADMIN";
 
 export function departmentPayload(d: Department): string {
   return `DEPT:${d}`;
@@ -699,7 +700,7 @@ export function parsePayload(raw: string | null | undefined): ChoicePayload | nu
   const s = raw.trim();
   const model = /^MODEL:([A-Z0-9_]{1,20})$/i.exec(s);
   if (model) return { kind: "MODEL", model: model[1].toUpperCase() };
-  const dept = /^DEPT:(SALES|SERVICE|ADMIN)$/i.exec(s);
+  const dept = /^DEPT:(SALES|CUSTOMER_SERVICE|AFTER_SALES|SERVICE|ADMIN)$/i.exec(s);
   if (dept) return { kind: "DEPARTMENT", department: dept[1].toUpperCase() as Department };
   const category = /^CATEGORY:(EV|EREV|PHEV)$/i.exec(s);
   if (category) return { kind: "CATEGORY", bucket: category[1].toUpperCase() as "EV" | "EREV" | "PHEV" };

@@ -82,9 +82,15 @@ describe("the knowledge that ships", () => {
     assert.equal(modelByCode(K, "COURAGE")?.displayName, "VOYAH Courage");
     assert.equal(modelByCode(K, "FREE_318")?.displayName, "VOYAH Free 318");
     assert.equal(modelByCode(K, "MHERO_1")?.displayName, "MHERO 1");
-    assert.equal(modelByCode(K, "COURAGE")?.facts.HORSEPOWER?.value, "320 kW / 435 PS");
-    assert.equal(factStatus(modelByCode(K, "PASSION_L")?.facts.BATTERY), "EMPTY");
-    assert.equal(factStatus(modelByCode(K, "MHERO_1")?.facts.SEATS), "EMPTY");
+    // A Car Facts of 2026-09-18, exactly as stored.
+    assert.equal(modelByCode(K, "COURAGE")?.facts.HORSEPOWER?.value, "430 HP");
+    assert.equal(modelByCode(K, "PASSION_L")?.facts.BATTERY?.value, "65 kWh CATL ternary lithium");
+    assert.equal(modelByCode(K, "TAISHAN")?.facts.SEATS?.value, "6 to 7 seats");
+    assert.deepEqual(modelByCode(K, "TAISHAN")?.seatOptions, [6, 7], "a 6-seat and a 7-seat question both find it");
+    assert.deepEqual(modelByCode(K, "FREE_318")?.colourNames, ["Midnight Black", "British Racing Green", "Titanium Grey", "Sage Green", "Pearl White"]);
+    // The one fact still held: A Car Facts says 440 km WLTP, the F sheet says 550 / 440 uphill.
+    assert.equal(factStatus(modelByCode(K, "COURAGE")?.facts.RANGE), "EMPTY");
+    assert.equal(modelByCode(K, "MHERO_1")?.facts.SEATS?.value, "5", "the workbook writes 5-seat");
   });
 
   test("the showroom's globals are the workbook's sentences, all approved", () => {
@@ -102,10 +108,11 @@ describe("the knowledge that ships", () => {
       [
         "Our showroom is open Monday to Friday, from 8:00 AM to 6:00 PM.",
         "Our showroom is open on Saturday, from 8:00 AM to 2:00 PM.",
-        "Sunday and public-holiday availability should be confirmed by a team member.",
+        "Sunday we are closed and public-holiday availability should be confirmed by a team member.",
       ].join("\n")
     );
-    assert.equal(K.showroom.handoff, "For further assistance, please contact us on 70 70 85 85.");
+    assert.equal(K.showroom.handoff, "Our Sales Team will assist you further right here with all the details you need.");
+    assert.deepEqual(K.decisions, { botBooksTestDrives: false, askLeadName: false }, "workbook C, 2026-09-18");
     assert.equal(K.showroom.serviceContact, "For Service, Maintenance, or Spare Parts, please contact 76 877 278.");
   });
 

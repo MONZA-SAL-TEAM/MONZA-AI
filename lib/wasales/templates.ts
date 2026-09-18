@@ -82,6 +82,9 @@ export interface RenderContext {
   lang?: "en" | "ar";
 }
 
+/** The same-chat Sales hand-off (workbook B, 2026-09-18), in Arabic. */
+const AR_HERE = "سيتابع معكم فريق المبيعات هنا مباشرةً بكل التفاصيل التي تحتاجونها.";
+
 let LANG: "en" | "ar" = "en";
 /** The Arabic sentence when the customer wrote in Arabic, else the English one. */
 const pick = (en: string, ar: string): string => (LANG === "ar" ? ar : en);
@@ -106,7 +109,7 @@ export const BRAND_NAME: Readonly<Record<SalesBrand, string>> = {
 
 /** The hand-off sentence (workbook, B Showroom). */
 export function contactFallbackText(k: SalesKnowledge): string {
-  return pick(k.showroom.handoff, `لمزيد من المساعدة، يرجى الاتصال بنا على ${k.contact.display}.`);
+  return pick(k.showroom.handoff, AR_HERE);
 }
 
 /** The welcome (workbook, B Showroom), naming the brand of the account written to. */
@@ -183,8 +186,8 @@ const FACT_NAME_AR: Readonly<Record<FactIntent, string>> = {
 /** "not confirmed yet": what a customer reads when the workbook says a figure is not stated. */
 function notConfirmed(row: FactRow, k: SalesKnowledge): string {
   return pick(
-    `The exact ${FACT_NAME[row.fact]} of the ${nameOf(k, row.model)} is not confirmed yet. Our team can confirm it for you on ${k.contact.display}.`,
-    `${FACT_NAME_AR[row.fact]} لسيارة ${nameOf(k, row.model)} غير مؤكد بعد. يمكن لفريقنا تأكيده لكم على ${k.contact.display}.`
+    `The exact ${FACT_NAME[row.fact]} of the ${nameOf(k, row.model)} is not confirmed yet. Our Sales Team can confirm it with you right here.`,
+    `${FACT_NAME_AR[row.fact]} لسيارة ${nameOf(k, row.model)} غير مؤكد بعد. سيؤكده لكم فريق المبيعات هنا مباشرةً.`
   );
 }
 
@@ -204,9 +207,9 @@ function factSentence(row: FactRow, k: SalesKnowledge): string {
     case "POWERTRAIN":
       return `The ${car} powertrain: ${v}.`;
     case "CHARGING":
-      return `Charging for the ${car}: ${v}.`;
+      return `For the ${car}, the approved charging information is: ${v}.`;
     case "SEATS":
-      return /^\d+$/.test(v) ? `The ${car} has ${v} seats.` : `The ${car} has ${v.replace(/^(\d+)/, "$1 seats")}.`;
+      return /^\d+$/.test(v) ? `The ${car} has ${v} seats.` : `For the ${car}, the approved seating information is: ${v}.`;
     case "DIMENSIONS":
       return `The ${car} measures ${v}.`;
     case "WARRANTY":
@@ -276,11 +279,22 @@ function renderText(key: TextKey, models: readonly ModelCode[], vars: Record<str
   }
   switch (key) {
     case "PRICE_HANDOFF":
-      return models.length > 0 && models.length <= 3
-        ? `For current pricing of the ${cars}, please contact our sales team on ${number}.`
-        : `For current pricing, please contact our sales team on ${number}.`;
+    case "DISCOUNT_HANDOFF":
+    case "SALES_FOLLOWUP":
+    case "PAYMENT_HANDOFF":
+      // Workbook B/C (2026-09-18): the customer is already in the Sales chat — never "call 70 70 85 85".
+      return k.showroom.handoff;
     case "FINANCING_INFO":
-      return "Yes, installment and payment facilities are available. The plan depends on the vehicle and the payment structure, and our sales team will go through the details with you.";
+      return `Yes, we offer installment and payment facilities, with options depending on the model and payment plan.${vars.inHouse ? " In-house financing is available." : ""}`;
+    case "TEST_DRIVE_REQUEST": {
+      const lead = models.length > 0 ? `We'd be happy to arrange a test drive of the ${cars}.` : "We'd be happy to arrange a test drive for you.";
+      if (vars.slot) return `${lead} I've noted ${vars.slot} as your preferred time, and a team member will confirm it with you right here.`;
+      return models.length > 0 ? `${lead} ${k.showroom.handoff}` : lead;
+    }
+    case "TEST_DRIVE_TIME_PASSED":
+      return `Thank you. I've passed ${vars.slot ?? "that time"} to our Sales Team as your preferred time, and a team member will confirm it with you right here.`;
+    case "TEST_DRIVE_TEAM":
+      return "A team member arranges and confirms test drives. I've let our Sales Team know, and they will follow up with you right here.";
     case "ASK_NAME":
       return "May I have your name, so our sales team can contact you with the details?";
     case "ASK_NAME_AND_PHONE":
@@ -296,11 +310,9 @@ function renderText(key: TextKey, models: readonly ModelCode[], vars: Record<str
     case "TEST_DRIVE_BOOKED":
       return `Your test drive${cars ? ` of the ${cars}` : ""} is booked for ${vars.slot ?? "the time you chose"}. ${k.global.LOCATION?.value ?? ""}`.trim();
     case "TEST_DRIVE_NO_SLOTS":
-      return `There is no free test-drive time in the next few days. Our sales team will contact you to arrange one, or you can call ${number}.`;
+      return "There is no free test-drive time in the next few days. Our Sales Team will arrange one with you right here.";
     case "STOCK_CONFIRM":
-      return `Our sales team will confirm current availability${cars && models.length <= 3 ? ` of the ${cars}` : ""}. You can also reach them on ${number}.`;
-    case "DISCOUNT_HANDOFF":
-      return `For current offers${cars && models.length <= 3 ? ` on the ${cars}` : ""}, please contact our sales team on ${number}.`;
+      return `Our Sales Team will confirm the current availability${cars && models.length <= 3 ? ` of the ${cars}` : ""} with you right here.`;
     case "TRADE_IN_INFO":
       return [
         "Yes, we do accept trade-ins.",
@@ -311,17 +323,17 @@ function renderText(key: TextKey, models: readonly ModelCode[], vars: Record<str
     case "TRADE_IN_THANKS":
       return "Thank you. Our team will review your vehicle details and contact you about the valuation.";
     case "SERVICE_CONTACT":
-      return k.showroom.serviceContact;
+    case "COMPLAINT_CONTACT":
+      // Workbook D (2026-09-18), word for word: one WhatsApp number for every after-sales department.
+      return `For Service, Maintenance, Spare Parts, After-Sales, or a vehicle problem, please contact us on WhatsApp at ${k.showroom.serviceNumber}.`;
     case "ADMIN_CONTACT":
       return k.showroom.administration
-        ? `For administration, please contact ${k.showroom.administration}.`
+        ? `For Administration, please call ${k.showroom.administration.replace(/\s*\/\s*/g, " or ")}.`
         : k.showroom.handoff;
     case "MODEL_YEAR":
       return models.length > 0
         ? `Our current models are 2026 and 2027 models. Our team can confirm the exact model year of the ${cars}.`
         : "All our current models are 2026 and 2027 models.";
-    case "COMPLAINT_CONTACT":
-      return `For assistance with a vehicle issue, please contact Service & Maintenance on ${k.showroom.serviceNumber}.`;
     case "OTHER_BRAND":
       return "We currently specialize in VOYAH and MHERO vehicles in Lebanon.";
     case "HANDOFF":
@@ -331,11 +343,9 @@ function renderText(key: TextKey, models: readonly ModelCode[], vars: Record<str
     case "CATEGORY_NONE":
       return `We don't currently offer a ${vars.kind ?? "model of that type"} in this range. What we do offer:\n${vars.alternatives ?? ""}`;
     case "DELIVERY_INFO":
-      return `Our sales team can arrange delivery details with you. They will get back to you, and you can also reach them on ${number}.`;
-    case "PAYMENT_HANDOFF":
-      return `Our sales team will get back to you on this shortly. You can also reach them on ${number}.`;
+      return "Our Sales Team can arrange the delivery details with you, and will assist you further right here.";
     case "USED_CARS_INFO":
-      return `Our sales team can help you with pre-owned vehicles and what is currently available. They will get back to you, and you can also reach them on ${number}.`;
+      return "Our Sales Team can help you with pre-owned vehicles and what is currently available, and will assist you further right here.";
     case "HUMAN_HANDOFF":
       return "Of course. A member of our sales team will take over this conversation and reply to you here shortly.";
     case "CALLBACK_CONFIRMED":
@@ -346,7 +356,7 @@ function renderText(key: TextKey, models: readonly ModelCode[], vars: Record<str
       return "Certainly. Which phone number should our sales team call you on?";
     case "INTERIOR_INFO":
       return models.length > 0
-        ? `I don't have interior colour details or interior media for the ${cars} in our approved information yet. The brochure shows the interior, and our team can confirm the interior options on ${number}.`
+        ? `I don't have interior colour details or interior media for the ${cars} in our approved information yet. The brochure shows the interior, and our Sales Team can confirm the interior options with you right here.`
         : `I don't have interior colour details in our approved information yet. Which model are you interested in? I can send its brochure, which shows the interior.`;
     case "PHOTOS_INFO":
       return models.length > 0
@@ -354,8 +364,8 @@ function renderText(key: TextKey, models: readonly ModelCode[], vars: Record<str
         : "I don't have photos to send here, but I can send you a video. Which model are you interested in?";
     case "SPEC_NOT_CONFIRMED":
       return models.length > 0
-        ? `The exact ${vars.detail ?? "detail"} of the ${cars} is not in our approved information yet. The brochure has the full specifications, and our team can confirm it on ${number}.`
-        : `The exact ${vars.detail ?? "detail"} is not in our approved information yet. Our team can confirm it on ${number}.`;
+        ? `The exact ${vars.detail ?? "detail"} of the ${cars} is not in our approved information yet. The brochure has the full specifications, and our Sales Team can confirm it with you right here.`
+        : `The exact ${vars.detail ?? "detail"} is not in our approved information yet. Our Sales Team can confirm it with you right here.`;
     case "TEST_DRIVE_CANCELLED":
       return `Your test drive${vars.slot ? ` on ${vars.slot}` : ""} is cancelled. Whenever you'd like to book another, just tell me.`;
     case "TEST_DRIVE_WHEN":
@@ -397,9 +407,21 @@ function renderTextAr(key: TextKey, models: readonly ModelCode[], cars: string, 
   const svc = k.showroom.serviceNumber;
   switch (key) {
     case "PRICE_HANDOFF":
-      return models.length > 0 && models.length <= 3 ? `لمعرفة السعر الحالي لسيارة ${cars}، يرجى التواصل مع فريق المبيعات على ${n}.` : `لمعرفة الأسعار الحالية، يرجى التواصل مع فريق المبيعات على ${n}.`;
+    case "DISCOUNT_HANDOFF":
+    case "SALES_FOLLOWUP":
+    case "PAYMENT_HANDOFF":
+      return AR_HERE;
     case "FINANCING_INFO":
-      return "نعم، تتوفر لدينا تسهيلات في الدفع والتقسيط. تختلف الخطة بحسب السيارة وطريقة الدفع، وسيشرح لكم فريق المبيعات التفاصيل.";
+      return `نعم، نوفر تسهيلات في الدفع والتقسيط، وتختلف الخيارات بحسب الموديل وخطة الدفع.${vars.inHouse ? " التمويل متوفر لدينا مباشرةً." : ""}`;
+    case "TEST_DRIVE_REQUEST": {
+      const lead = models.length > 0 ? `يسعدنا ترتيب تجربة قيادة لسيارة ${cars}.` : "يسعدنا ترتيب تجربة قيادة لكم.";
+      if (vars.slot) return `${lead} سجّلت ${vars.slot} كموعدكم المفضّل، وسيؤكده لكم أحد أعضاء الفريق هنا مباشرةً.`;
+      return models.length > 0 ? `${lead} ${AR_HERE}` : lead;
+    }
+    case "TEST_DRIVE_TIME_PASSED":
+      return `شكراً لكم. نقلت ${vars.slot ?? "الموعد"} إلى فريق المبيعات كموعدكم المفضّل، وسيؤكده لكم أحد أعضاء الفريق هنا مباشرةً.`;
+    case "TEST_DRIVE_TEAM":
+      return "يتولى أحد أعضاء الفريق ترتيب تجارب القيادة وتأكيدها. أبلغت فريق المبيعات، وسيتابعون معكم هنا مباشرةً.";
     case "ASK_NAME":
       return "ممكن نعرف اسمكم الكريم ليتواصل معكم فريق المبيعات بالتفاصيل؟";
     case "ASK_NAME_AND_PHONE":
@@ -413,35 +435,30 @@ function renderTextAr(key: TextKey, models: readonly ModelCode[], cars: string, 
     case "TEST_DRIVE_BOOKED":
       return `تم حجز تجربة القيادة${cars ? ` لسيارة ${cars}` : ""} يوم ${vars.slot ?? ""}. ${k.global.LOCATION?.value ?? ""}`.trim();
     case "TEST_DRIVE_NO_SLOTS":
-      return `لا يوجد موعد متاح لتجربة القيادة في الأيام القليلة المقبلة. سيتواصل معكم فريق المبيعات لتحديد موعد، ويمكنكم الاتصال على ${n}.`;
+      return "لا يوجد موعد متاح لتجربة القيادة في الأيام القليلة المقبلة. سيرتّب فريق المبيعات موعداً معكم هنا مباشرةً.";
     case "STOCK_CONFIRM":
-      return `سيؤكد لكم فريق المبيعات التوفر الحالي${cars && models.length <= 3 ? ` لسيارة ${cars}` : ""}. يمكنكم أيضاً التواصل معهم على ${n}.`;
-    case "DISCOUNT_HANDOFF":
-      return `لمعرفة العروض الحالية${cars && models.length <= 3 ? ` على ${cars}` : ""}، يرجى التواصل مع فريق المبيعات على ${n}.`;
+      return `سيؤكد لكم فريق المبيعات التوفر الحالي${cars && models.length <= 3 ? ` لسيارة ${cars}` : ""} هنا مباشرةً.`;
     case "TRADE_IN_INFO":
       return ["نعم، نقبل استبدال السيارات (Trade-in).", "نقوم بتقييم سيارتكم الحالية واحتساب قيمتها من ثمن السيارة الجديدة.", "لبدء التقييم، يرجى إرسال:\n• نوع السيارة والموديل\n• سنة الصنع\n• عدد الكيلومترات\n• بعض الصور الواضحة من الخارج والداخل", "بعد استلام التفاصيل، سيراجع فريقنا السيارة ويرشدكم إلى الخطوات التالية."].join("\n\n");
     case "TRADE_IN_THANKS":
       return "شكراً لكم. سيراجع فريقنا تفاصيل سيارتكم ويتواصل معكم بشأن التقييم.";
     case "SERVICE_CONTACT":
-      return `للصيانة أو قطع الغيار، يرجى الاتصال على ${svc}.`;
     case "COMPLAINT_CONTACT":
-      return `للمساعدة بخصوص مشكلة في السيارة، يرجى الاتصال بقسم الصيانة على ${svc}.`;
+      return `للصيانة أو قطع الغيار أو خدمة ما بعد البيع أو أي مشكلة في السيارة، يرجى التواصل معنا عبر واتساب على ${svc}.`;
     case "ADMIN_CONTACT":
-      return k.showroom.administration ? `للإدارة، يرجى الاتصال على ${k.showroom.administration}.` : `لمزيد من المساعدة، يرجى الاتصال بنا على ${n}.`;
+      return k.showroom.administration ? `للإدارة، يرجى الاتصال على ${k.showroom.administration.replace(/\s*\/\s*/g, " أو ")}.` : AR_HERE;
     case "MODEL_YEAR":
       return models.length > 0 ? `موديلاتنا الحالية هي موديلات 2026 و2027. يمكن لفريقنا تأكيد سنة الصنع لسيارة ${cars}.` : "جميع موديلاتنا الحالية هي موديلات 2026 و2027.";
     case "OTHER_BRAND":
       return "نحن متخصصون حالياً بسيارات VOYAH وMHERO في لبنان.";
     case "HANDOFF":
-      return `لمزيد من المساعدة، يرجى الاتصال بنا على ${n}.`;
+      return AR_HERE;
     case "CATEGORY_NONE":
       return `لا نوفر حالياً ${vars.kind ?? "هذا النوع"} ضمن هذه المجموعة. ما نوفره:\n${vars.alternatives ?? ""}`;
     case "DELIVERY_INFO":
-      return `يمكن لفريق المبيعات ترتيب تفاصيل التوصيل معكم. سيتواصلون معكم، ويمكنكم أيضاً الاتصال على ${n}.`;
-    case "PAYMENT_HANDOFF":
-      return `سيتواصل معكم فريق المبيعات بهذا الخصوص قريباً. يمكنكم أيضاً الاتصال على ${n}.`;
+      return "يمكن لفريق المبيعات ترتيب تفاصيل التوصيل معكم، وسيتابعون معكم هنا مباشرةً.";
     case "USED_CARS_INFO":
-      return `يمكن لفريق المبيعات مساعدتكم بخصوص السيارات المستعملة والمتوفر حالياً. سيتواصلون معكم، ويمكنكم أيضاً الاتصال على ${n}.`;
+      return "يمكن لفريق المبيعات مساعدتكم بخصوص السيارات المستعملة والمتوفر حالياً، وسيتابعون معكم هنا مباشرةً.";
     case "HUMAN_HANDOFF":
       return "بالتأكيد. سيتابع أحد أعضاء فريق المبيعات هذه المحادثة ويرد عليكم هنا قريباً.";
     case "CALLBACK_CONFIRMED":
@@ -449,11 +466,11 @@ function renderTextAr(key: TextKey, models: readonly ModelCode[], cars: string, 
     case "CALLBACK_ASK_NUMBER":
       return "بالتأكيد. على أي رقم يمكن لفريق المبيعات الاتصال بكم؟";
     case "INTERIOR_INFO":
-      return models.length > 0 ? `لا تتوفر لدي حالياً تفاصيل أو فيديو للمقصورة الداخلية لسيارة ${cars}. الكتالوج يعرض المقصورة الداخلية، ويمكن لفريقنا تأكيد الخيارات على ${n}.` : "لا تتوفر لدي حالياً تفاصيل المقصورة الداخلية. أي موديل يهمكم؟ يمكنني إرسال الكتالوج الذي يعرض المقصورة الداخلية.";
+      return models.length > 0 ? `لا تتوفر لدي حالياً تفاصيل أو فيديو للمقصورة الداخلية لسيارة ${cars}. الكتالوج يعرض المقصورة الداخلية، وسيؤكد لكم فريق المبيعات الخيارات هنا مباشرةً.` : "لا تتوفر لدي حالياً تفاصيل المقصورة الداخلية. أي موديل يهمكم؟ يمكنني إرسال الكتالوج الذي يعرض المقصورة الداخلية.";
     case "PHOTOS_INFO":
       return models.length > 0 ? `لا تتوفر لدي صور لإرسالها هنا، لكن يمكنني إرسال فيديو لسيارة ${cars}.` : "لا تتوفر لدي صور لإرسالها هنا، لكن يمكنني إرسال فيديو. أي موديل يهمكم؟";
     case "SPEC_NOT_CONFIRMED":
-      return models.length > 0 ? `هذه المعلومة (${vars.detail ?? ""}) عن ${cars} غير متوفرة بعد ضمن معلوماتنا المعتمدة. الكتالوج يحتوي على المواصفات الكاملة، ويمكن لفريقنا تأكيدها على ${n}.` : `هذه المعلومة (${vars.detail ?? ""}) غير متوفرة بعد ضمن معلوماتنا المعتمدة. يمكن لفريقنا تأكيدها على ${n}.`;
+      return models.length > 0 ? `هذه المعلومة (${vars.detail ?? ""}) عن ${cars} غير متوفرة بعد ضمن معلوماتنا المعتمدة. الكتالوج يحتوي على المواصفات الكاملة، وسيؤكدها لكم فريق المبيعات هنا مباشرةً.` : `هذه المعلومة (${vars.detail ?? ""}) غير متوفرة بعد ضمن معلوماتنا المعتمدة. سيؤكدها لكم فريق المبيعات هنا مباشرةً.`;
     case "TEST_DRIVE_CANCELLED":
       return `تم إلغاء تجربة القيادة${vars.slot ? ` يوم ${vars.slot}` : ""}. عندما ترغبون بحجز موعد آخر، أخبروني.`;
     case "TEST_DRIVE_WHEN":
@@ -588,12 +605,17 @@ export function renderPlan(actions: readonly EngineAction[], ctx: RenderContext)
           say(pick(`Sorry — we don't have a video of the ${nameOf(k, a.model)} in ${a.requested}.`, `عذراً، لا يتوفر لدينا فيديو لسيارة ${nameOf(k, a.model)} باللون ${a.requested}.`))
         );
         break;
-      case "SEND_TEXT":
-        parts.push(say(renderText(a.key, a.models, a.vars ?? {}, ctx)));
+      case "SEND_TEXT": {
+        // Price + offers both end in the same hand-off sentence: said once.
+        const sentence = renderText(a.key, a.models, a.vars ?? {}, ctx);
+        if (!parts.some((p) => p.kind === "text" && p.text === sentence)) parts.push(say(sentence));
         break;
-      case "SEND_CONTACT_FALLBACK":
-        parts.push(say(contactFallbackText(k)));
+      }
+      case "SEND_CONTACT_FALLBACK": {
+        const sentence = contactFallbackText(k);
+        if (!parts.some((p) => p.kind === "text" && p.text.includes(sentence))) parts.push(say(sentence));
         break;
+      }
       case "SHOW_COLOUR_CHOICES":
         parts.push(
           question(
@@ -683,7 +705,9 @@ export function renderPlan(actions: readonly EngineAction[], ctx: RenderContext)
             `${welcomeText(ctx)}\n\n${pick("Please choose an option:", "يرجى اختيار قسم:")}`,
             [
               { title: pick("Sales", "المبيعات"), payload: departmentPayload("SALES") },
-              { title: pick("Service & Parts", "الصيانة وقطع الغيار"), payload: departmentPayload("SERVICE") },
+              { title: pick("Customer Service", "خدمة العملاء"), payload: departmentPayload("CUSTOMER_SERVICE") },
+              { title: pick("After-Sales", "ما بعد البيع"), payload: departmentPayload("AFTER_SALES") },
+              { title: pick("Service & Maintenance", "الصيانة"), payload: departmentPayload("SERVICE") },
               { title: pick("Administration", "الإدارة"), payload: departmentPayload("ADMIN") },
             ],
             ctx.channel

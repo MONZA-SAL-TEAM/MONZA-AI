@@ -351,3 +351,30 @@ rule 24; every other chat keeps the suggestion card.
   messages to a staff phone (needs `SALES_ALERT_WHATSAPP_TO` and an approved
   template), brochure copies for Dream / Free 318 / Taishan / Passion L /
   MHERO 2 (upload from Samer's Chrome).
+
+## 2026-09-18: the "Updated Logic" workbook (Samer: "full brain")
+
+`python scripts/sales-import-workbook.py "…/Monza-Bot-Reply-Worksheet-Updated-Logic.xlsx"`
+regenerated `knowledge-data.ts`. What changed, and where:
+
+- **Facts** (A Car Facts): Courage 430 HP; Dream 416 hp, WLTP; Passion 550 hp; Taishan 700 hp,
+  410 km EV / 1,400 km; MHERO 1 815 hp, 5 seats; every battery "CATL"; Passion L battery 65 kWh;
+  charging times for all eight; Taishan "6 to 7 seats" (`seatOptions` [6, 7]); powertrain text.
+  The 2026-09-17 holds are lifted except the Courage range.
+- **Official colour names** (`colourNames` → `withOfficialColours` in `engine.ts`): the library's
+  "Black" is shown as "Pearl Black"; the library name stays an alias.
+- **Same-chat hand-off** (B Showroom): every hand-off sentence in `templates.ts`, English and
+  Arabic, says Sales follows up "right here"; identical sentences in one reply are said once.
+- **Commercial questions** (C Decisions): brochure + model video + hand-off + alert; no colour
+  question on that turn; no second video if one was already sent in this activation.
+- **Installments / test drives** (C Decisions): `knowledge.decisions` — no name, no booking.
+  New sentences `SALES_FOLLOWUP`, `TEST_DRIVE_REQUEST`, `TEST_DRIVE_TIME_PASSED`,
+  `TEST_DRIVE_TEAM`. "saturday afternoon" after a test-drive request is a preferred day, not an
+  opening-hours question.
+- **Alerts**: a promise of a person always raises one; `LEAD` (migration 017, applied) when
+  brochure + video were received; an open alert learns the model once it is known.
+- **Departments** (D Staff Replies): five, as a WhatsApp list; typed 1–5 works.
+- **Words the rules cannot read** mid-conversation (a name typed unprompted) are for a person
+  (`needsPerson`), never "nothing new was asked".
+- Not switched on: "Do you mean Voyah passion S?" (no such car in A Car Facts) — see
+  `docs/SALES-FACTS-DISCREPANCIES.md`.

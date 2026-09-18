@@ -14,6 +14,16 @@ export const WORKBOOK = {
       "catalogueId": "voyah-free-comp",
       "bucket": "EREV",
       "seatCount": 5,
+      "seatOptions": [
+        5
+      ],
+      "colourNames": [
+        "Midnight Black",
+        "British Racing Green",
+        "Titanium Grey",
+        "Sage Green",
+        "Pearl White"
+      ],
       "facts": {
         "HORSEPOWER": {
           "value": "600 hp",
@@ -24,16 +34,15 @@ export const WORKBOOK = {
           "confirmed": true
         },
         "BATTERY": {
-          "value": "",
-          "confirmed": false,
-          "pending": "43 kWh ternary lithium"
+          "value": "43 kWh CATL ternary lithium",
+          "confirmed": true
         },
         "POWERTRAIN": {
           "value": "EREV – electric drive with 1.5T petrol range extender",
           "confirmed": true
         },
         "CHARGING": {
-          "value": "External charging supported (the exact charging time is not confirmed yet)",
+          "value": "16 AMP 0% - 100% 7H (Over night) 32 AMP 0% - 100% 3.5H",
           "confirmed": true
         },
         "SEATS": {
@@ -67,16 +76,24 @@ export const WORKBOOK = {
         "فوياه فري",
         "فوياه 318"
       ],
-      "workbookColours": "Black · Green · Grey · Sage · White"
+      "workbookColours": "Midnight Black, British Racing Green, Titanium Grey, Sage Green or Pearl White."
     },
     "COURAGE": {
       "officialName": "VOYAH Courage",
       "catalogueId": "voyah-courage",
       "bucket": "EV",
       "seatCount": 5,
+      "seatOptions": [
+        5
+      ],
+      "colourNames": [
+        "Pearl Black",
+        "Crayon Grey",
+        "Pearl White"
+      ],
       "facts": {
         "HORSEPOWER": {
-          "value": "320 kW / 435 PS",
+          "value": "430 HP",
           "confirmed": true
         },
         "RANGE": {
@@ -85,7 +102,7 @@ export const WORKBOOK = {
           "pending": "440 km WLTP"
         },
         "BATTERY": {
-          "value": "80 kWh nominal / 77.3 kWh usable LFP",
+          "value": "80 kWh CATL nominal / 77.3 kWh usable LFP",
           "confirmed": true
         },
         "POWERTRAIN": {
@@ -93,7 +110,7 @@ export const WORKBOOK = {
           "confirmed": true
         },
         "CHARGING": {
-          "value": "AC + DC charging supported (the exact charging time is not confirmed yet)",
+          "value": "0% - 100% 6H 32 AMP AC 0% - 100% 25 Min DC",
           "confirmed": true
         },
         "SEATS": {
@@ -122,37 +139,42 @@ export const WORKBOOK = {
         "فوياه كوراج",
         "كوريج"
       ],
-      "workbookColours": "Black · Grey · White"
+      "workbookColours": "Pearl Black, Crayon Grey or Pearl White"
     },
     "DREAM": {
       "officialName": "VOYAH Dream",
       "catalogueId": "voyah-dream",
       "bucket": "PHEV",
       "seatCount": 7,
+      "seatOptions": [
+        7
+      ],
+      "colourNames": [
+        "Midnight Black"
+      ],
       "facts": {
         "HORSEPOWER": {
-          "value": "416 hp / 310 kW",
+          "value": "416 hp",
           "confirmed": true
         },
         "RANGE": {
-          "value": "185 km EV / 915 km combined (WLTC)",
+          "value": "185 km EV / 915 km combined (WLTP)",
           "confirmed": true
         },
         "BATTERY": {
-          "value": "",
-          "confirmed": false,
-          "pending": "43 kWh ternary lithium"
+          "value": "43 kWh CATL ternary lithium",
+          "confirmed": true
         },
         "POWERTRAIN": {
-          "value": "PHEV – Plug-in Hybrid",
+          "value": "PHEV – Plug-in Hybrid, REV, EV",
           "confirmed": true
         },
         "CHARGING": {
-          "value": "DC 20–80%: ~30 min (80 kW) · AC 0–100%: 8.4 h (6.6 kW)",
+          "value": "DC 20–80%: ~30 min (80 kW) · AC 0–100%: 7 h (6.6 kW)",
           "confirmed": true
         },
         "SEATS": {
-          "value": "7 (2+2+3)",
+          "value": "7",
           "confirmed": true
         },
         "DIMENSIONS": {
@@ -177,16 +199,22 @@ export const WORKBOOK = {
         "فوياه دريم",
         "فويا دريم"
       ],
-      "workbookColours": "black"
+      "workbookColours": "Midnight Black"
     },
     "PASSION": {
       "officialName": "VOYAH Passion",
       "catalogueId": "voyah-passion",
       "bucket": "PHEV",
       "seatCount": 5,
+      "seatOptions": [
+        5
+      ],
+      "colourNames": [
+        "Midnight Black"
+      ],
       "facts": {
         "HORSEPOWER": {
-          "value": "523 hp / 390 kW",
+          "value": "550 hp",
           "confirmed": true
         },
         "RANGE": {
@@ -194,16 +222,15 @@ export const WORKBOOK = {
           "confirmed": true
         },
         "BATTERY": {
-          "value": "",
-          "confirmed": false,
-          "pending": "43 kWh ternary lithium"
+          "value": "43 kWh CATL ternary lithium",
+          "confirmed": true
         },
         "POWERTRAIN": {
-          "value": "PHEV – Plug-in Hybrid",
+          "value": "PHEV – Plug-in Hybrid, REV, EV",
           "confirmed": true
         },
         "CHARGING": {
-          "value": "DC 20–80%: 29 min · AC 0–100%: 8 h",
+          "value": "DC 20% – 80%: 25 min · AC 0% –100% : 7 h",
           "confirmed": true
         },
         "SEATS": {
@@ -230,34 +257,39 @@ export const WORKBOOK = {
         "باسيون",
         "فوياه باشن"
       ],
-      "workbookColours": "black"
+      "workbookColours": "Midnight Black"
     },
     "PASSION_L": {
       "officialName": "VOYAH Passion L",
       "catalogueId": "voyah-passion-l",
       "bucket": "PHEV",
       "seatCount": 5,
+      "seatOptions": [
+        5
+      ],
+      "colourNames": [
+        "Obsidian Black",
+        "Titanium Grey"
+      ],
       "facts": {
         "HORSEPOWER": {
-          "value": "",
-          "confirmed": false,
-          "pending": "657 hp"
+          "value": "657 hp",
+          "confirmed": true
         },
         "RANGE": {
-          "value": "",
-          "confirmed": false,
-          "pending": "410 km EV / 1,400 km combined (CLTC)"
+          "value": "410 km EV / 1,400 km combined (CLTC)",
+          "confirmed": true
         },
         "BATTERY": {
-          "value": "",
-          "confirmed": false
+          "value": "65 kWh CATL ternary lithium",
+          "confirmed": true
         },
         "POWERTRAIN": {
-          "value": "Smart Hybrid PHEV · 800V",
+          "value": "PHEV – Plug-in Hybrid, REV, EV",
           "confirmed": true
         },
         "CHARGING": {
-          "value": "800V rapid DC charging (the exact charging time is not confirmed yet)",
+          "value": "AC Charging 0% - 100% 7 Hours 16 AMP DC Charging 0% - 100% 25 Min",
           "confirmed": true
         },
         "SEATS": {
@@ -287,38 +319,45 @@ export const WORKBOOK = {
         "باسيون ال",
         "فوياه باشن ال"
       ],
-      "workbookColours": "Black · Grey"
+      "workbookColours": "Obsidian Black · Titanium Grey"
     },
     "TAISHAN": {
       "officialName": "VOYAH Taishan",
       "catalogueId": "voyah-taishan",
       "bucket": "PHEV",
       "seatCount": 6,
+      "seatOptions": [
+        6,
+        7
+      ],
+      "colourNames": [
+        "Obsidian Black",
+        "Sapphire Blue",
+        "Storm Grey"
+      ],
       "facts": {
         "HORSEPOWER": {
-          "value": "",
-          "confirmed": false,
-          "pending": "657 hp"
+          "value": "700 hp",
+          "confirmed": true
         },
         "RANGE": {
-          "value": "",
-          "confirmed": false,
-          "pending": "370 km EV / 1,400 km combined (CLTC)"
+          "value": "410 km EV / 1,400 km combined (CLTC)",
+          "confirmed": true
         },
         "BATTERY": {
           "value": "65 kWh CATL ternary lithium",
           "confirmed": true
         },
         "POWERTRAIN": {
-          "value": "Smart Super Hybrid – PHEV · 800V",
+          "value": "PHEV – Plug-in Hybrid, REV, EV",
           "confirmed": true
         },
         "CHARGING": {
-          "value": "800V rapid DC charging (the exact charging time is not confirmed yet)",
+          "value": "AC Charging 0% - 100% 7 Hours 16 AMP DC Charging 0% - 100% 25 Min",
           "confirmed": true
         },
         "SEATS": {
-          "value": "6",
+          "value": "6 to 7 seats",
           "confirmed": true
         },
         "DIMENSIONS": {
@@ -345,16 +384,24 @@ export const WORKBOOK = {
         "تاي شان",
         "فوياه تايشان"
       ],
-      "workbookColours": "Black · Blue · Grey"
+      "workbookColours": "Obsidian Black · Sapphire Blue\n · Storm Grey"
     },
     "MHERO_1": {
       "officialName": "MHERO 1",
       "catalogueId": "mhero-1",
       "bucket": "EREV",
-      "seatCount": null,
+      "seatCount": 5,
+      "seatOptions": [
+        5
+      ],
+      "colourNames": [
+        "Obsidian Black",
+        "Storm Grey",
+        "Recon Green"
+      ],
       "facts": {
         "HORSEPOWER": {
-          "value": "805 hp",
+          "value": "815 hp",
           "confirmed": true
         },
         "RANGE": {
@@ -362,7 +409,7 @@ export const WORKBOOK = {
           "confirmed": true
         },
         "BATTERY": {
-          "value": "65.8 kWh",
+          "value": "65.8 kWh CATL",
           "confirmed": true
         },
         "POWERTRAIN": {
@@ -370,12 +417,12 @@ export const WORKBOOK = {
           "confirmed": true
         },
         "CHARGING": {
-          "value": "DC 30–80%: ~37 min",
+          "value": "AC Charging 0% - 100% 7 Hours 16 AMP DC Charging 0% - 100% 25 Min",
           "confirmed": true
         },
         "SEATS": {
-          "value": "",
-          "confirmed": false
+          "value": "5",
+          "confirmed": true
         },
         "DIMENSIONS": {
           "value": "4,987 × 2,080 × 1,935 mm (trunk capacity not confirmed yet)",
@@ -406,16 +453,25 @@ export const WORKBOOK = {
         "مهيرو 1",
         "مهيرو 917"
       ],
-      "workbookColours": "Black · Green ·Grey"
+      "workbookColours": "Obsidian Black · Storm Grey · Recon Green"
     },
     "MHERO_2": {
       "officialName": "MHERO 2",
       "catalogueId": "mhero-2",
       "bucket": "PHEV",
       "seatCount": 5,
+      "seatOptions": [
+        5
+      ],
+      "colourNames": [
+        "Piano Black",
+        "Olive Green",
+        "Clouds White",
+        "Polar Silver"
+      ],
       "facts": {
         "HORSEPOWER": {
-          "value": "700 hp / 522 kW",
+          "value": "700 hp",
           "confirmed": true
         },
         "RANGE": {
@@ -423,15 +479,15 @@ export const WORKBOOK = {
           "confirmed": true
         },
         "BATTERY": {
-          "value": "31.7 kWh LFP",
+          "value": "31.7 kWh CATL LFP",
           "confirmed": true
         },
         "POWERTRAIN": {
-          "value": "PHEV · dual-motor",
+          "value": "PHEV – Plug-in Hybrid, REV, EV",
           "confirmed": true
         },
         "CHARGING": {
-          "value": "DC 20–80%: ~15 min",
+          "value": "AC Charging 0% - 100% 7 Hours 16 AMP DC Charging 0% - 100% 25 Min",
           "confirmed": true
         },
         "SEATS": {
@@ -467,18 +523,18 @@ export const WORKBOOK = {
         "مهيرو 2",
         "مهيرو 817"
       ],
-      "workbookColours": "Black · Green · White"
+      "workbookColours": "Piano Black · Olive Green · Clouds White · Polar Silver"
     }
   },
   "showroom": {
     "location": "Our showroom is located in Horch Tabet, Beirut.",
     "hoursWeek": "Our showroom is open Monday to Friday, from 8:00 AM to 6:00 PM.",
     "hoursSaturday": "Our showroom is open on Saturday, from 8:00 AM to 2:00 PM.",
-    "hoursSunday": "Sunday and public-holiday availability should be confirmed by a team member.",
+    "hoursSunday": "Sunday we are closed and public-holiday availability should be confirmed by a team member.",
     "salesContact": "For sales enquiries, please contact us on 70 70 85 85.",
     "serviceContact": "For Service, Maintenance, or Spare Parts, please contact 76 877 278.",
     "welcome": "Hello and welcome to Monza S.A.L. How can we help you today?",
-    "handoff": "For further assistance, please contact us on 70 70 85 85.",
+    "handoff": "Our Sales Team will assist you further right here with all the details you need.",
     "mapsLink": "https://maps.app.goo.gl/orJMduowHtVqQgR58",
     "administration": "01 488 333 / 01 488 666"
   }

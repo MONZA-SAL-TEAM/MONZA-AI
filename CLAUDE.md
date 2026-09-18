@@ -848,7 +848,8 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   accounts sell both marques.
 - **Brochure first on every model activation**; never re-sent within one
   activation unless the customer asks for the brochure.
-- **Samer's workbook is the brain (2026-09-17)**: `Monza-Bot-Reply-Worksheet-Master-Logic-Expanded.xlsx`.
+- **Samer's workbook is the brain**: since 2026-09-18 `Monza-Bot-Reply-Worksheet-Updated-Logic.xlsx`
+  (it replaced `…Master-Logic-Expanded.xlsx` of 2026-09-17).
   `python scripts/sales-import-workbook.py <xlsx>` regenerates `lib/wasales/knowledge-data.ts`
   from A Car Facts (facts, powertrain bucket, aliases) and B Showroom (address, hours,
   numbers, welcome, hand-off); it rewrites internal wording ("not confirmed in this
@@ -859,20 +860,33 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   together → a labelled line each; no car → the value for every car the account
   sells. Type questions ("what EVs", "7 seater") filter by bucket or seat count.
   "Compare" gives a side-by-side. "ok" / "thanks" never reopen a menu.
-- **Never a price, an offer, stock or payment terms.** Price / offers / stock →
-  the sales number and a `sales_alerts` row (013); installments and test drives
-  take the customer's name first (`readName`); a test drive is booked into a
-  30-minute slot (Mon–Fri 10–17, Sat 10–14, Beirut) in `test_drive_bookings`
-  (014), whose partial unique index refuses a second booking of a slot. The
-  booking is held BEFORE the confirmation is sent; alerts are recorded only after
-  the reply went. Inbox shows open alerts ("clients to call"); `/test-drives`
+- **Never a price, an offer, stock or payment terms — and never "call 70 70 85 85"
+  to a customer already chatting on it (workbook B/C, 2026-09-18).** Price / offers
+  / installments / test drives → the brochure AND the model video, then B's
+  same-chat sentence ("Our Sales Team will assist you further right here…") and a
+  `sales_alerts` row (013). The number is given only when the customer asks for
+  it. Every sentence that promises a person raises an alert (`finish()` in
+  `engine.ts`), and a customer who has received brochure + video raises a `LEAD`
+  alert (017). Installments: the facilities are confirmed (in-house financing
+  only if asked), never a term, no name taken. **The bot does NOT book test
+  drives** — a team member arranges and confirms; a typed time is passed to Sales
+  as a preference and the bot never says "booked" or "cancelled". Both are
+  `knowledge.decisions` (`botBooksTestDrives`, `askLeadName`, both false): the
+  2026-09-17 behaviour (name first, a 30-minute slot in `test_drive_bookings`
+  (014), Mon–Fri 10–17, Sat 10–14, one booking per slot, held BEFORE the
+  confirmation) is kept behind them and still tested (`K_BOOKS`). Alerts are
+  recorded only after the reply went. Inbox shows open alerts ("clients to call"); `/test-drives`
   lists and cancels bookings. A WhatsApp message to the salesperson needs
   `SALES_ALERT_WHATSAPP_TO` + an approved template `SALES_ALERT_TEMPLATE` (one body
   variable); unset, only the inbox alert. Alerts and bookings follow the 12-month
   clean-up.
-- Service, parts and complaints get the service number (76 877 278); a greeting
-  alone gets the welcome and the departments (Sales · Service & After-Sales ·
-  Administration). Photos and story replies stay with a person (rules only, no AI).
+- Service, parts, after-sales and complaints get the service WhatsApp
+  (76 877 278); a greeting alone gets the welcome and five departments (Sales ·
+  Customer Service · After-Sales · Service & Maintenance · Administration —
+  Administration is a phone call, 01 488 333 / 01 488 666). Colours are shown
+  under the workbook's official names ("Pearl Black"; "black" still finds it),
+  and only those with a video in the library. "6 to 7 seats" answers a 6- and a
+  7-seat question. Photos and story replies stay with a person (rules only, no AI).
 - The knowledge is deep-frozen: customer text cannot change it (rule 26).
 - Excluded outright: echoes, receipts, reactions, system events, fake
   Meta-support scams, vendor pitches, internal tests — each on two independent
@@ -926,7 +940,8 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   in Arabic (`templates.ts` `renderTextAr`), Arabizi in English. Conflicting
   workbook facts are HELD (`PENDING_CONFIRMATION` in the import script,
   `docs/SALES-FACTS-DISCREPANCIES.md`) and read "not confirmed yet" until Samer
-  confirms. `tests/sales-regression.test.ts` is the mandatory set: every reply
+  confirms — since the 2026-09-18 workbook only the Courage range (A says 440 km
+  WLTP, F says 550 / 440 uphill). `tests/sales-regression.test.ts` is the mandatory set: every reply
   classified, no figure outside the approved knowledge, no internal label.
 - **Memory:** `database/migrations/012_sales_suggestion_state.sql` — engine
   state and our own sent ids per chat, never words. NOT applied until Samer

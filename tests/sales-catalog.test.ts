@@ -182,7 +182,7 @@ describe("what the engine would really do", () => {
     assert.deepEqual(hp.gaps, [], "the workbook states every VOYAH's power");
     assert.match(
       words(hp, "voyah"),
-      /^Here is the power output for our current models:\n• VOYAH Free 318 — 600 hp\n• VOYAH Courage — 320 kW \/ 435 PS\n/
+      /^Here is the power output for our current models:\n• VOYAH Free 318 — 600 hp\n• VOYAH Courage — 430 HP\n/
     );
     assert.match(words(hp, "voyah"), /Which model would you like to explore further\?$/);
 
@@ -198,23 +198,24 @@ describe("what the engine would really do", () => {
     const hp = say("courage hp?", "voyah");
     assert.deepEqual(hp.gaps, []);
     const rows = hp.actions.flatMap((a) => (a.type === "SEND_FACTS" ? a.rows : []));
-    assert.deepEqual(rows, [{ model: "COURAGE", fact: "HORSEPOWER", value: "320 kW / 435 PS", confirmed: true }]);
-    assert.match(words(hp, "voyah"), /The VOYAH Courage produces 320 kW \/ 435 PS\./);
+    assert.deepEqual(rows, [{ model: "COURAGE", fact: "HORSEPOWER", value: "430 HP", confirmed: true }]);
+    assert.match(words(hp, "voyah"), /The VOYAH Courage produces 430 HP\./);
 
-    // HELD (docs/SALES-FACTS-DISCREPANCIES.md): the workbook says 440 km WLTP, Monza's own
-    // video says 470 km. Until Samer confirms, the bot never picks one.
+    // HELD (docs/SALES-FACTS-DISCREPANCIES.md): A Car Facts says 440 km WLTP, the same workbook's
+    // F sheet says "550 km … if up hill 440 km", Monza's video says 470 km. The bot never picks one.
     const range = say("courage range?", "voyah");
     assert.deepEqual(range.gaps, []);
     assert.match(words(range, "voyah"), /The exact range of the VOYAH Courage is not confirmed yet\./);
-    assert.ok(!words(range, "voyah").includes("440") && !words(range, "voyah").includes("470"));
+    for (const figure of ["440", "470", "550"]) assert.ok(!words(range, "voyah").includes(figure), figure);
 
+    assert.match(words(range, "voyah"), /Our Sales Team can confirm it with you right here\./);
+    assert.ok(!range.actions.some((a) => a.type === "SEND_CONTACT_FALLBACK"));
+    assert.ok(range.actions.some((a) => a.type === "ALERT_SALES" && a.kind === "QUESTION"), "the promise of a person reaches a person");
+
+    // Stated since the 2026-09-18 workbook (it was "not currently stated" before).
     const battery = say("passion l battery?", "voyah");
-    assert.deepEqual(battery.gaps, [], "EMPTY is the workbook's answer, not a gap");
-    assert.match(
-      words(battery, "voyah"),
-      /The exact battery capacity of the VOYAH Passion L is not confirmed yet\. Our team can confirm it for you on 70 70 85 85\./
-    );
-    assert.ok(!battery.actions.some((a) => a.type === "SEND_CONTACT_FALLBACK"));
+    assert.deepEqual(battery.gaps, []);
+    assert.match(words(battery, "voyah"), /The VOYAH Passion L battery: 65 kWh CATL ternary lithium\./);
   });
 
   test("every fact in every answer comes from the workbook, over every model and fact question", () => {

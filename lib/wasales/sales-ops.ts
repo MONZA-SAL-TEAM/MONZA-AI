@@ -68,6 +68,7 @@ const KIND_LABEL: Readonly<Record<AlertKind, string>> = {
   CALLBACK: "Asked to be called",
   HUMAN: "Asked for a person",
   QUESTION: "Question for the team",
+  LEAD: "Follow up: received the brochure and the video",
 };
 
 export function alertKindLabel(kind: AlertKind): string {
@@ -260,17 +261,19 @@ export async function recordAlert(
   const since = new Date(Date.now() - 6 * 3_600_000).toISOString();
   const { data: recent } = await sb
     .from("sales_alerts")
-    .select("id, customer_name, customer_phone")
+    .select("id, customer_name, customer_phone, models")
     .eq("account_id", chat.accountId)
     .eq("conversation_ref", chat.conversationRef)
     .eq("kind", a.kind)
     .eq("status", "open")
     .gte("created_at", since)
     .limit(1);
-  const open = Array.isArray(recent) && recent.length > 0 ? (recent[0] as { id: string; customer_name: string | null; customer_phone: string | null }) : null;
+  const open = Array.isArray(recent) && recent.length > 0 ? (recent[0] as { id: string; customer_name: string | null; customer_phone: string | null; models: string[] | null }) : null;
   if (open && !a.slot) {
     // The same follow-up, now with the name or the number the customer gave: one alert, completed.
-    const patch: Record<string, string> = {};
+    const patch: Record<string, string | string[]> = {};
+    // Asked before choosing a car, and now the car is known: the same follow-up, completed.
+    if (a.models.length > 0 && (open.models ?? []).length === 0) patch.models = [...a.models];
     if (name && !open.customer_name) patch.customer_name = name;
     if (phone && !open.customer_phone) patch.customer_phone = phone;
     if (Object.keys(patch).length > 0) {

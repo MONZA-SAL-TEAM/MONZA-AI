@@ -75,6 +75,10 @@ export interface ModelKnowledge {
   readonly bucket: PowertrainBucket;
   /** Seats as a number, for "7 seater?"; null when the workbook does not state it. */
   readonly seatCount: number | null;
+  /** Every seat count the car answers to: "6 to 7 seats" is both a 6- and a 7-seater (workbook E). */
+  readonly seatOptions?: readonly number[];
+  /** The official colour names (A Car Facts): "Midnight Black", "British Racing Green". */
+  readonly colourNames?: readonly string[];
   readonly facts: Readonly<Partial<Record<FactKey, ApprovedFact>>>;
 }
 
@@ -83,7 +87,10 @@ export type PowertrainBucket = "EV" | "EREV" | "PHEV";
 /** The fixed sentences of the showroom (workbook, B Showroom). */
 export interface ShowroomText {
   readonly welcome: string;
-  /** "For further assistance, please contact us on 70 70 85 85." */
+  /**
+   * "Our Sales Team will assist you further right here with all the details you need."
+   * (2026-09-18: a customer already chatting on 70 70 85 85 is never sent back to it.)
+   */
   readonly handoff: string;
   /** Service, maintenance, spare parts and vehicle problems. */
   readonly serviceContact: string;
@@ -110,6 +117,25 @@ export interface SalesKnowledge {
    * never guessed from an ad, a story or a photo.
    */
   readonly referrals: Readonly<Record<string, ModelCode>>;
+  /**
+   * Workbook C Decisions. Absent = the workbook of 2026-09-18: a team member
+   * arranges and confirms test drives (the bot never says "booked"), and
+   * installments need no name — Sales follows up in the same chat.
+   */
+  readonly decisions?: SalesDecisions;
+}
+
+export interface SalesDecisions {
+  /** true: the bot books a 30-minute slot itself (the 2026-09-17 decision, kept and tested). */
+  readonly botBooksTestDrives: boolean;
+  /** true: installments and test drives start by asking the customer's name. */
+  readonly askLeadName: boolean;
+}
+
+export const WORKBOOK_DECISIONS: SalesDecisions = Object.freeze({ botBooksTestDrives: false, askLeadName: false });
+
+export function decisionsOf(k: SalesKnowledge): SalesDecisions {
+  return k.decisions ?? WORKBOOK_DECISIONS;
 }
 
 /** Freeze an object and everything inside it. */
@@ -124,7 +150,7 @@ function deepFreeze<T>(value: T): T {
 }
 
 const WORKBOOK_SOURCE =
-  "Samer's workbook Monza-Bot-Reply-Worksheet-Master-Logic-Expanded.xlsx, A Car Facts (2026-09-17)";
+  "Samer's workbook Monza-Bot-Reply-Worksheet-Updated-Logic.xlsx, A Car Facts (2026-09-18)";
 
 /** One model's facts, as the workbook approved them (knowledge-data.ts). */
 function workbookFacts(code: ModelCode): Partial<Record<FactKey, ApprovedFact>> {
@@ -145,11 +171,13 @@ function workbookModel(code: ModelCode, brand: "voyah" | "mhero"): ModelKnowledg
     catalogueId: m.catalogueId,
     bucket: m.bucket,
     seatCount: m.seatCount,
+    seatOptions: m.seatOptions,
+    colourNames: m.colourNames,
     facts: workbookFacts(code),
   };
 }
 
-const SHOWROOM_SOURCE = "Samer's workbook, B Showroom (2026-09-17)";
+const SHOWROOM_SOURCE = "Samer's workbook, B Showroom (2026-09-18)";
 
 /**
  * The knowledge the product runs on. Every fact and fixed sentence comes from
@@ -193,6 +221,7 @@ export const MONZA_KNOWLEDGE: SalesKnowledge = deepFreeze({
     administration: WORKBOOK.showroom.administration,
   },
   referrals: {},
+  decisions: WORKBOOK_DECISIONS,
 });
 
 export const SALES_BRANDS: readonly SalesBrand[] = ["voyah", "mhero", "monza"];

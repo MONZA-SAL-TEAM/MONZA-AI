@@ -141,32 +141,45 @@ function classify(c: Case): { verdict: Verdict; why: string } {
 
 const SALES = /70 70 85 85/;
 const SERVICE = /76 877 278/;
+/** Workbook B (2026-09-18): the customer is already in the Sales chat, so Sales follows up HERE. */
+const HERE = /right here/;
+const HANDOFF = /Our Sales Team will assist you further right here with all the details you need\./;
 const ALL_EIGHT = [/Free 318/, /Courage/, /Dream/, /Passion\b/, /Passion L/, /Taishan/, /MHERO 1/, /MHERO 2/];
-const NO_MONEY = [/\$/, /USD/i, /LBP/, /lira/i, /dollar/i, /\bprice is\b/i, /\d+ ?%/, /per month/i];
+// Charging values hold "0% - 100%", so a percentage is only money next to a money word.
+const NO_MONEY = [/\$/, /USD/i, /LBP/, /lira/i, /dollar/i, /\bprice is\b/i, /\d+ ?% ?(interest|down|off|discount)/i, /per month/i, /down payment/i, /\binterest\b/i];
+const NEVER_BOOKED = [/is booked/i, /\bconfirmed for\b/i, /is cancelled/i];
 
 const CASES: Case[] = [
   // Greetings and small talk
-  { category: "greeting", name: "hi", messages: ["hi"], say: [/welcome to Monza/i, /Sales/, /Service/, /Administration/] },
+  { category: "greeting", name: "hi: the welcome and the five departments", messages: ["hi"], say: [/welcome to Monza/i, /Sales/, /Customer Service/, /After-Sales/, /Service & Maintenance/, /Administration/] },
   { category: "greeting", name: "Arabizi greeting", messages: ["kifak"], say: [/welcome/i] },
   { category: "greeting", name: "Arabic greeting answered in Arabic", messages: ["مرحبا"], say: [/أهلاً/, /المبيعات/], notSay: [/welcome/i] },
+  { category: "departments", name: "Sales stays in this chat", messages: ["hi", { payload: "DEPT:SALES" }], say: [/Which model/i], notSay: [SALES] },
+  { category: "departments", name: "Customer Service goes to the service WhatsApp", messages: ["hi", { payload: "DEPT:CUSTOMER_SERVICE" }], say: [SERVICE, /WhatsApp/], notSay: [SALES] },
+  { category: "departments", name: "After-Sales goes to the service WhatsApp", messages: ["hi", { payload: "DEPT:AFTER_SALES" }], say: [SERVICE, /WhatsApp/] },
+  { category: "departments", name: "Administration is a phone call", messages: ["hi", { payload: "DEPT:ADMIN" }], say: [/please call 01 488 333 or 01 488 666/], notSay: [/WhatsApp/] },
+  { category: "departments", name: "a typed 5 is Administration", messages: ["hi", "5"], say: [/01 488 333/] },
   { category: "acknowledgement", name: "ok after an answer never reopens the menu", messages: ["courage hp", "ok thanks"], quietOk: true },
   { category: "acknowledgement", name: "ok after hello", messages: ["hi", "ok"], quietOk: true },
 
-  // Price, offers, stock, payment: never a figure, always a person
-  { category: "price", name: "price of one model", messages: ["how much is the courage"], say: [SALES, /Courage/], notSay: NO_MONEY, alert: "PRICE", files: 1 },
-  { category: "price", name: "price of two models keeps both", messages: ["how much is the courage vs taishan"], say: [/Courage/, /Taishan/, SALES], notSay: NO_MONEY, alert: "PRICE" },
+  // Price, offers, stock, payment: never a figure, never "call the number you are already on"
+  { category: "price", name: "price: brochure + model video + same-chat hand-off", messages: ["how much is the courage"], say: [HANDOFF, /Courage in Pearl Black/], notSay: [SALES, ...NO_MONEY], alert: "PRICE", files: 2 },
+  { category: "price", name: "price of two models keeps both", messages: ["how much is the courage vs taishan"], say: [/Courage/, /Taishan/, HANDOFF], notSay: [SALES, ...NO_MONEY], alert: "PRICE" },
   { category: "price", name: "price with no model asks which", messages: ["prices?"], say: [/Which model/i] },
-  { category: "price", name: "Arabizi price", messages: ["bade el price lal courage"], say: [SALES], notSay: [...NO_MONEY, /[؀-ۿ]/], alert: "PRICE" },
-  { category: "price", name: "Arabic price answered in Arabic", messages: ["شو سعر الكوراج"], say: [/فريق المبيعات/, SALES], notSay: [/sales team/i, ...NO_MONEY], alert: "PRICE" },
-  { category: "discount", name: "discount", messages: ["any discount"], say: [SALES], notSay: NO_MONEY, alert: "DISCOUNT" },
-  { category: "stock", name: "availability", messages: ["is the courage available now"], say: [/confirm current availability/i, SALES], notSay: [/^yes/i, /in stock/i], alert: "STOCK" },
-  { category: "financing", name: "installments ask the name", messages: ["installments?"], say: [/payment facilities/i, /your name/i], notSay: NO_MONEY },
-  { category: "financing", name: "name completes the lead", messages: ["installments for the courage", "Rabih"], say: [/Thank you, Rabih/], alert: "FINANCING" },
-  { category: "financing", name: "phone alone completes the lead", messages: ["installments courage", "03123456"], say: [/Thank you/], alert: "FINANCING" },
-  { category: "currency", name: "paying in LBP: hand-off, no money words", messages: ["can i pay in LBP"], say: [/sales team/i, SALES], notSay: [...NO_MONEY, /currency/i, /exchange/i, /rate/i], alert: "QUESTION" },
+  { category: "price", name: "the model arrives: brochure, video, hand-off", messages: ["prices?", "taishan"], say: [HANDOFF, /Taishan in Obsidian Black/], notSay: [SALES], alert: "PRICE", files: 2 },
+  { category: "price", name: "Arabizi price", messages: ["bade el price lal courage"], say: [HANDOFF], notSay: [SALES, ...NO_MONEY, /[\u0600-\u06FF]/], alert: "PRICE" },
+  { category: "price", name: "Arabic price answered in Arabic", messages: ["شو سعر الكوراج"], say: [/فريق المبيعات هنا/], notSay: [SALES, /Sales Team/i, ...NO_MONEY], alert: "PRICE" },
+  { category: "discount", name: "discount", messages: ["any discount"], say: [HANDOFF], notSay: [SALES, ...NO_MONEY], alert: "DISCOUNT" },
+  { category: "stock", name: "availability: Sales confirms, never 'yes'", messages: ["is the courage available now"], say: [/confirm the current availability/i, HERE], notSay: [/^yes/i, /in stock/i, SALES], alert: "STOCK" },
+  { category: "financing", name: "installments: facilities confirmed, model asked, no name", messages: ["installments?"], say: [/we offer installment and payment facilities/i, /Which model/i], notSay: [...NO_MONEY, /your name/i], alert: "FINANCING" },
+  { category: "financing", name: "installments with the model: brochure, video, Sales here", messages: ["installments for the courage"], say: [/installment and payment facilities/i, HANDOFF], notSay: [SALES, ...NO_MONEY], alert: "FINANCING", files: 2 },
+  { category: "financing", name: "the model arrives after: not repeated, Sales here", messages: ["installments?", "courage"], say: [HANDOFF], alert: "FINANCING", files: 2 },
+  { category: "financing", name: "in-house financing may be confirmed", messages: ["do you have in house financing for the dream"], say: [/In-house financing is available\./, HANDOFF], notSay: NO_MONEY, alert: "FINANCING" },
+  { category: "financing", name: "a name typed afterwards goes to the person", messages: ["installments for the courage", "Rabih"], quietForPerson: true },
+  { category: "currency", name: "paying in LBP: hand-off, no money words", messages: ["can i pay in LBP"], say: [HANDOFF], notSay: [...NO_MONEY, SALES, /currency/i, /exchange/i, /rate/i], alert: "QUESTION" },
   { category: "trade-in", name: "trade-in explains the steps", messages: ["i want to trade in my car"], say: [/trade-in/i, /photos/i], notSay: NO_MONEY },
-  { category: "used cars", name: "used cars go to a person", messages: ["do you have used cars"], say: [/pre-owned/i, SALES], alert: "QUESTION" },
-  { category: "delivery", name: "delivery to a town", messages: ["do you deliver to tripoli"], say: [/delivery/i, SALES], alert: "QUESTION" },
+  { category: "used cars", name: "used cars go to a person", messages: ["do you have used cars"], say: [/pre-owned/i, HERE], notSay: [SALES], alert: "QUESTION" },
+  { category: "delivery", name: "delivery to a town", messages: ["do you deliver to tripoli"], say: [/delivery/i, HERE], notSay: [SALES], alert: "QUESTION" },
 
   // Models, filters, categories
   { category: "model list", name: "what models", messages: ["what models do you have"], say: ALL_EIGHT },
@@ -174,8 +187,8 @@ const CASES: Case[] = [
   { category: "filter", name: "EREVs", messages: ["erev?"], say: [/Free 318/, /MHERO 1/], notSay: [/Courage/] },
   { category: "filter", name: "PHEVs", messages: ["which are plug in hybrid"], say: [/Dream/, /Passion/, /Taishan/, /MHERO 2/], notSay: [/Courage/] },
   { category: "filter", name: "hybrid shows both groups", messages: ["hybrid?"], say: [/EREV/, /PHEV/, /Free 318/, /Dream/] },
-  { category: "filter", name: "7 seats", messages: ["7 seater?"], say: [/7 seats/, /Dream/], notSay: [/Taishan/] },
-  { category: "filter", name: "6 seats", messages: ["6 seats?"], say: [/6 seats/, /Taishan/] },
+  { category: "filter", name: "7 seats: the Dream, and the Taishan (6 to 7 seats)", messages: ["7 seater?"], say: [/7 seats/, /Dream/, /Taishan/] },
+  { category: "filter", name: "6 seats", messages: ["6 seats?"], say: [/6 seats/, /Taishan/], notSay: [/Dream/] },
   { category: "filter", name: "sedan", messages: ["do you have a sedan"], say: [/Passion/], notSay: [/Courage/, /Dream/] },
   { category: "filter", name: "MHERO account: no EV, never empty, never VOYAH", messages: ["what EVs do you have"], brand: "mhero", say: [/don't currently offer a fully electric/i, /MHERO 1/, /MHERO 2/], notSay: [/VOYAH/] },
   { category: "model", name: "just 'voyah' lists the six", messages: ["voyah"], say: [/Free 318/, /Taishan/], notSay: [/MHERO/] },
@@ -184,43 +197,54 @@ const CASES: Case[] = [
   { category: "other brand", name: "BYD", messages: ["do you sell BYD"], say: [/VOYAH and MHERO/] },
   { category: "sales", name: "i want to buy a car", messages: ["i want to buy a car"], say: [/Which model/i] },
 
-  // Colours, media, brochures
-  { category: "colours", name: "exterior colours of one model", messages: ["what colours does the courage come in"], say: [/exterior colour/i, /Black/, /Grey/, /White/], files: 1 },
-  { category: "colours", name: "all colours lists every model", messages: ["show me all colours"], say: [/Free 318/, /Courage/, /MHERO 2/] },
-  { category: "colours", name: "a colour we don't have", messages: ["courage", "red"], say: [/don't have a video .* in red/i, /Black/] },
-  { category: "colours", name: "interior colours: honest, no folder names", messages: ["what interior colours for the courage"], say: [/interior/i, SALES] },
+  // Colours (the workbook's official names), media, brochures
+  { category: "colours", name: "exterior colours by their official names", messages: ["what colours does the courage come in"], say: [/exterior colour/i, /Pearl Black/, /Crayon Grey/, /Pearl White/], files: 1 },
+  { category: "colours", name: "Free 318: the five official names", messages: ["free 318 colours"], say: [/Midnight Black/, /British Racing Green/, /Titanium Grey/, /Sage Green/, /Pearl White/] },
+  { category: "colours", name: "'black' still finds Pearl Black, and Sales is told", messages: ["courage", "black"], say: [/Courage in Pearl Black/], alert: "LEAD", files: 1 },
+  { category: "colours", name: "'sage green' is Sage Green, not British Racing Green", messages: ["free 318", "sage green"], say: [/Free 318 in Sage Green/], notSay: [/British/], alert: "LEAD" },
+  { category: "colours", name: "'green' is British Racing Green", messages: ["free 318", "green"], say: [/British Racing Green/] },
+  { category: "colours", name: "all colours lists every model", messages: ["show me all colours"], say: [/Free 318/, /Courage/, /MHERO 2/, /Midnight Black/] },
+  { category: "colours", name: "a colour we don't have", messages: ["courage", "red"], say: [/don't have a video .* in red/i, /Pearl Black/] },
+  { category: "colours", name: "interior colours: honest, no folder names", messages: ["what interior colours for the courage"], say: [/interior/i, HERE], notSay: [SALES], alert: "QUESTION" },
   { category: "colours", name: "Dream: one video, never 'Standard'", messages: ["dream colours"], say: [/video of the VOYAH Dream/i], files: 2 },
-  { category: "colours", name: "MHERO 1 offers the videos we hold", messages: ["mhero 1 colours"], say: [/Grey/], notSay: [/Green/] },
+  { category: "colours", name: "MHERO 1 offers only what has a video", messages: ["mhero 1 colours"], say: [/Storm Grey/], notSay: [/Recon Green/] },
+  { category: "colours", name: "MHERO 2 never offers Polar Silver without a video", messages: ["mhero 2 colours"], say: [/Piano Black/, /Olive Green/, /Clouds White/], notSay: [/Polar Silver/] },
   { category: "brochure", name: "one brochure", messages: ["send me the courage brochure"], say: [/Courage brochure/], files: 1 },
   { category: "brochure", name: "all brochures", messages: ["all brochures"], files: 8 },
-  { category: "photos", name: "photos become a video offer", messages: ["send me photos of the taishan"], say: [/video of the VOYAH Taishan/i, /Black/] },
+  { category: "photos", name: "photos become a video offer", messages: ["send me photos of the taishan"], say: [/video of the VOYAH Taishan/i, /Obsidian Black/] },
   { category: "media in", name: "a photo with no words goes to a person", messages: [{ text: "", hasMedia: true }], quietForPerson: true },
 
-  // Facts: only the workbook's figures, held facts say so
-  { category: "spec", name: "horsepower", messages: ["courage hp"], say: [/320 kW \/ 435 PS/] },
-  { category: "spec", name: "held fact says not confirmed", messages: ["courage range"], say: [/not confirmed yet/, SALES], notSay: [/440/, /470/] },
-  { category: "spec", name: "held Passion L range", messages: ["passion l range"], say: [/not confirmed yet/], notSay: [/1,400/] },
-  { category: "spec", name: "battery", messages: ["taishan battery"], say: [/Taishan battery/i, /kWh/] },
+  // Facts: A Car Facts of 2026-09-18, exactly as stored
+  { category: "spec", name: "horsepower, as stored", messages: ["courage hp"], say: [/produces 430 HP\./], notSay: [/435/, /320/] },
+  { category: "spec", name: "every model's power", messages: ["hp?"], say: [/Courage — 430 HP/, /Passion — 550 hp/, /Taishan — 700 hp/, /MHERO 1 — 815 hp/] },
+  { category: "spec", name: "the one held fact says so, and Sales is told", messages: ["courage range"], say: [/not confirmed yet/, HERE], notSay: [/440/, /470/, /550/, SALES], alert: "QUESTION" },
+  { category: "spec", name: "Passion L range is confirmed now", messages: ["passion l range"], say: [/410 km EV \/ 1,400 km combined \(CLTC\)/] },
+  { category: "spec", name: "Passion L battery is stated now", messages: ["passion l battery"], say: [/65 kWh CATL ternary lithium/] },
+  { category: "spec", name: "battery", messages: ["taishan battery"], say: [/Taishan battery/i, /65 kWh CATL/] },
   { category: "spec", name: "warranty for all", messages: ["warranty?"], say: [/6 years/, /10 years/, /MHERO 2/] },
-  { category: "spec", name: "charging of one model only", messages: ["how long to charge the dream"], say: [/Dream/], notSay: [/Courage/] },
+  { category: "spec", name: "charging, in the workbook's sentence", messages: ["how long to charge the free 318"], say: [/approved charging information is: 16 AMP 0% - 100% 7H/] },
+  { category: "spec", name: "charging of one model only", messages: ["how long to charge the dream"], say: [/Dream/, /7 h \(6\.6 kW\)/], notSay: [/Courage/, /8\.4/] },
+  { category: "spec", name: "seats stated as a range stay a range", messages: ["taishan seats"], say: [/approved seating information is: 6 to 7 seats\./] },
+  { category: "spec", name: "MHERO 1 has 5 seats", messages: ["mhero 1 seats"], say: [/MHERO 1 has 5 seats\./] },
   { category: "spec", name: "dimensions", messages: ["courage dimensions"], say: [/mm/] },
   { category: "spec", name: "spec with no model lists all", messages: ["range?"], say: ALL_EIGHT },
-  { category: "spec", name: "two models one fact", messages: ["hp of the courage and the taishan"], say: [/Courage — 320 kW/, /Taishan — not confirmed yet/] },
+  { category: "spec", name: "two models one fact", messages: ["hp of the courage and the taishan"], say: [/Courage — 430 HP/, /Taishan — 700 hp/] },
   { category: "compare", name: "compare two", messages: ["compare courage and taishan"], say: [/comparison/i, /Courage/, /Taishan/] },
-  { category: "unsupported spec", name: "top speed", messages: ["top speed of the courage"], say: [/not in our approved information/i, SALES], alert: "QUESTION" },
+  { category: "unsupported spec", name: "top speed", messages: ["top speed of the courage"], say: [/not in our approved information/i, HERE], notSay: [SALES], alert: "QUESTION" },
   { category: "unsupported spec", name: "snow", messages: ["how does the courage drive in snow"], say: [/snow/i, /not in our approved information/i], alert: "QUESTION" },
   { category: "unsupported spec", name: "0-100", messages: ["0-100 of the taishan"], say: [/acceleration/i, /not in our approved information/i], alert: "QUESTION" },
 
-  // Test drives
-  { category: "test drive", name: "typed 'tomorrow at 3' books", messages: ["i want a test drive for the courage", "Rabih", "tomorrow at 3"], say: [/booked for Fri 18 Sep, 15:00/, /Horch Tabet/], alert: "TEST_DRIVE" },
-  { category: "test drive", name: "typed date and time books", messages: ["test drive taishan", "Rabih", "18 september at 4:30"], say: [/booked for Fri 18 Sep, 16:30/], alert: "TEST_DRIVE" },
-  { category: "test drive", name: "Saturday afternoon is closed: nearest free", messages: ["test drive taishan", "Rabih", "saturday afternoon"], say: [/Sat 19 Sep, 13:30/] },
-  { category: "test drive", name: "today at 5 is closed: hours and free times", messages: ["test drive taishan", "Rabih", "today at 5"], say: [/Monday to Friday from 10:00 to 17:00/, /Thu 17 Sep/] },
-  { category: "test drive", name: "what time is my test drive", messages: ["i want a test drive for the courage", "Rabih", "tomorrow at 3", "what time is my test drive"], say: [/booked for Fri 18 Sep, 15:00/] },
-  { category: "test drive", name: "cancel", messages: ["i want a test drive for the courage", "Rabih", "tomorrow at 3", "cancel my test drive"], say: [/cancelled/i], alert: "TEST_DRIVE" },
-  { category: "test drive", name: "change to a new time: one booking, not two", messages: ["i want a test drive for the courage", "Rabih", "tomorrow at 3", "change it to monday 11am"], say: [/booked for Mon 21 Sep, 11:00/], notSay: [/15:00/], alert: "TEST_DRIVE" },
-  { category: "test drive", name: "time typed with the request is kept until the name arrives", messages: ["test drive courage tomorrow at 3", "Rabih"], say: [/booked for Fri 18 Sep, 15:00/], alert: "TEST_DRIVE" },
-  { category: "test drive", name: "time typed before the model is noted, then the model asked", messages: ["test drive", "Rabih", "tomorrow at 3"], say: [/Fri 18 Sep, 15:00/, /Which model/i] },
+  // Test drives: a team member arranges and confirms them; the bot never says "booked"
+  { category: "test drive", name: "request: brochure, video, Sales arranges it here", messages: ["i want a test drive for the courage"], say: [/arrange a test drive of the VOYAH Courage/, HANDOFF], notSay: [...NEVER_BOOKED, /your name/i, SALES], alert: "TEST_DRIVE", files: 2 },
+  { category: "test drive", name: "no model: asked which", messages: ["test drive"], say: [/arrange a test drive for you/, /Which model/i], notSay: NEVER_BOOKED, alert: "TEST_DRIVE" },
+  { category: "test drive", name: "the model arrives", messages: ["test drive", "free 318"], say: [/test drive of the VOYAH Free 318/, HANDOFF], notSay: NEVER_BOOKED, alert: "TEST_DRIVE", files: 2 },
+  { category: "test drive", name: "a time typed with the request is a preference, never a booking", messages: ["test drive courage tomorrow at 3"], say: [/noted Fri 18 Sep, 15:00 as your preferred time/, /team member will confirm/], notSay: NEVER_BOOKED, alert: "TEST_DRIVE" },
+  { category: "test drive", name: "a time typed afterwards is passed to Sales", messages: ["i want a test drive for the courage", "tomorrow at 3"], say: [/passed Fri 18 Sep, 15:00 to our Sales Team/], notSay: NEVER_BOOKED, alert: "TEST_DRIVE" },
+  { category: "test drive", name: "a date and time", messages: ["test drive taishan", "18 september at 4:30"], say: [/passed Fri 18 Sep, 16:30/], notSay: NEVER_BOOKED, alert: "TEST_DRIVE" },
+  { category: "test drive", name: "a day with no hour: Sales is told", messages: ["test drive taishan", "saturday afternoon"], say: [/let our Sales Team know/], notSay: NEVER_BOOKED, alert: "TEST_DRIVE" },
+  { category: "test drive", name: "change it to a new time: passed on, nothing claimed", messages: ["i want a test drive for the courage", "tomorrow at 3", "change it to monday 11am"], say: [/passed Mon 21 Sep, 11:00/], notSay: [...NEVER_BOOKED, /15:00/], alert: "TEST_DRIVE" },
+  { category: "test drive", name: "cancel: Sales is told, the bot cancels nothing", messages: ["i want a test drive for the courage", "cancel my test drive"], say: [/let our Sales Team know/], notSay: NEVER_BOOKED, alert: "TEST_DRIVE" },
+  { category: "test drive", name: "what time is my test drive: a person confirms", messages: ["i want a test drive for the courage", "what time is my test drive"], say: [/team member arranges and confirms test drives/], notSay: NEVER_BOOKED, alert: "TEST_DRIVE" },
 
   // People
   { category: "callback", name: "call me back on WhatsApp: this number, never ours", messages: ["call me back please"], say: [/call you on this number/i], notSay: [SALES], alert: "CALLBACK" },
@@ -231,14 +255,15 @@ const CASES: Case[] = [
   { category: "unknown", name: "gibberish goes to a person, never answered wrongly", messages: ["asdkjh qwe"], quietForPerson: true },
 
   // Showroom
-  { category: "location", name: "where", messages: ["where are you located"], say: [/Horch Tabet/, /maps\.app\.goo\.gl/] },
-  { category: "hours", name: "hours", messages: ["what are your hours"], say: [/Monday to Friday/, /8:00 AM to 6:00 PM/, /Saturday/] },
-  { category: "contact", name: "number", messages: ["what's your number"], say: [SALES] },
-  { category: "service", name: "service", messages: ["my car needs service"], say: [SERVICE], notSay: [SALES] },
+  { category: "location", name: "where", messages: ["where are you located"], say: [/Horch Tabet/, /maps\.app\.goo\.gl/], notSay: [/iframe/i] },
+  { category: "hours", name: "hours: Sunday closed", messages: ["what are your hours"], say: [/Monday to Friday/, /8:00 AM to 6:00 PM/, /Saturday/, /Sunday we are closed/] },
+  { category: "contact", name: "asked for the number, the number is given", messages: ["what's your number"], say: [SALES] },
+  { category: "service", name: "service", messages: ["my car needs service"], say: [SERVICE, /WhatsApp/], notSay: [SALES] },
   { category: "service", name: "parts", messages: ["spare parts"], say: [SERVICE] },
   { category: "service", name: "complaint", messages: ["my car has a problem"], say: [SERVICE] },
-  { category: "after hours", name: "Sunday price adds the hours note", messages: ["price of courage"], now: "2026-09-20T09:00:00.000Z", say: [SALES, /Monday to Friday from 8:00 AM to 6:00 PM/], alert: "PRICE" },
-  { category: "arabic", name: "Arabic horsepower keeps the figure, Arabic sentence", messages: ["كم حصان الكوراج"], say: [/قوة المحرك/, /320 kW \/ 435 PS/], notSay: [/produces/] },
+  { category: "after hours", name: "Sunday price adds the hours note", messages: ["price of courage"], now: "2026-09-20T09:00:00.000Z", say: [HANDOFF, /Monday to Friday from 8:00 AM to 6:00 PM/], notSay: [SALES], alert: "PRICE" },
+  { category: "arabic", name: "Arabic horsepower keeps the figure, Arabic sentence", messages: ["كم حصان الكوراج"], say: [/قوة المحرك/, /430 HP/], notSay: [/produces/] },
+  { category: "arabic", name: "Arabic installments", messages: ["بدي تقسيط"], say: [/تسهيلات في الدفع والتقسيط/, /أي موديل/], alert: "FINANCING" },
   { category: "arabic", name: "Arabic location", messages: ["وين محلكم"], say: [/حرش تابت/, /maps\.app\.goo\.gl/] },
 ];
 
