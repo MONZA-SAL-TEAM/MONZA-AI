@@ -62,7 +62,7 @@ the Sales hand-off, without the "model video" the workbook asks for.
   "We currently specialize in VOYAH and MHERO vehicles in Lebanon." — "bot portfolio" is wording
   for us, not for a customer. Say if you want it word for word.
 - **Map link.** The workbook now holds only the `<iframe>` embed, which is never sent. The bot
-  keeps the link you wrote on 2026-09-17: https://maps.app.goo.gl/orJMduowHtVqQgR58
+  keeps the link you gave on 2026-09-18: https://maps.app.goo.gl/CVPJQqXfnnbBmubZ8
 - **Stock.** E says "if an explicit approved stock answer exists, answer it". The workbook holds no
   stock table, so availability always goes to Sales ("will confirm the current availability … right
   here"). Replies rows 84–85 ("yes and send brochure…") are marked *Person*, so they are not automated.

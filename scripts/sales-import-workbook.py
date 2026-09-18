@@ -81,7 +81,7 @@ PENDING_CONFIRMATION = {
     ("VOYAH Courage", "RANGE"),
 }
 
-SAVED_MAPS_LINK = "https://maps.app.goo.gl/orJMduowHtVqQgR58"
+SAVED_MAPS_LINK = "https://maps.app.goo.gl/CVPJQqXfnnbBmubZ8"
 
 # A value that is ONLY a statement that the figure is missing.
 UNCONFIRMED = re.compile(r"not (currently )?(stated|published|confirmed|mapped)", re.I)
@@ -223,7 +223,7 @@ def main(path):
             break
     if not maps:
         # The 2026-09-18 workbook carries only the <iframe> embed (never sent: workbook E says
-        # "use saved map card; do not paste raw iframe"). The link Samer wrote on 2026-09-17 is kept.
+        # "use saved map card; do not paste raw iframe"). The link Samer gave on 2026-09-18 is used.
         maps = SAVED_MAPS_LINK
         warnings.append(f"No maps.app.goo.gl link in Replies — keeping the saved link {SAVED_MAPS_LINK}")
     showroom["mapsLink"] = maps

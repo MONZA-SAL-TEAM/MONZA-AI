@@ -535,7 +535,7 @@ export const WORKBOOK = {
     "serviceContact": "For Service, Maintenance, or Spare Parts, please contact 76 877 278.",
     "welcome": "Hello and welcome to Monza S.A.L. How can we help you today?",
     "handoff": "Our Sales Team will assist you further right here with all the details you need.",
-    "mapsLink": "https://maps.app.goo.gl/orJMduowHtVqQgR58",
+    "mapsLink": "https://maps.app.goo.gl/CVPJQqXfnnbBmubZ8",
     "administration": "01 488 333 / 01 488 666"
   }
 } as const;

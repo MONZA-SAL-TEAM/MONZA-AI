@@ -141,6 +141,8 @@ function classify(c: Case): { verdict: Verdict; why: string } {
 
 const SALES = /70 70 85 85/;
 const SERVICE = /76 877 278/;
+/** The one showroom pin (Samer, 2026-09-18): Monza SAL, Horch Tabet. Every location answer carries exactly this link. */
+const MAP = /https:\/\/maps\.app\.goo\.gl\/CVPJQqXfnnbBmubZ8/;
 /** Workbook B (2026-09-18): the customer is already in the Sales chat, so Sales follows up HERE. */
 const HERE = /right here/;
 const HANDOFF = /Our Sales Team will assist you further right here with all the details you need\./;
@@ -255,7 +257,8 @@ const CASES: Case[] = [
   { category: "unknown", name: "gibberish goes to a person, never answered wrongly", messages: ["asdkjh qwe"], quietForPerson: true },
 
   // Showroom
-  { category: "location", name: "where", messages: ["where are you located"], say: [/Horch Tabet/, /maps\.app\.goo\.gl/], notSay: [/iframe/i] },
+  { category: "location", name: "where", messages: ["where are you located"], say: [/Horch Tabet/, MAP], notSay: [/iframe/i, /orJMduowHtVqQgR58/] },
+  { category: "location", name: "asked mid-conversation: the same one link", messages: ["courage", "where is the showroom"], say: [MAP] },
   { category: "hours", name: "hours: Sunday closed", messages: ["what are your hours"], say: [/Monday to Friday/, /8:00 AM to 6:00 PM/, /Saturday/, /Sunday we are closed/] },
   { category: "contact", name: "asked for the number, the number is given", messages: ["what's your number"], say: [SALES] },
   { category: "service", name: "service", messages: ["my car needs service"], say: [SERVICE, /WhatsApp/], notSay: [SALES] },
@@ -264,7 +267,7 @@ const CASES: Case[] = [
   { category: "after hours", name: "Sunday price adds the hours note", messages: ["price of courage"], now: "2026-09-20T09:00:00.000Z", say: [HANDOFF, /Monday to Friday from 8:00 AM to 6:00 PM/], notSay: [SALES], alert: "PRICE" },
   { category: "arabic", name: "Arabic horsepower keeps the figure, Arabic sentence", messages: ["كم حصان الكوراج"], say: [/قوة المحرك/, /430 HP/], notSay: [/produces/] },
   { category: "arabic", name: "Arabic installments", messages: ["بدي تقسيط"], say: [/تسهيلات في الدفع والتقسيط/, /أي موديل/], alert: "FINANCING" },
-  { category: "arabic", name: "Arabic location", messages: ["وين محلكم"], say: [/حرش تابت/, /maps\.app\.goo\.gl/] },
+  { category: "arabic", name: "Arabic location", messages: ["وين محلكم"], say: [/حرش تابت/, MAP] },
 ];
 
 /* ── The tests ─────────────────────────────────────────────────────────── */

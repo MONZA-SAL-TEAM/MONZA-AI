@@ -101,7 +101,7 @@ describe("the knowledge that ships", () => {
     assert.equal(K.global.CONTACT_NUMBER?.value, "For sales enquiries, please contact us on 70 70 85 85.");
     assert.equal(
       K.global.LOCATION?.value,
-      "Our showroom is located in Horch Tabet, Beirut.\nhttps://maps.app.goo.gl/orJMduowHtVqQgR58"
+      "Our showroom is located in Horch Tabet, Beirut.\nhttps://maps.app.goo.gl/CVPJQqXfnnbBmubZ8"
     );
     assert.equal(
       K.global.OPENING_HOURS?.value,
