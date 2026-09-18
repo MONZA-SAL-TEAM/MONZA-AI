@@ -1273,6 +1273,14 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     else out.push({ type: "SHOW_DEPARTMENTS" });
     return finish();
   }
+  if (reading.tokens.length === 0 && !payload && u.modelSource !== "referral" && input.hasMedia && !base.unknownSaid && !base.notInterested) {
+    // A photo, a video or a voice note with no words: a rule cannot read it, and a model is NEVER guessed from media.
+    // Said once — that a person will look — and a person is told; the next photo in a row is left to them.
+    text("PHOTO_RECEIVED");
+    alert("NEEDS_PERSON", base.selectedModels, { reason: "Sent a photo, video or voice note with no words — the bot cannot read media" });
+    saidUnknown = true;
+    return finish();
+  }
   if (reading.tokens.length === 0 && !payload && u.modelSource !== "referral") {
     reasons.push(
       input.hasMedia
@@ -1668,7 +1676,11 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
 
   /* 3. "ok", "thanks", a thumbs up: never a menu, never a loop. */
   if (substantive.length === 0 && acknowledged && u.models.length === 0 && u.modelCandidates.length === 0 && u.colour.kind === "none") {
-    reasons.push("An acknowledgement — nothing new was asked.");
+    // Workbook C: "a short thank-you when useful — never reopen the model menu". A THANK-YOU is answered, once
+    // ("thanks" … "thanks" is not a loop); a bare "ok" or a thumbs-up asks nothing and gets nothing.
+    const thanked = reading.hits.some((h) => h.intent === "ACKNOWLEDGEMENT" && /thank|thx|thnx|tnx|thanx|merci|shukran|choukran|شكر|يسلمو|yeslamo/.test(h.matched));
+    if (thanked && base.lastIntent !== "ACKNOWLEDGEMENT" && hasContext(base) && !base.notInterested) text("YOU_ARE_WELCOME");
+    else reasons.push("An acknowledgement — nothing new was asked.");
     return finish();
   }
 
@@ -2120,10 +2132,11 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     // Also named: a model this account does not sell.
     for (const code of u.crossBrand) fallback({ kind: "CROSS_BRAND", model: code });
 
-    if (out.length === 0 && isNamed && !activating && substantive.length === 0 && u.modelSource !== "state") {
-      // The same car named again ("Courage" … "Courage"): never silence. Its key facts, and the colour question if still open.
+    if (out.length === 0 && isNamed && substantive.length === 0 && u.modelSource !== "state") {
+      // The same car named again ("Courage" … "Courage"), or a car named by someone who refused the brochure AND the
+      // video: never silence. Its key facts, and the colour question if it is still open.
       sendFacts([model], KEY_FACTS, "one");
-      if (!base.selectedColour && choices.length > 1) offerColours();
+      if (!activating && !base.selectedColour && choices.length > 1) offerColours();
     }
     if (out.length === 0) {
       // Words the rules cannot read (a name, a sentence of their own) are for a person — never a silent ignore.
@@ -2168,6 +2181,11 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     const sentNow: ModelCode[] = [];
     const sendBrochures = () => {
       if (next.noBrochure && !toAnswer.includes("BROCHURE")) return;
+      if (models.length > MAX_BROCHURES_AT_ONCE) {
+        // Five cars named at once: five large files is a flood. Their key facts, and "which would you like first?".
+        text("ALL_BROCHURES_ASK");
+        return;
+      }
       for (const code of models.slice(0, MAX_BROCHURES)) {
         const car = carOf(code);
         const have = car ? deps.media(car.id) : NO_MEDIA;

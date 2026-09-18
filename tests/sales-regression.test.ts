@@ -174,7 +174,10 @@ const CASES: Case[] = [
   { category: "departments", name: "Arabic: tapping الصيانة", messages: ["مرحبا", "الصيانة"], say: [SERVICE], notSay: [/أي موديل/] },
   { category: "departments", name: "Arabic: tapping الإدارة", messages: ["مرحبا", "الإدارة"], say: [/01 488 333/], notSay: [/أي موديل/] },
   { category: "departments", name: "Arabic: tapping المبيعات asks which model", messages: ["مرحبا", "المبيعات"], say: [/أي موديل/], notSay: [SERVICE] },
-  { category: "acknowledgement", name: "ok after an answer never reopens the menu", messages: ["courage hp", "ok thanks"], quietOk: true },
+  // Workbook C: "a short thank-you when useful — never reopen the model menu" (answered since 2026-09-18: never silent).
+  { category: "acknowledgement", name: "thanks after an answer: a short you're-welcome, never the menu", messages: ["courage hp", "ok thanks"], say: [/You're most welcome/], notSay: [/Which model/i, /brochure/i] },
+  { category: "acknowledgement", name: "a bare ok after an answer asks nothing and gets nothing", messages: ["courage hp", "ok"], quietOk: true },
+  { category: "acknowledgement", name: "thanks twice is not a loop", messages: ["courage hp", "thanks", "thank you"], quietOk: true },
   { category: "acknowledgement", name: "ok after hello", messages: ["hi", "ok"], quietOk: true },
   { category: "acknowledgement", name: "thanks after the hand-off sentence stays quiet", messages: ["asdkjh qwe", "thanks"], quietOk: true },
 
@@ -233,7 +236,8 @@ const CASES: Case[] = [
   { category: "brochure", name: "all brochures: a menu, not a flood", messages: ["all brochures"], say: [/which model or models/i, /Which model/i], files: 0 },
   { category: "brochure", name: "all brochures, then the one they pick", messages: ["all brochures", "VOYAH Courage"], say: [/Courage brochure/], files: 1 },
   { category: "photos", name: "photos become a video offer", messages: ["send me photos of the taishan"], say: [/video of the VOYAH Taishan/i, /Obsidian Black/] },
-  { category: "media in", name: "a photo with no words goes to a person", messages: [{ text: "", hasMedia: true }], quietForPerson: true },
+  { category: "media in", name: "a photo with no words: acknowledged, and a person is told", messages: [{ text: "", hasMedia: true }], say: [/can't view photos/, HERE], notSay: [/brochure/i, /Which model/i], alert: "NEEDS_PERSON" },
+  { category: "media in", name: "a second photo in a row is left to that person", messages: [{ text: "", hasMedia: true }, { text: "", hasMedia: true }], quietForPerson: true },
 
   // Facts: A Car Facts of 2026-09-18, exactly as stored
   { category: "spec", name: "horsepower, as stored", messages: ["courage hp"], say: [/produces 430 HP\./], notSay: [/435/, /320/] },

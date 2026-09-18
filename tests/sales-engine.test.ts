@@ -606,12 +606,17 @@ describe("leads, test drives, stock and trade-ins", () => {
   });
 
   test("'ok' and 'thanks' never reopen a menu", () => {
-    for (const msgs of [["thanks"], ["ok"], ["courage", "thanks"], ["courage", "okay"]]) {
+    for (const msgs of [["thanks"], ["ok"], ["courage", "okay"], ["courage", "thanks", "thanks"]]) {
       const d = last(msgs);
       assert.deepEqual(d.understanding.intents, ["ACKNOWLEDGEMENT"], msgs.join(" / "));
       assert.equal(d.outcome, "NO_AUTOMATIC_ACTION", msgs.join(" / "));
       assert.deepEqual(d.actions, []);
     }
+    // A thank-you in a conversation is answered, shortly and once (workbook C) — and it is never the menu.
+    const welcome = last(["courage", "thanks"]);
+    assert.deepEqual(textKeys(welcome), ["YOU_ARE_WELCOME"]);
+    assert.equal(welcome.actions.length, 1);
+    assert.equal(welcome.nextState.awaiting, last(["courage"]).nextState.awaiting, "the open colour question stays open");
   });
 });
 
@@ -829,9 +834,17 @@ describe("new, returning and expired conversations", () => {
   });
 
   test("a model is never guessed from a photo or a story", () => {
+    // 2026-09-18 ("let the chat bot always answer"): a photo is ACKNOWLEDGED and a person is told — never silence,
+    // and still never a model, a brochure or a video guessed from it.
     const d = last([{ text: "", hasMedia: true }]);
-    assert.equal(d.outcome, "NO_AUTOMATIC_ACTION");
-    assert.match(d.reasons[0], /never guessed from media/);
+    assert.deepEqual(textKeys(d), ["PHOTO_RECEIVED"]);
+    assert.equal(d.understanding.model, null);
+    assert.ok(!d.actions.some((a) => a.type === "SEND_BROCHURE" || a.type === "SEND_COLOUR_VIDEO" || a.type === "SHOW_MODEL_CHOICES"));
+    assert.ok(d.actions.some((a) => a.type === "ALERT_SALES" && a.kind === "NEEDS_PERSON"));
+    // Said once: the second photo in a row is left to the person who was told.
+    const again = last([{ text: "", hasMedia: true }, { text: "", hasMedia: true }]);
+    assert.equal(again.outcome, "NO_AUTOMATIC_ACTION");
+    assert.match(again.reasons[0], /never guessed from media/);
     for (const text of ["", ".", "👍"]) {
       const e = last([text]);
       assert.equal(e.outcome, "NO_AUTOMATIC_ACTION", JSON.stringify(text));

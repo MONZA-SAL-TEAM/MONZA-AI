@@ -7,7 +7,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { AUTOREPLY_PILOT, autoreplyMode, isPilotAccount, isPilotChat } from "@/lib/wasales/autoreply-pilot";
+import { AUTOREPLY_PILOT, autoreplyMode, isAlwaysAnswered, isPilotAccount, isPilotChat } from "@/lib/wasales/autoreply-pilot";
 import { accountsForApp, INSTAGRAM_LOGIN_APPS, withInstagramLoginSecrets } from "@/lib/channels/meta-signature";
 import {
   AUTOREPLY_AUTOMATION_PREFIX,
@@ -27,7 +27,15 @@ describe("who the pilot may answer", () => {
 
   test("only listed chats: an account AND its customer", () => {
     // Widened by Samer on 2026-09-18 to his second test phone, 76 877 278. Every other number stays out.
-    assert.deepEqual(AUTOREPLY_PILOT.chats.map((c) => `${c.accountId}:${c.peer}`), ["wa-monza:9613195955", "wa-monza:96176877278", "wa-monza:96170708383", "wa-monza:96181659640"]);
+    assert.deepEqual(AUTOREPLY_PILOT.chats.map((c) => `${c.accountId}:${c.peer}`), ["wa-monza:9613195955", "wa-monza:96176877278", "wa-monza:96170708383", "wa-monza:96181659640", "wa-monza:96179986096"]);
+    // Samer, 2026-09-18: the five TEST phones are always answered (never paused by a person's reply). Nobody else is.
+    assert.ok(AUTOREPLY_PILOT.chats.every((c) => c.alwaysAnswer === true));
+    for (const peer of ["9613195955", "96176877278", "96170708383", "96179986096", "96181659640", "+961 79 986 096"]) {
+      assert.equal(isPilotChat({ accountId: "wa-monza", channel: "whatsapp", peerExternalId: peer }), true, peer);
+      assert.equal(isAlwaysAnswered({ accountId: "wa-monza", channel: "whatsapp", peerExternalId: peer }), true, peer);
+    }
+    assert.equal(isAlwaysAnswered({ accountId: "wa-monza", channel: "whatsapp", peerExternalId: "96170708585" }), false);
+    assert.equal(isAlwaysAnswered({ accountId: "ig-voyah", channel: "instagram", peerExternalId: "96179986096" }), false);
     assert.equal(isPilotChat({ accountId: "wa-monza", channel: "whatsapp", peerExternalId: "96181659640" }), true);
     assert.equal(isPilotChat({ accountId: "wa-monza", channel: "whatsapp", peerExternalId: "96170708383" }), true);
     // The business line itself (70 70 85 85) is one digit pair away and is NOT a pilot chat.

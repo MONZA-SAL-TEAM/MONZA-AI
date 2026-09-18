@@ -267,8 +267,11 @@ describe("Phase 2 — multi-turn state", () => {
       assert.doesNotMatch(words(t), /VOYAH and MHERO/, "never the 'we specialise in' sentence");
       for (const re of NO_MONEY) assert.doesNotMatch(words(t), re);
     }
-    // A photo with no trade-in in progress still goes to a person, untouched.
-    assert.equal(last([{ text: "", hasMedia: true }]).plan.length, 0);
+    // A photo with no trade-in in progress goes to a person: acknowledged, never read, never filed as a trade-in.
+    const plain = last([{ text: "", hasMedia: true }]);
+    assert.deepEqual(textKeys(plain), ["PHOTO_RECEIVED"]);
+    assert.deepEqual(tags(plain), ["NEEDS_PERSON"]);
+    assert.equal(plain.decision.nextState.tradeInPhotos, 0);
   });
 
   test("'Courage' → 'Courage' is never silence", () => {

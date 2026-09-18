@@ -946,11 +946,17 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   Meta redelivery never answers twice) to `lib/wasales/autoreply.ts`, which
   answers only chats in `lib/wasales/autoreply-pilot.ts` (`wa-monza` +
   `9613195955`, and since 2026-09-18 Samer's other test phones `96176877278`,
-  `96170708383` and `96181659640`) through
+  `96170708383`, `96181659640` and `96179986096` — FIVE test phones, all writing to
+  +961 70 708 585) through
   the SAME send as a person's Send (`autoreplyThread`):
   window, send switch, key, handover, whole-plan check. Its first answer
   marks `started_at` just before the message, so earlier tests and replies
-  are not part of the chat. Recorded as author `automation`,
+  are not part of the chat. **The test phones are ALWAYS answered (Samer, 2026-09-18: "let the
+  chat bot always answer those numbers … a full test")**: `alwaysAnswer` on a pilot chat means a
+  reply a person types there does NOT pause the bot (on a test phone that reply is the tester's
+  own). "Hand to a person" still holds it, and the 24-hour window, the send switch and
+  one-reply-per-message still apply. Never set `alwaysAnswer` on a real customer's chat.
+  Recorded as author `automation`,
   `automation_id` `sales-autoreply:…`. A reply a person types in that chat
   stops it (handover). Off: `SALES_AUTOREPLY_MODE=off`.
 - **Everyone OUTSIDE the pilot is marked, never answered (Samer, 2026-09-17:
@@ -976,7 +982,10 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   sentence and a `NEEDS_PERSON` alert (`sayUnknown`), said once — not repeated on the very next
   line (`state.unknownSaid`) — and the bot KEEPS READING: the next thing it knows is answered,
   also after "talk to a human". A greeting is always greeted back, in an old chat too. What stays
-  unanswered is only what Monza decided: a photo with no words, "ok"/"thanks", scams and vendor
+  unanswered is only what Monza decided (narrowed 2026-09-18: a photo / voice note with no words is
+  now ACKNOWLEDGED once — "I can't view photos here… a member of our team will reply" — with a
+  NEEDS_PERSON alert, and a thank-you gets one short "You're most welcome", workbook C): a second photo
+  in a row, a bare "ok" / 👍, a bare yes/no with no open question, scams and vendor
   pitches, the chats outside the pilot, and a chat a person is in (the 12-hour pause). A loose
   word never hijacks a technical question: "power" and "powerful" are WEAK, a bare "wheels" is
   not a wheel-size question, and generator / cc / drivetrain questions are asked of the team.

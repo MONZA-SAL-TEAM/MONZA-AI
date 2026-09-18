@@ -23,6 +23,14 @@ export interface PilotChat {
   accountId: string;
   /** The customer's id on that account: WhatsApp digits, or the Instagram-scoped id. */
   peer: string;
+  /**
+   * A TEST PHONE (Samer, 2026-09-18: "let the chat bot always answer those numbers … should be able to do a
+   * full test"). The bot is never paused in this chat by a reply a person types — on a test phone that reply
+   * is the tester's own, from the business phone — so a test can run end to end. "Hand to a person" on the
+   * inbox still holds it (a deliberate button), and everything that protects a customer still applies: the
+   * 24-hour window, the send switch, one reply per message. NEVER set this on a real customer's chat.
+   */
+  alwaysAnswer?: boolean;
 }
 
 export interface AutoreplyPilot {
@@ -32,19 +40,30 @@ export interface AutoreplyPilot {
 export const AUTOREPLY_PILOT: AutoreplyPilot = Object.freeze({
   chats: Object.freeze([
     /** Samer's test phone, +961 3 195 955, writing to +961 70 708 585. */
-    Object.freeze({ accountId: "wa-monza", peer: "9613195955" }),
+    Object.freeze({ accountId: "wa-monza", peer: "9613195955", alwaysAnswer: true }),
     /**
      * +961 76 877 278, writing to +961 70 708 585 (Samer, 2026-09-18: "76877278 needs to have
      * access to the chat bot like 03195955"). A second TEST phone — it is also Monza's own
      * service line, so nothing a real customer writes reaches the bot through it.
      */
-    Object.freeze({ accountId: "wa-monza", peer: "96176877278" }),
+    Object.freeze({ accountId: "wa-monza", peer: "96176877278", alwaysAnswer: true }),
     /** +961 70 708 383, a third TEST phone (Samer, 2026-09-18: "add 70708383 to test the chat bot like 03195955"). */
-    Object.freeze({ accountId: "wa-monza", peer: "96170708383" }),
+    Object.freeze({ accountId: "wa-monza", peer: "96170708383", alwaysAnswer: true }),
     /** +961 81 659 640, a fourth TEST phone (Samer, 2026-09-18: "81659640 add to the testing pool like 03195955"). */
-    Object.freeze({ accountId: "wa-monza", peer: "96181659640" }),
+    Object.freeze({ accountId: "wa-monza", peer: "96181659640", alwaysAnswer: true }),
+    /** +961 79 986 096, a fifth TEST phone (Samer, 2026-09-18: "the following numbers should be able to do full test"). */
+    Object.freeze({ accountId: "wa-monza", peer: "96179986096", alwaysAnswer: true }),
   ]),
 });
+
+/** Is this chat one of the TEST phones the bot always answers (never paused by a person's reply)? */
+export function isAlwaysAnswered(
+  chat: { accountId: string; channel: string; peerExternalId: string },
+  pilot: AutoreplyPilot = AUTOREPLY_PILOT
+): boolean {
+  const peer = chat.channel === "whatsapp" ? chat.peerExternalId.replace(/\D/g, "") : chat.peerExternalId.trim();
+  return peer.length >= 8 && pilot.chats.some((c) => c.accountId === chat.accountId && c.peer === peer && c.alwaysAnswer === true);
+}
 
 /** SALES_AUTOREPLY_MODE: "off" stops the pilot; anything else leaves it to the list. */
 export function autoreplyMode(raw: string | undefined | null): "pilot" | "off" {

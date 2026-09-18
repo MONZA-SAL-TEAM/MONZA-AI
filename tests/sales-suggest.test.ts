@@ -144,8 +144,9 @@ describe("what a suggestion answers", () => {
 
   test("the inbox's own 'open the app to see it' is never read as the customer's words", () => {
     const s = suggest([msg("c1", "in", NO_TEXT, 0, { attachments: [{ kind: "image", state: "unavailable" }] })]);
-    assert.equal(s.kind === "suggestion" && s.turn.decision.outcome, "NO_AUTOMATIC_ACTION");
-    assert.match(s.kind === "suggestion" ? s.turn.decision.reasons[0] : "", /never guessed from media/);
+    // The placeholder is not read as words: it is a photo — acknowledged, handed to a person, and nothing guessed from it.
+    assert.deepEqual(labels(s), ["SAY PHOTO RECEIVED", "ALERT SALES — NEEDS PERSON"]);
+    assert.equal(s.kind === "suggestion" && s.turn.decision.understanding.reading.tokens.length, 0);
   });
 
   test("the brand is the account's", () => {
@@ -159,6 +160,19 @@ describe("quiet for the rest of the chat once a person replies", () => {
   test("a reply a person wrote hands the chat over", () => {
     const s = suggest([msg("c1", "in", "hi", 0), msg("o1", "out", "Hi! How can I help?", 1), msg("c2", "in", "courage", 2)]);
     assert.equal(s.kind, "handed_over");
+  });
+
+  test("a TEST phone is always answered: a person's reply does not pause the bot there (Samer, 2026-09-18)", () => {
+    const chat = [msg("c1", "in", "hi", 0), msg("o1", "out", "Hi! How can I help?", 1), msg("c2", "in", "courage", 2)];
+    assert.equal(suggest(chat).kind, "handed_over", "a customer's chat is still paused");
+    const s = suggest(chat, freshSaved(), { alwaysAnswer: true });
+    assert.equal(s.kind, "suggestion");
+    assert.equal(s.kind === "suggestion" && s.turn.decision.understanding.model, "COURAGE");
+    // A person who already answered the customer's last message leaves nothing to answer — the bot does not talk over them.
+    assert.equal(suggest([msg("c1", "in", "courage", 0), msg("o1", "out", "Sure, one moment", 1)], freshSaved(), { alwaysAnswer: true }).kind, "nothing_to_answer");
+    // "Hand this chat to a person" is a deliberate button, and still holds the bot — on a test phone too.
+    const held = { ...freshSaved(), state: { ...freshSaved().state, manualTakeover: true } };
+    assert.equal(suggest(chat, held, { alwaysAnswer: true }).kind, "handed_over");
   });
 
   test("a chat staff already answered before suggestions existed gets none", () => {

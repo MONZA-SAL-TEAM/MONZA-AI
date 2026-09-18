@@ -70,6 +70,8 @@ export interface ThreadFacts {
    * customer names no car, and never locks the chat to that car.
    */
   adHeadline?: string | null;
+  /** A TEST phone of the pilot (autoreply-pilot.ts `alwaysAnswer`): a person's reply does not pause the bot here. */
+  alwaysAnswer?: boolean;
 }
 
 /**
@@ -173,7 +175,7 @@ export function suggestForThread(
       manual: true,
     };
   }
-  if (byPerson.length > 0) {
+  if (byPerson.length > 0 && !facts.alwaysAnswer) {
     const lastHuman = byPerson[byPerson.length - 1];
     const lastHumanAt = timeOf(lastHuman);
     const customerSince = ordered.filter((m) => m.direction === "in" && timeOf(m) > lastHumanAt);

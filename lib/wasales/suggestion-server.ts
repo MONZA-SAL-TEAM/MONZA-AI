@@ -19,7 +19,7 @@
 import { channelsSendLive } from "@/lib/env";
 import { decodeThreadId } from "@/lib/channels/live-map";
 import { channelDb, listAccounts, recordWhatsAppSent, type StoredAccount } from "@/lib/channels/store";
-import { isPilotAccount, isPilotChat } from "@/lib/wasales/autoreply-pilot";
+import { isAlwaysAnswered, isPilotAccount, isPilotChat } from "@/lib/wasales/autoreply-pilot";
 import { readThreadForStaff, suggestionTarget, threadPeerId } from "@/lib/channels/live";
 import { libraryColour, libraryMedia, loadCatalog, type LibraryFile } from "@/lib/wasales/catalog";
 import { listLibraryFiles } from "@/lib/wasales/library-server";
@@ -161,13 +161,15 @@ async function load(threadId: unknown): Promise<Loaded | Failure> {
   if (!brand || !channel) return { ok: false, status: 404, problem: "Suggestions are not available for this account." };
 
   const catalog = loadCatalog();
-  const [view, memory, library, booked, adHeadline] = await Promise.all([
+  const [view, memory, library, booked, adHeadline, peer] = await Promise.all([
     readThreadForStaff(threadId),
     loadSuggestion(account.id, ids.metaConversationId),
     listLibraryFiles(catalog.map((c) => c.id)),
     bookedSlotsFrom(new Date().toISOString()),
     adHeadlineFor(ids.metaConversationId),
+    isPilotAccount(account.id) ? threadPeerId(threadId) : Promise.resolve(null),
   ]);
+  const alwaysAnswer = peer !== null && isAlwaysAnswered({ accountId: account.id, channel: account.channel, peerExternalId: peer });
   if (!view.ok) return { ok: false, status: view.status, problem: view.problem };
 
   const notes: string[] = [];
@@ -181,7 +183,7 @@ async function load(threadId: unknown): Promise<Loaded | Failure> {
     brand,
     channel,
     ref: ids.metaConversationId,
-    facts: { brand, channel, messages: view.messages, windowOpen: view.window.open, adHeadline },
+    facts: { brand, channel, messages: view.messages, windowOpen: view.window.open, adHeadline, alwaysAnswer },
     saved: memory.ok ? memory.saved : freshSaved(),
     memoryOk: memory.ok,
     deps: {

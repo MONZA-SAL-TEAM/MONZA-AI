@@ -458,6 +458,10 @@ function renderText(key: TextKey, models: readonly ModelCode[], vars: Record<str
       return `Our Sales Team can recommend the right model for ${vars.need ?? "your needs"} and will assist you right here. In the meantime, here is our current range.`;
     case "BUDGET_HANDOFF":
       return "Our Sales Team can recommend the right model for your budget and will assist you right here. In the meantime, here is our current range.";
+    case "YOU_ARE_WELCOME":
+      return "You're most welcome. If you need anything else, we're right here.";
+    case "PHOTO_RECEIVED":
+      return "Thank you, we've received it. I can't view photos, videos or voice notes here, so a member of our team will take a look and reply to you right here.";
     case "ALL_BROCHURES_ASK":
       return "Happy to send brochures. They are large files, so please tell me which model or models you'd like.";
   }
@@ -615,6 +619,10 @@ function renderTextAr(key: TextKey, models: readonly ModelCode[], cars: string, 
     case "RECOMMEND_HANDOFF":
     case "BUDGET_HANDOFF":
       return "يمكن لفريق المبيعات أن ينصحكم بالموديل الأنسب لكم، وسيتابعون معكم هنا مباشرةً. في الأثناء، هذه مجموعتنا الحالية.";
+    case "YOU_ARE_WELCOME":
+      return "أهلاً وسهلاً بكم. إذا احتجتم أي شيء آخر فنحن هنا.";
+    case "PHOTO_RECEIVED":
+      return "شكراً لكم، استلمناها. لا يمكنني الاطلاع على الصور أو الفيديوهات أو الرسائل الصوتية هنا، لذا سيطّلع عليها أحد أعضاء فريقنا ويرد عليكم هنا مباشرةً.";
     case "ALL_BROCHURES_ASK":
       return "يسعدني إرسال الكتالوجات. حجم الملفات كبير، فأي موديل أو موديلات تودون؟";
     default:
