@@ -48,7 +48,8 @@ import {
   useCarMedia,
   deleteFile,
 } from "@/lib/wasales/media-store";
-import { colourIdFrom, colourNameFrom } from "@/lib/wasales/media-paths";
+import { missingOfficialColours, colourIdFrom, colourNameFrom } from "@/lib/wasales/media-paths";
+import { MONZA_KNOWLEDGE, modelByCatalogueId } from "@/lib/wasales/knowledge";
 import {
   checkColourFit,
   type ColourWarning,
@@ -1157,10 +1158,12 @@ export default function WaSalesClient() {
         );
         continue;
       }
-      for (const colour of car.colours) {
-        if ((counts[colour.id] ?? 0) === 0) {
-          out.push(`${car.name} / ${colour.name}: no video uploaded — this colour is not offered.`);
-        }
+      // The colours that matter are the workbook's (A Car Facts), not the folder names of the
+      // 4 Sep import: a video filed under "Pearl Black" is not a missing "Black".
+      const official = modelByCatalogueId(MONZA_KNOWLEDGE, car.id)?.colourNames ?? [];
+      const idsWithVideo = Object.entries(counts).filter(([, n]) => n > 0).map(([id]) => id);
+      for (const name of missingOfficialColours(official, idsWithVideo)) {
+        out.push(`${car.name} / ${name}: in your workbook, but no video uploaded — this colour is not offered.`);
       }
     }
     return out;

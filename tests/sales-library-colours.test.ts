@@ -118,3 +118,32 @@ describe("renaming a colour on /sales (Samer, 2026-09-18: \"let me be able to ed
     assert.match(say(renamed, ["free 318", "black"]), /Free 318 in Midnight Black[\s\S]*\[file Dark-on-the-outside/);
   });
 });
+
+describe("the /sales warning box: what is REALLY missing (Samer, 2026-09-18: \"20 things are missing\")", () => {
+  test("videos re-filed under their official names are not missing", async () => {
+    const { missingOfficialColours } = await import("@/lib/wasales/media-paths");
+    // The live library after the re-filing of 2026-09-18.
+    const library: Record<string, string[]> = {
+      FREE_318: ["british-racing-green", "midnight-black", "pearl-white", "sage-green", "titanium-grey"],
+      COURAGE: ["crayon-grey", "pearl-black", "pearl-white"],
+      DREAM: ["midnight-black"],
+      PASSION: ["midnight-black"],
+      PASSION_L: ["obsidian-black", "titanium-grey"],
+      TAISHAN: ["obsidian-black", "sapphire-blue", "storm-grey"],
+      MHERO_1: ["obsidian-black", "storm-grey"],
+      MHERO_2: ["clouds-white", "olive-green", "piano-black"],
+    };
+    const missing = MONZA_KNOWLEDGE.models.flatMap((m) => missingOfficialColours(m.colourNames ?? [], library[m.code]).map((c) => `${m.displayName} / ${c}`));
+    // Two, not twenty: the colours the workbook names and nobody has filmed.
+    assert.deepEqual(missing, ["MHERO 1 / Recon Green", "MHERO 2 / Polar Silver"]);
+  });
+
+  test("a library still filed the old way (black, sage, green) covers the official names too", async () => {
+    const { missingOfficialColours } = await import("@/lib/wasales/media-paths");
+    const official = ["Midnight Black", "British Racing Green", "Titanium Grey", "Sage Green", "Pearl White"];
+    assert.deepEqual(missingOfficialColours(official, ["black", "green", "grey", "sage", "white"]), []);
+    // One "green" video cannot stand for both greens.
+    assert.deepEqual(missingOfficialColours(official, ["black", "green", "grey", "white"]), ["Sage Green"]);
+    assert.deepEqual(missingOfficialColours(official, []), official);
+  });
+});

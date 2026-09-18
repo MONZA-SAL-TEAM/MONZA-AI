@@ -249,6 +249,38 @@ export function colourRenameMoves(
   return files.map((f) => ({ from: `${carId}/${f.folder}/${fromId}/${f.name}`, to: `${carId}/${f.folder}/${toId}/${f.name}` }));
 }
 
+/**
+ * Which of a car's OFFICIAL colours (A Car Facts) have no video in the library.
+ *
+ * The /sales warning box used to list every colour of the sales folder imported
+ * on 4 Sep that had no video — so once Samer re-filed the videos under their
+ * official names (2026-09-18) it reported 20 things "missing" that were all
+ * there, under "Pearl Black" instead of "Black". The list that matters is the
+ * workbook's: a colour Monza says the car comes in, with nothing to show for it.
+ *
+ * An official colour is covered by a library colour of the same name
+ * ("Pearl Black" → `pearl-black`) or, for libraries still filed the old way,
+ * by a one-word colour that is part of it (`black`).
+ */
+export function missingOfficialColours(officialNames: readonly string[], colourIdsWithVideo: readonly string[]): string[] {
+  const have = new Set(colourIdsWithVideo);
+  const claimed = new Set<string>();
+  const missing: string[] = [];
+  for (const name of officialNames) {
+    const id = colourIdFrom(name);
+    if (id === "") continue;
+    if (have.has(id)) continue;
+    // "Sage Green" is covered by `sage` before `green`: the first word that is a colour folder wins.
+    const word = id.split("-").find((w) => have.has(w) && !claimed.has(w));
+    if (word) {
+      claimed.add(word);
+      continue;
+    }
+    missing.push(name);
+  }
+  return missing;
+}
+
 export type UploadCheck =
   | { ok: true; parsed: ParsedMediaPath }
   | { ok: false; error: string };
