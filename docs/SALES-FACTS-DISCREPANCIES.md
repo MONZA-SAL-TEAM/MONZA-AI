@@ -28,24 +28,33 @@ The bot now states all of them exactly as written.
   is never answered as the Passion. The "Do you mean Voyah passion S?" sentence is NOT sent by the
   bot: a customer who asks for a colour we do not have is told so and offered the real colours.
 
-## Colours: the workbook names more than the library can show
+## Colours: what the LIVE library can show (read 2026-09-18)
 
-The bot offers only colours that have a video in the shared library, under the workbook's official
+Corrected 2026-09-18: an earlier version of this table was read from the sales folder imported on
+4 Sep, not from the live shared library the bot actually sends from. The live library
+(`wasales-media`) holds more: the MHERO 1 in Black, and the Passion's video.
+
+The bot offers only colours that have a video in the live library, under the workbook's official
 names ("black" still finds "Pearl Black").
 
-| Car | A Car Facts | Has a video | Not offered until a video is uploaded |
+| Car | A Car Facts | Videos in the live library | Missing |
 |---|---|---|---|
-| VOYAH Free 318 | Midnight Black · British Racing Green · Titanium Grey · Sage Green · Pearl White | all five | — |
-| VOYAH Courage | Pearl Black · Crayon Grey · Pearl White | all three | — |
-| VOYAH Dream | Midnight Black | one video, not filed under a colour | (sent as "a video of the VOYAH Dream") |
-| VOYAH Passion | Midnight Black | none | Midnight Black |
+| VOYAH Free 318 | Midnight Black · British Racing Green · Titanium Grey · Sage Green · Pearl White | all 5 | — |
+| VOYAH Courage | Pearl Black · Crayon Grey · Pearl White | all 3 | — |
+| VOYAH Dream | Midnight Black | 1, not filed under a colour (sent as "a video of the VOYAH Dream") | — |
+| VOYAH Passion | Midnight Black | 1 | — |
 | VOYAH Passion L | Obsidian Black · Titanium Grey | both | — |
-| VOYAH Taishan | Obsidian Black · Sapphire Blue · Storm Grey | all three | — |
-| MHERO 1 | Obsidian Black · Storm Grey · Recon Green | Storm Grey | Obsidian Black, Recon Green |
-| MHERO 2 | Piano Black · Olive Green · Clouds White · Polar Silver | the first three | Polar Silver |
+| VOYAH Taishan | Obsidian Black · Sapphire Blue · Storm Grey | all 3 | — |
+| MHERO 1 | Obsidian Black · Storm Grey · Recon Green | 2: Obsidian Black, Storm Grey | **Recon Green** |
+| MHERO 2 | Piano Black · Olive Green · Clouds White · Polar Silver | 3: Piano Black, Olive Green, Clouds White | **Polar Silver** |
 
-Because the Passion has no video, a price or test-drive question about it gets the brochure and
-the Sales hand-off, without the "model video" the workbook asks for.
+The catalogue had no folder for those two colours, so there was nowhere to upload them. Since
+2026-09-18 the /sales screen shows an empty **MHERO 1 → Green** and **MHERO 2 → Silver** folder
+(`WORKBOOK_COLOUR_FOLDERS`). Upload the video there and the bot offers "Recon Green" / "Polar
+Silver" at once; until then a customer asking for it is told we have no video in that colour and
+is offered the real ones.
+
+A car with exactly one video (Dream, Passion) sends it without asking a one-answer colour question.
 
 ## Smaller notes
 

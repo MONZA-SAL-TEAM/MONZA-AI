@@ -20,10 +20,11 @@ import assert from "node:assert/strict";
 import { runConversation } from "@/lib/wasales/flow";
 import { MONZA_KNOWLEDGE, type ModelKnowledge } from "@/lib/wasales/knowledge";
 import { WORKBOOK } from "@/lib/wasales/knowledge-data";
-import { folderMedia, loadCatalog } from "@/lib/wasales/catalog";
+import { loadCatalog } from "@/lib/wasales/catalog";
+import { liveMedia } from "@/tests/_live-library";
 import { actionLabel } from "@/lib/wasales/templates";
 
-const DEPS = { knowledge: MONZA_KNOWLEDGE, catalog: loadCatalog(), media: folderMedia, ttlHours: 72 };
+const DEPS = { knowledge: MONZA_KNOWLEDGE, catalog: loadCatalog(), media: liveMedia, ttlHours: 72 };
 const SEND = { channel: "whatsapp", autoSendEnabled: true, replyWindowOpen: true, humanLock: false, liveSending: true, attachmentsSupported: true } as const;
 const CARS = MONZA_KNOWLEDGE.models;
 
@@ -106,7 +107,7 @@ const MATERIAL_WORDINGS: Record<string, string[]> = {
 
 /** What the shared library holds for a car: the one thing allowed to change the shape of an answer. */
 function mediaProfile(car: ModelKnowledge): "several colour videos" | "one video" | "no video" {
-  const have = folderMedia(car.catalogueId);
+  const have = liveMedia(car.catalogueId);
   const colours = Object.values(have.videosByColour).filter((files) => files.some((f) => f.view !== "interior")).length;
   return colours === 0 ? "no video" : colours === 1 ? "one video" : "several colour videos";
 }

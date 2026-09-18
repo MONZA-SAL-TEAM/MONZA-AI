@@ -142,7 +142,19 @@ export const CUSTOMER_WORDS: Readonly<Record<string, readonly string[]>> = {
  * "sage green" sits under sage so that, on the one car with both, it is the
  * longer phrase and wins over plain "green".
  */
+/**
+ * Colour folders that A Car Facts names (2026-09-18) and the imported sales
+ * folder never had, so there was nowhere to upload their videos: the MHERO 1
+ * in Recon Green, the MHERO 2 in Polar Silver. Empty until a video is
+ * uploaded on /sales — and a colour with no video is never offered.
+ */
+export const WORKBOOK_COLOUR_FOLDERS: Readonly<Record<string, readonly { id: string; name: string }[]>> = {
+  "mhero-1": [{ id: "green", name: "Green" }],
+  "mhero-2": [{ id: "silver", name: "Silver" }],
+};
+
 export const COLOUR_WORDS: Readonly<Record<string, readonly string[]>> = {
+  silver: ["argent", "fadde", "faddi", "فضي", "polar silver"],
   black: ["noir", "aswad", "sawda", "اسود", "سودا"],
   white: ["blanc", "abyad", "bayda", "ابيض", "بيضا", "pearl white"],
   grey: ["gray", "gris", "rmadi", "رمادي", "رصاصي", "crayon grey", "titanium grey"],

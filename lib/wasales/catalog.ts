@@ -28,6 +28,7 @@ import type { MediaRef, ModelMedia, ModelMediaLookup } from "@/lib/wasales/knowl
 import {
   COLOUR_WORDS,
   CUSTOMER_WORDS,
+  WORKBOOK_COLOUR_FOLDERS,
   WASALES_CATALOG,
 } from "@/lib/wasales/catalog-data";
 import {
@@ -146,7 +147,12 @@ function toCar(m: ManifestCar): WaCar {
     videos: m.colours.flatMap((c) =>
       c.videos.map((v) => toAsset(v, `${m.name} — ${c.name}`))
     ),
-    colours: m.colours.map(toColour),
+    colours: [
+      ...m.colours.map(toColour),
+      ...(WORKBOOK_COLOUR_FOLDERS[m.id] ?? [])
+        .filter((extra) => !m.colours.some((c) => c.id === extra.id))
+        .map((extra) => toColour({ id: extra.id, name: extra.name, videos: [] })),
+    ],
     brochure: m.brochure ? toAsset(m.brochure, `${m.name} catalogue`) : null,
     oneLiner: "",
   };
@@ -175,6 +181,8 @@ export function mediaIndexFor(car: WaCar): Record<string, number> {
     for (const colour of car.colours) counts[colour.id] = 0;
     return counts;
   }
+  // A colour folder added from the workbook (WORKBOOK_COLOUR_FOLDERS) starts empty: listed, never offered.
+  for (const colour of car.colours) counts[colour.id] = 0;
   for (const colour of found.colours) counts[colour.id] = colour.videos.length;
   return counts;
 }

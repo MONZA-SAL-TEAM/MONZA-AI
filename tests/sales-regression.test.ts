@@ -25,11 +25,12 @@ import type { AlertKind } from "@/lib/wasales/actions";
 import { needsPerson } from "@/lib/wasales/suggest";
 import { triageInbound } from "@/lib/wasales/triage";
 import { MONZA_KNOWLEDGE } from "@/lib/wasales/knowledge";
-import { folderMedia, loadCatalog } from "@/lib/wasales/catalog";
+import { loadCatalog } from "@/lib/wasales/catalog";
+import { liveMedia } from "@/tests/_live-library";
 import type { OutboundPart } from "@/lib/wasales/templates";
 import type { SalesChannel } from "@/lib/wasales/knowledge";
 
-const DEPS = { knowledge: MONZA_KNOWLEDGE, catalog: loadCatalog(), media: folderMedia, ttlHours: 72 };
+const DEPS = { knowledge: MONZA_KNOWLEDGE, catalog: loadCatalog(), media: liveMedia, ttlHours: 72 };
 /** Thursday 17 September 2026, 12:00 in Beirut: the showroom is open. */
 const NOW = "2026-09-17T09:00:00.000Z";
 const SEND = { autoSendEnabled: true, replyWindowOpen: true, humanLock: false, liveSending: true, attachmentsSupported: true } as const;
@@ -209,7 +210,10 @@ const CASES: Case[] = [
   { category: "colours", name: "a colour we don't have", messages: ["courage", "red"], say: [/don't have a video .* in red/i, /Pearl Black/] },
   { category: "colours", name: "interior colours: honest, no folder names", messages: ["what interior colours for the courage"], say: [/interior/i, HERE], notSay: [SALES], alert: "QUESTION" },
   { category: "colours", name: "Dream: one video, never 'Standard'", messages: ["dream colours"], say: [/video of the VOYAH Dream/i], files: 2 },
-  { category: "colours", name: "MHERO 1 has one video: sent, never a one-answer question, never a colour without a video", messages: ["mhero 1 colours"], say: [/video of the MHERO 1/], notSay: [/Recon Green/, /Obsidian Black/, /Which exterior colour/], files: 2 },
+  // The live library holds the MHERO 1 in Black and Grey; Recon Green has a folder but no video yet.
+  { category: "colours", name: "MHERO 1: the two colours with a video, never Recon Green without one", messages: ["mhero 1 colours"], say: [/Obsidian Black/, /Storm Grey/], notSay: [/Recon Green/], files: 1 },
+  { category: "colours", name: "MHERO 1 in green: said honestly, then the real colours", messages: ["mhero 1", "green"], say: [/don't have a video of the MHERO 1 in Recon Green/i, /Obsidian Black/, /Storm Grey/] },
+  { category: "colours", name: "one-video cars (Dream, Passion) send it, never a one-answer question", messages: ["passion colours"], say: [/VOYAH Passion/], notSay: [/Which exterior colour/], files: 2 },
   { category: "colours", name: "MHERO 2 never offers Polar Silver without a video", messages: ["mhero 2 colours"], say: [/Piano Black/, /Olive Green/, /Clouds White/], notSay: [/Polar Silver/] },
   { category: "brochure", name: "one brochure", messages: ["send me the courage brochure"], say: [/Courage brochure/], files: 1 },
   { category: "brochure", name: "all brochures", messages: ["all brochures"], files: 8 },
@@ -225,7 +229,7 @@ const CASES: Case[] = [
   // Samer, 2026-09-18: "leave passion s only to be answered by sales team instead of chat bot".
   { category: "passion s", name: "Passion S: Sales answers, the bot sends nothing about any car", messages: ["how much is the passion s"], say: [HANDOFF], notSay: [/brochure/i, SALES], alert: "QUESTION", files: 0 },
   { category: "passion s", name: "Passion S mid-conversation", messages: ["courage", "do you have the passion S in red?"], say: [HANDOFF], notSay: [/Passion/, /red/i], alert: "QUESTION", files: 0 },
-  { category: "passion s", name: "'the passion's price' is the Passion, not the Passion S", messages: ["what is the passion's price"], say: [/Passion brochure/, HANDOFF], alert: "PRICE", files: 1 },
+  { category: "passion s", name: "'the passion's price' is the Passion, not the Passion S", messages: ["what is the passion's price"], say: [/Passion brochure/, HANDOFF], alert: "PRICE", files: 2 },
   { category: "passion s", name: "'passion sedan' is the Passion", messages: ["passion sedan hp"], say: [/produces 550 hp/] },
   { category: "spec", name: "Passion L range is confirmed now", messages: ["passion l range"], say: [/410 km EV \/ 1,400 km combined \(CLTC\)/] },
   { category: "spec", name: "Passion L battery is stated now", messages: ["passion l battery"], say: [/65 kWh CATL ternary lithium/] },
