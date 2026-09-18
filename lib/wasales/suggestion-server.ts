@@ -21,7 +21,7 @@ import { decodeThreadId } from "@/lib/channels/live-map";
 import { listAccounts, recordWhatsAppSent, type StoredAccount } from "@/lib/channels/store";
 import { isPilotAccount, isPilotChat } from "@/lib/wasales/autoreply-pilot";
 import { readThreadForStaff, suggestionTarget, threadPeerId } from "@/lib/channels/live";
-import { libraryMedia, loadCatalog, type LibraryFile } from "@/lib/wasales/catalog";
+import { libraryColour, libraryMedia, loadCatalog, type LibraryFile } from "@/lib/wasales/catalog";
 import { listLibraryFiles } from "@/lib/wasales/library-server";
 import { colourNameFrom } from "@/lib/wasales/media-paths";
 import { MONZA_KNOWLEDGE, salesBrandOf, type SalesChannel } from "@/lib/wasales/knowledge";
@@ -119,7 +119,7 @@ function withLibraryColours(catalog: WaCar[], files: readonly LibraryFile[]): Wa
     if (extra.length === 0) return car;
     return {
       ...car,
-      colours: [...car.colours, ...extra.map((id) => ({ id, name: colourNameFrom(id), aliases: [id] }))],
+      colours: [...car.colours, ...extra.map((id) => libraryColour(id, colourNameFrom(id)))],
     };
   });
 }

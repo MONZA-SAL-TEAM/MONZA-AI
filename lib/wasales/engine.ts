@@ -482,7 +482,15 @@ function understand(
       const covered = new Set<number>();
       for (const h of reading.hits) for (let i = h.start; i < h.end; i++) covered.add(i);
       const colourWords = reading.tokens.filter((_, i) => !covered.has(i)).join(" ");
-      const answer = readColourAnswer(colourWords, car.colours, { noPreference: awaitingColour, fuzzy: awaitingColour });
+      // Colours with a video are heard first: a colour re-filed under its official name
+      // ("Obsidian Black") and the old, now empty "Black" both answer to "black", and only one
+      // can be sent. The full list is the fallback, so "white" on a car with no white video is
+      // still named honestly as not available.
+      const opts = { noPreference: awaitingColour, fuzzy: awaitingColour };
+      const have = deps.media(car.id);
+      const withVideo = car.colours.filter((c) => (have.videosByColour[c.id] ?? []).some((v) => v.view !== "interior"));
+      const heard = withVideo.length > 0 ? readColourAnswer(colourWords, withVideo, opts) : null;
+      const answer = heard && (heard.kind === "one" || heard.kind === "several" || heard.kind === "no_preference") ? heard : readColourAnswer(colourWords, car.colours, opts);
       if (answer.kind === "one") colour = { kind: "one", id: answer.colour.id, name: answer.colour.name, source: "text" };
       else if (answer.kind === "several") colour = { kind: "several", ids: answer.colours.map((c) => c.id) };
       else if (answer.kind === "unavailable") colour = { kind: "unavailable", requested: answer.asked };

@@ -48,11 +48,19 @@ names ("black" still finds "Pearl Black").
 | MHERO 1 | Obsidian Black · Storm Grey · Recon Green | 2: Obsidian Black, Storm Grey | **Recon Green** |
 | MHERO 2 | Piano Black · Olive Green · Clouds White · Polar Silver | 3: Piano Black, Olive Green, Clouds White | **Polar Silver** |
 
-The catalogue had no folder for those two colours, so there was nowhere to upload them. Since
-2026-09-18 the /sales screen shows an empty **MHERO 1 → Green** and **MHERO 2 → Silver** folder
-(`WORKBOOK_COLOUR_FOLDERS`). Upload the video there and the bot offers "Recon Green" / "Polar
-Silver" at once; until then a customer asking for it is told we have no video in that colour and
-is offered the real ones.
+**Later on 2026-09-18** Samer began re-filing the videos on /sales under the official names
+(MHERO 1 → Obsidian Black, Storm Grey; MHERO 2 → Piano Black, Olive Green, Clouds White) and removing
+the old Black / Grey / Green / White rows. Two things were broken and are fixed:
+
+- "Remove" deleted a colour's videos but not the small send copy kept in `<car>/video-send/<colour>`,
+  so the old row stayed at "1 video" and Remove seemed to do nothing. Remove (of a colour or of one
+  video) now clears the send copies too, and a removed colour leaves the list at once.
+- The bot prefers send copies, so those left-over copies kept the deleted colours on offer. A copy
+  whose original is gone is now ignored (`libraryMedia`), and a typed colour ("black") is matched
+  against the colours that have a video first, so a re-filed "Obsidian Black" is sent, not asked about.
+
+Missing colours (Recon Green, Polar Silver) need no code: type the name into "Add a colour" on
+/sales and upload the video. The bot offers it as soon as it is there, and "green" finds "Recon Green".
 
 A car with exactly one video (Dream, Passion) sends it without asking a one-answer colour question.
 

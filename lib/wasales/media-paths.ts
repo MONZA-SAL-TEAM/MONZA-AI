@@ -208,6 +208,19 @@ export function mediaPrefix(
     : `${carId}/${kind}`;
 }
 
+/**
+ * The folder holding a colour's small SEND COPIES (`<car>/video-send/<colour>`).
+ *
+ * The bot prefers a send copy over the original, so a copy left behind keeps
+ * being sent after the video it was made from is gone (Samer, 2026-09-18:
+ * "I should be able to remove"). Removing a colour, or any of its videos,
+ * therefore clears this folder too; the bot falls back to the originals that
+ * remain, and copies can be made again.
+ */
+export function sendCopyPrefix(carId: string, colourId: string): string {
+  return `${carId}/video-send/${colourId}`;
+}
+
 export type UploadCheck =
   | { ok: true; parsed: ParsedMediaPath }
   | { ok: false; error: string };

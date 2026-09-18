@@ -212,7 +212,7 @@ const CASES: Case[] = [
   { category: "colours", name: "Dream: one video, never 'Standard'", messages: ["dream colours"], say: [/video of the VOYAH Dream/i], files: 2 },
   // The live library holds the MHERO 1 in Black and Grey; Recon Green has a folder but no video yet.
   { category: "colours", name: "MHERO 1: the two colours with a video, never Recon Green without one", messages: ["mhero 1 colours"], say: [/Obsidian Black/, /Storm Grey/], notSay: [/Recon Green/], files: 1 },
-  { category: "colours", name: "MHERO 1 in green: said honestly, then the real colours", messages: ["mhero 1", "green"], say: [/don't have a video of the MHERO 1 in Recon Green/i, /Obsidian Black/, /Storm Grey/] },
+  { category: "colours", name: "MHERO 1 in green: said honestly, then the real colours", messages: ["mhero 1", "green"], say: [/don't have a video of the MHERO 1 in green/i, /Obsidian Black/, /Storm Grey/] },
   { category: "colours", name: "one-video cars (Dream, Passion) send it, never a one-answer question", messages: ["passion colours"], say: [/VOYAH Passion/], notSay: [/Which exterior colour/], files: 2 },
   { category: "colours", name: "MHERO 2 never offers Polar Silver without a video", messages: ["mhero 2 colours"], say: [/Piano Black/, /Olive Green/, /Clouds White/], notSay: [/Polar Silver/] },
   { category: "brochure", name: "one brochure", messages: ["send me the courage brochure"], say: [/Courage brochure/], files: 1 },

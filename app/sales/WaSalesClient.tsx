@@ -266,6 +266,8 @@ function CarMediaDialog({
   /** Colour ids discovered in the LIBRARY, which may include ones a person
    *  added here and the imported catalogue has never heard of. */
   const [libraryColours, setLibraryColours] = useState<string[]>([]);
+  /** Colours removed in this sitting: gone from the list at once, whatever the catalogue says. */
+  const [removedHere, setRemovedHere] = useState<string[]>([]);
   /** The "add a colour" field, as typed. */
   const [newColour, setNewColour] = useState("");
   /** Warnings about the files just picked. Never blocking — a person decides. */
@@ -317,14 +319,22 @@ function CarMediaDialog({
    */
   const allColours: WaColour[] = useMemo(() => {
     if (!car) return [];
-    const byId = new Map(car.colours.map((c) => [c.id, c]));
+    // A colour is REAL when the library holds a video for it. Once the library
+    // has been read, a colour the old folder import knew but the library has
+    // no video for is not listed — otherwise "Remove" deleted the videos and
+    // the row stayed, which read as "Remove does nothing" (Samer, 2026-09-18).
+    const withVideo = new Set(videos.map((v) => v.colourId).filter((id): id is string => Boolean(id)));
+    const listed = (id: string) => !loaded || withVideo.has(id) || libraryColours.includes(id);
+    const byId = new Map(car.colours.filter((c) => listed(c.id)).map((c) => [c.id, c]));
     for (const id of libraryColours) {
-      if (byId.has(id)) continue;
+      if (byId.has(id) || removedHere.includes(id)) continue;
+      const known = car.colours.find((c) => c.id === id);
       // Only the id is recorded in storage, so the name is derived from it.
-      byId.set(id, { id, name: colourNameFrom(id), aliases: [id] });
+      byId.set(id, known ?? { id, name: colourNameFrom(id), aliases: [id] });
     }
+    for (const id of removedHere) byId.delete(id);
     return [...byId.values()];
-  }, [car, libraryColours]);
+  }, [car, libraryColours, videos, loaded, removedHere]);
 
   const refreshColours = useCallback(async () => {
     if (!car) return;
@@ -359,6 +369,8 @@ function CarMediaDialog({
     setFitWarnings([]);
     setNewColour("");
     setConfirmingDelete(null);
+    // "black" on one car is not "black" on the next: what was removed here stays with this car.
+    setRemovedHere([]);
     setUploadColour(car?.colours[0]?.id ?? "");
   }, [car?.id, car?.colours]);
 
@@ -411,6 +423,8 @@ function CarMediaDialog({
       setNewColour("");
       return;
     }
+    // Adding back a colour removed a moment ago brings it back.
+    setRemovedHere((prev) => prev.filter((x) => x !== id));
     setLibraryColours((prev) => [...prev, id]);
     setUploadColour(id);
     setNewColour("");
@@ -430,7 +444,8 @@ function CarMediaDialog({
       // A colour that was only ever selected here has no files behind it, so
       // drop it from the local list too or it lingers looking real.
       setLibraryColours((prev) => prev.filter((id) => id !== colourId));
-      if (uploadColour === colourId) setUploadColour(car?.colours[0]?.id ?? "");
+      setRemovedHere((prev) => (prev.includes(colourId) ? prev : [...prev, colourId]));
+      if (uploadColour === colourId) setUploadColour("");
       await refreshColours();
     },
     [car, uploadColour, refreshColours]

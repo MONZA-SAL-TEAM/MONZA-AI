@@ -28,7 +28,6 @@ import type { MediaRef, ModelMedia, ModelMediaLookup } from "@/lib/wasales/knowl
 import {
   COLOUR_WORDS,
   CUSTOMER_WORDS,
-  WORKBOOK_COLOUR_FOLDERS,
   WASALES_CATALOG,
 } from "@/lib/wasales/catalog-data";
 import {
@@ -147,12 +146,7 @@ function toCar(m: ManifestCar): WaCar {
     videos: m.colours.flatMap((c) =>
       c.videos.map((v) => toAsset(v, `${m.name} — ${c.name}`))
     ),
-    colours: [
-      ...m.colours.map(toColour),
-      ...(WORKBOOK_COLOUR_FOLDERS[m.id] ?? [])
-        .filter((extra) => !m.colours.some((c) => c.id === extra.id))
-        .map((extra) => toColour({ id: extra.id, name: extra.name, videos: [] })),
-    ],
+    colours: m.colours.map(toColour),
     brochure: m.brochure ? toAsset(m.brochure, `${m.name} catalogue`) : null,
     oneLiner: "",
   };
@@ -181,8 +175,6 @@ export function mediaIndexFor(car: WaCar): Record<string, number> {
     for (const colour of car.colours) counts[colour.id] = 0;
     return counts;
   }
-  // A colour folder added from the workbook (WORKBOOK_COLOUR_FOLDERS) starts empty: listed, never offered.
-  for (const colour of car.colours) counts[colour.id] = 0;
   for (const colour of found.colours) counts[colour.id] = colour.videos.length;
   return counts;
 }
@@ -213,6 +205,22 @@ export function folderMedia(carId: string): ModelMedia {
       : null,
     videosByColour,
   };
+}
+
+/**
+ * A colour that exists only in the library: somebody typed it into "Add a
+ * colour" on /sales ("Recon Green" → id `recon-green`) and uploaded its video.
+ * A customer who writes just "green" must still find it, so every ordinary
+ * colour word inside the name is an alias, with the ways customers say it.
+ */
+export function libraryColour(id: string, name: string): WaColour {
+  const aliases = new Set<string>([id, name.toLowerCase()]);
+  for (const word of name.toLowerCase().split(/[^a-z\u0600-\u06ff]+/).filter(Boolean)) {
+    if (!(word in COLOUR_WORDS)) continue;
+    aliases.add(word);
+    for (const w of COLOUR_WORDS[word]) aliases.add(w);
+  }
+  return { id, name, aliases: [...aliases] };
 }
 
 /** One uploaded file, as the shared media library lists it. */
@@ -258,7 +266,13 @@ export function libraryMedia(files: readonly LibraryFile[]): ModelMediaLookup {
         ((f.sendCopy ? copies : originals)[f.colourId] ??= []).push(ref);
       }
     }
-    const videosByColour: Record<string, MediaRef[]> = { ...originals, ...copies };
-    return { brochure: brochureCopy ?? brochure, videosByColour };
+    // A send copy stands in for its original — never for a colour whose original is gone. On
+    // 2026-09-18 Samer deleted the old "black" videos to re-file them as "Obsidian Black"; the
+    // copies left in video-send/black kept the deleted colour on offer. An orphan copy is ignored.
+    const videosByColour: Record<string, MediaRef[]> = { ...originals };
+    for (const [colour, files] of Object.entries(copies)) {
+      if (colour in originals) videosByColour[colour] = files;
+    }
+    return { brochure: brochure ? (brochureCopy ?? brochure) : null, videosByColour };
   };
 }

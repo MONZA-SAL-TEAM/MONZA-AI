@@ -38,7 +38,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { requireRealStaff, type StaffAccess } from "@/lib/auth";
 import {
   MEDIA_CAPABILITIES,
@@ -53,6 +53,7 @@ import {
   isValidColourId,
   mediaPrefix,
   parseMediaPath,
+  sendCopyPrefix,
 } from "@/lib/wasales/media-paths";
 
 export const dynamic = "force-dynamic";
@@ -63,6 +64,31 @@ function fail(
   status: number
 ): NextResponse {
   return NextResponse.json({ error: code, message }, { status });
+}
+
+/**
+ * Remove every send copy of one colour (see sendCopyPrefix). Best effort and
+ * logged: the originals' removal is what the person asked for and confirmed.
+ */
+async function removeSendCopies(
+  svc: Pick<SupabaseClient, "storage">,
+  carId: string,
+  colourId: string
+): Promise<void> {
+  const prefix = sendCopyPrefix(carId, colourId);
+  try {
+    const { data, error } = await svc.storage.from(MEDIA_BUCKET).list(prefix, { limit: 1000 });
+    if (error) throw error;
+    const paths = (data ?? [])
+      .map((e) => (typeof e.name === "string" ? e.name : ""))
+      .filter((n) => n !== "" && !n.startsWith("."))
+      .map((n) => `${prefix}/${n}`);
+    if (paths.length === 0) return;
+    const { error: rmError } = await svc.storage.from(MEDIA_BUCKET).remove(paths);
+    if (rmError) throw rmError;
+  } catch (e) {
+    console.error("[wasales-media] removing send copies failed:", e);
+  }
 }
 
 /** Turn a refused access result into the right honest response. The policy
@@ -185,6 +211,10 @@ export async function POST(request: Request): Promise<NextResponse> {
         500
       );
     }
+    // A removed video must stop being SENT: its small send copy goes too.
+    if (parsed.kind === "video" && parsed.colourId && !parsed.sendCopy) {
+      await removeSendCopies(svc, parsed.carId, parsed.colourId);
+    }
     return NextResponse.json({ ok: true });
   }
 
@@ -216,6 +246,9 @@ export async function POST(request: Request): Promise<NextResponse> {
         .map((e) => (typeof e.name === "string" ? e.name : ""))
         .filter((n) => n !== "" && !n.startsWith("."))
         .map((n) => `${prefix}/${n}`);
+
+      // The send copies go first: whatever happens next, the bot stops sending this colour's copy.
+      await removeSendCopies(svc, carId, colourId);
 
       // An already-empty colour is a success, not an error: the caller asked
       // for it to be gone, and it is gone.
