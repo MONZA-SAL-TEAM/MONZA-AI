@@ -970,6 +970,15 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   and is answered by Sales only (`asksAboutPassionS`): the hand-off sentence and
   an alert, never the Passion's material. `tests/sales-regression.test.ts` is the mandatory set: every reply
   classified, no figure outside the approved knowledge, no internal label.
+- **Never silent (Samer, 2026-09-18: "it always should be reading, to be ready to answer
+  questions it knows how to answer").** Words the rules cannot read get the workbook's hand-off
+  sentence and a `NEEDS_PERSON` alert (`sayUnknown`), said once — not repeated on the very next
+  line (`state.unknownSaid`) — and the bot KEEPS READING: the next thing it knows is answered,
+  also after "talk to a human". A greeting is always greeted back, in an old chat too. What stays
+  unanswered is only what Monza decided: a photo with no words, "ok"/"thanks", scams and vendor
+  pitches, the chats outside the pilot, and a chat a person is in (the 12-hour pause). A loose
+  word never hijacks a technical question: "power" and "powerful" are WEAK, a bare "wheels" is
+  not a wheel-size question, and generator / cc / drivetrain questions are asked of the team.
 - **Memory:** `database/migrations/012_sales_suggestion_state.sql` — engine
   state and our own sent ids per chat, never words. NOT applied until Samer
   says so: suggestions still show without it, but cannot be sent.

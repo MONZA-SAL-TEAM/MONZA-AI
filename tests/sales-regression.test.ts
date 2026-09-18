@@ -176,6 +176,7 @@ const CASES: Case[] = [
   { category: "departments", name: "Arabic: tapping المبيعات asks which model", messages: ["مرحبا", "المبيعات"], say: [/أي موديل/], notSay: [SERVICE] },
   { category: "acknowledgement", name: "ok after an answer never reopens the menu", messages: ["courage hp", "ok thanks"], quietOk: true },
   { category: "acknowledgement", name: "ok after hello", messages: ["hi", "ok"], quietOk: true },
+  { category: "acknowledgement", name: "thanks after the hand-off sentence stays quiet", messages: ["asdkjh qwe", "thanks"], quietOk: true },
 
   // Price, offers, stock, payment: never a figure, never "call the number you are already on"
   { category: "price", name: "price: brochure + model video + same-chat hand-off", messages: ["how much is the courage"], say: [HANDOFF, /Courage in Pearl Black/], notSay: [SALES, ...NO_MONEY], alert: "PRICE", files: 2 },
@@ -190,7 +191,7 @@ const CASES: Case[] = [
   { category: "financing", name: "installments with the model: brochure, video, Sales here", messages: ["installments for the courage"], say: [/installment and payment facilities/i, HANDOFF], notSay: [SALES, ...NO_MONEY], alert: "FINANCING", files: 2 },
   { category: "financing", name: "the model arrives after: not repeated, Sales here", messages: ["installments?", "courage"], say: [HANDOFF], alert: "FINANCING", files: 2 },
   { category: "financing", name: "in-house financing may be confirmed", messages: ["do you have in house financing for the dream"], say: [/In-house financing is available\./, HANDOFF], notSay: NO_MONEY, alert: "FINANCING" },
-  { category: "financing", name: "a name typed afterwards goes to the person", messages: ["installments for the courage", "Rabih"], quietForPerson: true },
+  { category: "financing", name: "a name typed afterwards: never silence — Sales follows up here", messages: ["installments for the courage", "Rabih"], say: [HANDOFF], alert: "NEEDS_PERSON" },
   { category: "currency", name: "paying in LBP: hand-off, no money words", messages: ["can i pay in LBP"], say: [HANDOFF], notSay: [...NO_MONEY, SALES, /currency/i, /exchange/i, /rate/i], alert: "QUESTION" },
   { category: "trade-in", name: "trade-in explains the steps", messages: ["i want to trade in my car"], say: [/trade-in/i, /photos/i], notSay: NO_MONEY },
   { category: "used cars", name: "used cars go to a person", messages: ["do you have used cars"], say: [/pre-owned/i, HERE], notSay: [SALES], alert: "QUESTION" },
@@ -276,8 +277,33 @@ const CASES: Case[] = [
   { category: "callback", name: "call me on Instagram asks the number", messages: ["call me"], channel: "instagram", say: [/Which phone number/i], notSay: [SALES] },
   { category: "callback", name: "Instagram number given", messages: ["call me", "03123456"], channel: "instagram", say: [/\+9613123456/], alert: "CALLBACK" },
   { category: "human", name: "talk to a human", messages: ["i want to talk to a human"], say: [/sales team/i, /this conversation/i], alert: "HUMAN" },
-  { category: "human", name: "after asking for a human the bot stays out", messages: ["i want to talk to a human", "hp?"], quietForPerson: true },
-  { category: "unknown", name: "gibberish goes to a person, never answered wrongly", messages: ["asdkjh qwe"], quietForPerson: true },
+  // NEVER SILENT (Samer, 2026-09-18): "it always should be reading, to be ready to answer questions it
+  // knows how to answer". Only what Monza DECIDED not to answer stays unanswered: a photo with no
+  // words, an "ok", a scam or a vendor pitch — and words after "talk to a human" it cannot read.
+  { category: "human", name: "after asking for a human, a question it knows is still answered", messages: ["i want to talk to a human", "courage hp?"], say: [/produces 430 HP/] },
+  { category: "human", name: "after asking for a human, words it cannot read wait for that person", messages: ["i want to talk to a human", "blah blah"], quietForPerson: true },
+  { category: "unknown", name: "words it has no answer for: the hand-off sentence and an alert, never silence", messages: ["asdkjh qwe"], say: [HANDOFF], notSay: [SALES], alert: "NEEDS_PERSON" },
+  { category: "unknown", name: "a safety question is never answered by the bot", messages: ["courage", "does it blow? confirm that there is no fire risk in this car"], say: [HANDOFF], notSay: [/safe/i, /no risk/i, /fire/i], alert: "NEEDS_PERSON" },
+  { category: "unknown", name: "the same sentence is not repeated on the very next line", messages: ["asdkjh", "qwe zzz"], quietForPerson: true },
+  { category: "unknown", name: "…and the bot keeps reading: the next thing it knows is answered", messages: ["asdkjh", "qwe zzz", "courage hp"], say: [/produces 430 HP/] },
+  { category: "unknown", name: "not an answer to 'which model?'", messages: ["prices?", "the big one"], say: [HANDOFF], alert: "NEEDS_PERSON" },
+  { category: "unknown", name: "Arabic words it cannot read: the Arabic hand-off", messages: ["شو يعني هيدا"], say: [/فريق المبيعات هنا/], alert: "NEEDS_PERSON" },
+  // A WRONG ANSWER from the pilot, 2026-09-18: "how much power the generator give to the wheels?" was
+  // answered "600 hp" (the word "power") plus a wheel-SIZE line (the word "wheels").
+  { category: "loose words", name: "generator power is not the car's horsepower, and not its wheel size", messages: ["free 318", "And how much power the generator give to the wheels?"], say: [/generator output/, /not in our approved information/i, HERE], notSay: [/600 hp/, /wheel size/i], alert: "QUESTION" },
+  { category: "loose words", name: "'power?' alone is still the horsepower question", messages: ["free 318", "power?"], say: [/produces 600 hp/] },
+  { category: "loose words", name: "'how powerful is it' still works", messages: ["free 318", "how powerful is it"], say: [/produces 600 hp/] },
+  // "engine" is a powertrain word (the workbook's Powertrain fact answers it); the cc figure is not in the workbook.
+  { category: "loose words", name: "what engine, how many cc: the powertrain fact, and the cc asked of the team", messages: ["free 318", "what engine does it have, how many cc?"], say: [/range extender/, /engine details/, /not in our approved information/i], notSay: [/600 hp/], alert: "QUESTION" },
+  { category: "loose words", name: "a real wheel-size question is still named as one", messages: ["courage", "what size are the rims?"], say: [/wheel size/], alert: "QUESTION" },
+  { category: "loose words", name: "'is it all wheel drive' is not a wheel-size question", messages: ["courage", "is it all wheel drive?"], say: [/drivetrain/], notSay: [/wheel size/i], alert: "QUESTION" },
+  // The pilot chat of 2026-09-18, replayed: five messages, and not one reply.
+  { category: "pilot replay", name: "1. the fire question: hand-off, never silence", messages: ["courage", "Does it blow? Confirm that there is no fire risk in this car?"], say: [HANDOFF], alert: "NEEDS_PERSON" },
+  { category: "pilot replay", name: "2. 'Give me quotation' is a price request", messages: ["courage", "Does it blow?", "Give me quotation"], say: [HANDOFF], notSay: NO_MONEY, alert: "PRICE" },
+  { category: "pilot replay", name: "2b. quotation with no car asks which", messages: ["Give me quotation"], say: [/Which model/i] },
+  { category: "pilot replay", name: "3. 'Hi' in the middle of a chat is greeted back", messages: ["courage", "Does it blow?", "Give me quotation", "Hi"], say: [/welcome to Monza/i, /After-Sales/] },
+  { category: "pilot replay", name: "4. 'Hello', then Service & Maintenance", messages: ["courage", "Hi", "Hello", "Service & Maintenance"], say: [SERVICE, /WhatsApp/], notSay: [/Which model/i] },
+  { category: "greeting", name: "'hi' in a chat that already has history", messages: [{ text: "hi", conversationIsNew: false }], say: [/welcome to Monza/i, /Sales/] },
 
   // Showroom
   { category: "location", name: "where", messages: ["where are you located"], say: [/Horch Tabet/, MAP], notSay: [/iframe/i, /orJMduowHtVqQgR58/] },

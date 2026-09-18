@@ -791,10 +791,11 @@ describe("new, returning and expired conversations", () => {
     assert.equal(a.type === "SHOW_MODEL_CHOICES" && a.greet, true);
   });
 
-  test("a bare hello in an old conversation with no context is left to a person", () => {
+  test("a bare hello is ALWAYS greeted back, in an old conversation too (2026-09-18: never silent)", () => {
     const d = last(["hi"], { isNew: false });
-    assert.equal(d.outcome, "NO_AUTOMATIC_ACTION");
-    assert.match(d.reasons[0], /no sales context/);
+    assert.deepEqual(labels(d), ["SHOW DEPARTMENTS"]);
+    // …and in the middle of a sales chat.
+    assert.deepEqual(labels(last(["courage", "hello"])), ["SHOW DEPARTMENTS"]);
   });
 
   test("a returning customer's real question IS answered", () => {

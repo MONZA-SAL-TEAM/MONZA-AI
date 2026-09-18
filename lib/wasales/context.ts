@@ -85,6 +85,12 @@ export interface SearchEngineState {
    * until "Suggest again", however long the chat goes quiet.
    */
   manualTakeover: boolean;
+  /**
+   * The bot's last words were "our Sales Team will assist you right here" for something it had
+   * no answer to. The same sentence is not said twice in a row: the next unread message is left
+   * to the person who has already been told, and any real answer clears this.
+   */
+  unknownSaid: boolean;
   /** ISO time of the last message the engine read, from the message itself. */
   updatedAt: string | null;
 }
@@ -110,6 +116,7 @@ export function freshState(): SearchEngineState {
     booking: null,
     requestedSlot: null,
     manualTakeover: false,
+    unknownSaid: false,
     updatedAt: null,
   };
 }
@@ -238,6 +245,7 @@ export function parseState(stored: unknown): SearchEngineState {
     booking: typeof s.booking === "string" && Number.isFinite(Date.parse(s.booking)) ? s.booking : null,
     requestedSlot: typeof s.requestedSlot === "string" && Number.isFinite(Date.parse(s.requestedSlot)) ? s.requestedSlot : null,
     manualTakeover: s.manualTakeover === true,
+    unknownSaid: s.unknownSaid === true,
     updatedAt:
       typeof s.updatedAt === "string" && Number.isFinite(Date.parse(s.updatedAt))
         ? s.updatedAt

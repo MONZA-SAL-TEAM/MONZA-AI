@@ -204,10 +204,12 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "فيديو", "فيديوهات", "فيديوات",
   ],
   HORSEPOWER: [
-    "hp", "horsepower", "horse power", "horses", "bhp", "power", "kw",
+    // "power" is WEAK: "power?" is the horsepower question, but "how much power the generator
+    // gives to the wheels" is not — it was answered "600 hp" on 2026-09-18, a wrong answer.
+    "hp", "horsepower", "horse power", "horses", "bhp", weak("power"), "kw",
     "حصان", "أحصنة", "قوة", "قوة المحرك", "7san", "a7sne",
     // Workbook E/F wordings (2026-09-18).
-    "how powerful", "powerful", "how many horses", "قوة السيارة", "قديش قوتها", "قوتها",
+    "how powerful", weak("powerful"), "how many horses", "قوة السيارة", "قديش قوتها", "قوتها",
   ],
   RANGE: [
     "range", "autonomy", "autonomie", "how far", "km range", "kilometers",
@@ -285,6 +287,9 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "adesh", "addesh", "2adesh", weak("adde"), "pricr", "prise", "as3ar",
     "asaar", "cheaper", "cheapest", "سعر", "السعر", "أسعار", "ارخص", "أرخص",
     "الأسعار", "بكم", weak("قديش"), weak("كم"), "تكلفة", "كلفة",
+    // A real pilot message, 2026-09-18: "Give me quotation" got no reply at all.
+    "quotation", "quotations", "quote", "quotes", "a quote", "price quote", "proforma", "pro forma",
+    "price list", "pricelist", "devis", "عرض سعر", "عرض اسعار", "عرض أسعار", "لائحة الاسعار",
   ],
   FINANCING: [
     "installment", "installments", "instalment", "instalments", "finance",
@@ -416,8 +421,15 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
   OTHER_SPEC: [
     "top speed", "max speed", "maximum speed", "0 100", "0-100", "acceleration",
     "how fast", "sunroof", "panoramic roof", "moonroof", "seat material",
-    "leather", "leather seats", "wheel size", "wheels",
-    "rims", "tyre size", "tire size", "suspension", "air suspension", "adas",
+    "leather", "leather seats", "wheel size", "wheels size", "size of the wheels", "wheel sizes",
+    "rims", "rim size", "inch wheels", "tyre size", "tire size",
+    // Technical questions the workbook has no column for (2026-09-18): asked of the team, never
+    // answered from a neighbouring fact.
+    "generator", "range extender power", "extender power", "engine size", "engine power",
+    // ("engine", "motor", "awd" and "4wd" are POWERTRAIN words: the workbook's Powertrain fact answers them.)
+    "electric motor", "cylinders", "cc", "turbo", "gearbox", "transmission",
+    "to the wheels", "at the wheels", "wheel power", "four wheel drive", "all wheel drive",
+    "drivetrain", "fuel consumption", "consumption", "fuel tank", "tank size", "مولد", "suspension", "air suspension", "adas",
     "autopilot", "self driving", "cruise control", "lane assist", "parking sensors",
     "camera", "360 camera", "towing", "tow", "snow", "off road", "offroad",
     "off-road", "sound system", "speakers", "screen size", "display size",

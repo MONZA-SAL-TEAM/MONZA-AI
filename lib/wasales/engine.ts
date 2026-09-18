@@ -678,6 +678,23 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     return { model: code, colours: sendable.filter(isChoiceColour).map((c) => c.name), hasVideo: sendable.length > 0 };
   };
 
+  /**
+   * NEVER SILENT (Samer, 2026-09-18: "I need it to answer, not just disappear, if there is a
+   * question it doesn't know how to answer"). Words the rules cannot read get the workbook's own
+   * hand-off sentence and an alert, so a person follows up in the same chat. Said once: if those
+   * were already the bot's last words, the person who was told answers the next line.
+   */
+  let saidUnknown = false;
+  const sayUnknown = (models: readonly ModelCode[], why: string) => {
+    if (base.unknownSaid) {
+      reasons.push(`${why} — a person reads it (the customer was just told Sales will follow up here).`);
+      return;
+    }
+    text("HANDOFF", []);
+    alert("NEEDS_PERSON", models, { reason: `${why}: the customer was told Sales will follow up in this chat` });
+    saidUnknown = true;
+  };
+
   /** Location, opening hours and the sales number: the workbook's fixed sentences. */
   const answerGlobal = () => {
     for (const intent of substantive) {
@@ -823,7 +840,16 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
   const SPEC_NAMES: Record<string, string> = {
     "0 100": "0–100 km/h acceleration", acceleration: "acceleration", "how fast": "acceleration",
     snow: "performance in snow", "off road": "off-road capability", offroad: "off-road capability",
-    leather: "seat material", "leather seats": "seat material", wheels: "wheel size", rims: "wheel size",
+    leather: "seat material", "leather seats": "seat material", "wheels size": "wheel size", "size of the wheels": "wheel size",
+    "wheel sizes": "wheel size", rims: "wheel size", "rim size": "wheel size", "inch wheels": "wheel size",
+    generator: "generator output", "range extender power": "generator output", "extender power": "generator output",
+    "to the wheels": "power at the wheels", "at the wheels": "power at the wheels", "wheel power": "power at the wheels",
+    engine: "engine details", "engine size": "engine details", "engine power": "engine details", cylinders: "engine details",
+    cc: "engine details", turbo: "engine details", motor: "motor details", motors: "motor details", "electric motor": "motor details",
+    gearbox: "transmission", transmission: "transmission", awd: "drivetrain", "4wd": "drivetrain",
+    "four wheel drive": "drivetrain", "all wheel drive": "drivetrain", drivetrain: "drivetrain",
+    consumption: "fuel consumption", "fuel tank": "fuel tank size", "tank size": "fuel tank size",
+    "مولد": "generator output", "محرك": "engine details", "موتور": "motor details",
     tow: "towing capacity", towing: "towing capacity", camera: "camera system", "360 camera": "camera system",
     adas: "driver-assistance features", autopilot: "driver-assistance features", "self driving": "driver-assistance features",
     weight: "weight", nm: "torque", "screen size": "screen size", "display size": "screen size",
@@ -898,6 +924,7 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
   }
 
   const finish = (): EngineDecision => {
+    next.unknownSaid = saidUnknown ? true : out.some(isCustomerFacing) ? false : base.unknownSaid;
     const alerted = () => out.some((a) => a.type === "ALERT_SALES");
     // "Our Sales Team will assist you right here" is a promise: someone must be told.
     const promised = out.some(
@@ -947,10 +974,14 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
   }
 
   /* 0b. The customer asked for a person: the bot stays out until the context expires or a person takes over. */
-  if (base.awaiting === "PERSON" && !payload) {
-    reasons.push("The customer asked for a person — the bot stays quiet.");
+  // …but only for words it cannot read. A question it CAN answer is answered while they wait
+  // (Samer, 2026-09-18: the chat must always be able to talk); a person's reply then pauses the bot.
+  const understood = substantive.length > 0 || greeted || u.models.length > 0 || u.modelCandidates.length > 0 || u.colour.kind !== "none";
+  if (base.awaiting === "PERSON" && !payload && !understood) {
+    reasons.push("The customer asked for a person — a person reads it.");
     return finish();
   }
+  if (base.awaiting === "PERSON") next.awaiting = "NONE";
 
   /* 0c. "Can I talk to a human": said at once, and the chat is theirs. */
   if (substantive.includes("HUMAN_HANDOFF")) {
@@ -1182,15 +1213,9 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
 
   /* 4. A greeting alone: the welcome and the departments. */
   if (substantive.length === 0 && greeted && u.models.length === 0 && u.modelCandidates.length === 0 && u.crossBrand.length === 0 && u.colour.kind === "none") {
-    if (freshConversation) {
-      out.push({ type: "SHOW_DEPARTMENTS" });
-    } else {
-      reasons.push(
-        hasContext(base)
-          ? "A greeting mid-conversation — nothing new was asked."
-          : "A greeting in an existing conversation with no sales context — a person says hello back."
-      );
-    }
+    // Always greeted back, in a new chat or an old one (2026-09-18: a "hi" in a chat that already
+    // had history got no reply at all). The welcome and the departments.
+    out.push({ type: "SHOW_DEPARTMENTS" });
     return finish();
   }
 
@@ -1510,7 +1535,8 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     if (out.length === 0) {
       // Words the rules cannot read (a name, a sentence of their own) are for a person — never a silent ignore.
       const unread = substantive.length === 0 && !acknowledged && u.modelSource === "state" && reading.tokens.length > 0 && !payload;
-      reasons.push(unread ? "Nothing the engine recognises in this message — a person reads it." : `Already talking about the ${modelLabel(model)} — nothing new was asked.`);
+      if (unread) sayUnknown([model], "Words the bot has no approved answer for");
+      else reasons.push(`Already talking about the ${modelLabel(model)} — nothing new was asked.`);
     }
   }
 
@@ -1562,7 +1588,10 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
       offerModels(models, true, wantsBrochure || wantsColours || facts.length > 0 ? "first" : "which");
       next.awaiting = "MODEL";
     }
-    if (out.length === 0) reasons.push("Several cars in play, but nothing new was asked.");
+    if (out.length === 0) {
+      if (substantive.length === 0 && !acknowledged && !namedTogether && reading.tokens.length > 0 && !payload) sayUnknown(models, "Words the bot has no approved answer for");
+      else reasons.push("Several cars in play, but nothing new was asked.");
+    }
   }
 
   /* ── No car ──────────────────────────────────────────────────────────── */
@@ -1614,7 +1643,7 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     }
 
     if (out.length === 0) {
-      reasons.push(base.awaiting === "MODEL" ? 'Not an answer to "which model?" — a person reads it.' : "Nothing the engine recognises — a person reads it.");
+      sayUnknown([], base.awaiting === "MODEL" ? 'Not an answer to "which model?"' : "Words the bot has no approved answer for");
     }
   }
 }
