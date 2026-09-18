@@ -87,3 +87,34 @@ describe("a colour added on /sales", () => {
     assert.match(say(LIVE_LIBRARY_2026_09_18, ["mhero 1", "green"]), /don't have a video of the MHERO 1 in green/i);
   });
 });
+
+describe("renaming a colour on /sales (Samer, 2026-09-18: \"let me be able to edit the names\")", () => {
+  test("the new name becomes an id; an empty, unchanged or taken name is refused in plain words", async () => {
+    const { checkColourRename } = await import("@/lib/wasales/media-paths");
+    assert.deepEqual(checkColourRename("black", "Midnight Black", ["green", "grey"]), { ok: true, toId: "midnight-black" });
+    assert.deepEqual(checkColourRename("black", "  ", []), { ok: false, error: "Give the colour a name — letters or numbers." });
+    assert.deepEqual(checkColourRename("black", "Black", []), { ok: false, error: "That is already its name." });
+    assert.deepEqual(checkColourRename("black", "Grey", ["grey"]), { ok: false, error: "This car already has Grey — remove it first, or pick another name." });
+  });
+
+  test("the videos AND their send copies move, file names kept, nothing deleted", async () => {
+    const { colourRenameMoves } = await import("@/lib/wasales/media-paths");
+    assert.deepEqual(
+      colourRenameMoves("voyah-free-comp", "black", "midnight-black", [
+        { folder: "video", name: "abc__Dark-on-the-outside.mp4" },
+        { folder: "video-send", name: "def__Dark-on-the-outside.mp4" },
+      ]),
+      [
+        { from: "voyah-free-comp/video/black/abc__Dark-on-the-outside.mp4", to: "voyah-free-comp/video/midnight-black/abc__Dark-on-the-outside.mp4" },
+        { from: "voyah-free-comp/video-send/black/def__Dark-on-the-outside.mp4", to: "voyah-free-comp/video-send/midnight-black/def__Dark-on-the-outside.mp4" },
+      ]
+    );
+  });
+
+  test("after the rename the bot offers the new name once, and 'black' still finds it", () => {
+    const renamed = LIVE_LIBRARY_2026_09_18.map((f) => (f.carId === "voyah-free-comp" && f.colourId === "black" ? { ...f, colourId: "midnight-black" } : f));
+    const said = say(renamed, ["free 318 colours"]);
+    assert.equal(said.split("Midnight Black").length - 1, 2, "once in the sentence, once as a choice: " + said);
+    assert.match(say(renamed, ["free 318", "black"]), /Free 318 in Midnight Black[\s\S]*\[file Dark-on-the-outside/);
+  });
+});

@@ -221,6 +221,34 @@ export function sendCopyPrefix(carId: string, colourId: string): string {
   return `${carId}/video-send/${colourId}`;
 }
 
+/**
+ * Renaming a colour (Samer, 2026-09-18: "let me be able to edit the names").
+ *
+ * A colour has no record of its own — it IS its folder — so renaming means
+ * moving every file of `<car>/video/<from>/` and of its send copies in
+ * `<car>/video-send/<from>/` to the same place under the new id. File names
+ * are kept, so nothing is re-uploaded and nothing is re-encoded.
+ */
+export type RenameCheck = { ok: true; toId: string } | { ok: false; error: string };
+
+export function checkColourRename(fromId: string, typedName: string, existingIds: readonly string[]): RenameCheck {
+  const toId = colourIdFrom(typedName);
+  if (toId === "" || !isValidColourId(toId)) return { ok: false, error: "Give the colour a name — letters or numbers." };
+  if (toId === fromId) return { ok: false, error: "That is already its name." };
+  if (existingIds.includes(toId)) return { ok: false, error: `This car already has ${colourNameFrom(toId)} — remove it first, or pick another name.` };
+  return { ok: true, toId };
+}
+
+/** Where each file goes. `folder` is "video" or "video-send"; `name` is the stored file name. */
+export function colourRenameMoves(
+  carId: string,
+  fromId: string,
+  toId: string,
+  files: readonly { folder: "video" | "video-send"; name: string }[]
+): { from: string; to: string }[] {
+  return files.map((f) => ({ from: `${carId}/${f.folder}/${fromId}/${f.name}`, to: `${carId}/${f.folder}/${toId}/${f.name}` }));
+}
+
 export type UploadCheck =
   | { ok: true; parsed: ParsedMediaPath }
   | { ok: false; error: string };

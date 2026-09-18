@@ -32,6 +32,7 @@
  *       upload lands, so a failed upload can never leave a car with none.
  *   { action: "delete",         path }              -> { ok: true }
  *   { action: "delete-colour",  carId, colourId }   -> { ok: true, removed }
+ *   { action: "rename-colour",  carId, colourId, name } -> { ok: true, colourId, moved }
  *
  * Path rules live in lib/wasales/media-paths.ts — one definition, shared with
  * the browser store, directly tested.
@@ -51,6 +52,8 @@ import {
   checkUpload,
   isValidCarId,
   isValidColourId,
+  checkColourRename,
+  colourRenameMoves,
   mediaPrefix,
   parseMediaPath,
   sendCopyPrefix,
@@ -117,6 +120,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     keepPath?: unknown;
     carId?: unknown;
     colourId?: unknown;
+    name?: unknown;
   };
 
   const action = body.action;
@@ -124,6 +128,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     action !== "sign-upload" &&
     action !== "delete" &&
     action !== "delete-colour" &&
+    action !== "rename-colour" &&
     action !== "sweep-brochure"
   ) {
     return fail("badRequest", "Unknown action.", 400);
@@ -267,6 +272,46 @@ export async function POST(request: Request): Promise<NextResponse> {
         "Couldn't remove that colour's videos — please try again.",
         500
       );
+    }
+  }
+
+  /* ── rename-colour ──────────────────────────────────────────────────────
+   *
+   * Moves a colour's videos and their send copies to a new folder. The
+   * originals move FIRST: if anything fails midway the old name still holds
+   * whatever has not moved, nothing is ever deleted, and pressing Rename again
+   * finishes the job. */
+  if (action === "rename-colour") {
+    const carId = typeof body.carId === "string" ? body.carId : "";
+    const fromId = typeof body.colourId === "string" ? body.colourId : "";
+    const typed = typeof body.name === "string" ? body.name : "";
+    if (!isValidCarId(carId) || !isValidColourId(fromId)) {
+      return fail("badRequest", "Invalid car or colour.", 400);
+    }
+    try {
+      const names = async (prefix: string): Promise<string[]> => {
+        const { data, error } = await svc.storage.from(MEDIA_BUCKET).list(prefix, { limit: 1000 });
+        if (error) throw error;
+        return (data ?? []).map((e) => (typeof e.name === "string" ? e.name : "")).filter((n) => n !== "" && !n.startsWith("."));
+      };
+      const taken = (await names(`${carId}/video`)).filter((id) => id !== fromId);
+      const check = checkColourRename(fromId, typed, taken);
+      if (!check.ok) return fail("badRequest", check.error, 400);
+
+      const files = [
+        ...(await names(mediaPrefix(carId, "video", fromId))).map((name) => ({ folder: "video" as const, name })),
+        ...(await names(sendCopyPrefix(carId, fromId))).map((name) => ({ folder: "video-send" as const, name })),
+      ];
+      let moved = 0;
+      for (const m of colourRenameMoves(carId, fromId, check.toId, files)) {
+        const { error } = await svc.storage.from(MEDIA_BUCKET).move(m.from, m.to);
+        if (error) throw error;
+        moved += 1;
+      }
+      return NextResponse.json({ ok: true, colourId: check.toId, moved });
+    } catch (e) {
+      console.error("[wasales-media] rename-colour failed:", e);
+      return fail("storageFailed", "Couldn't rename that colour — nothing was deleted; please try again.", 500);
     }
   }
 

@@ -40,6 +40,7 @@ import EngineSimulator from "./EngineSimulator";
 import type { MediaKind } from "@/lib/wasales/media-store";
 import {
   deleteColour,
+  renameColour,
   listAllFiles,
   listColourIds,
   storageMode,
@@ -266,6 +267,8 @@ function CarMediaDialog({
   /** Colour ids discovered in the LIBRARY, which may include ones a person
    *  added here and the imported catalogue has never heard of. */
   const [libraryColours, setLibraryColours] = useState<string[]>([]);
+  /** The colour being renamed and what has been typed, or null. */
+  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null);
   /** Colours removed in this sitting: gone from the list at once, whatever the catalogue says. */
   const [removedHere, setRemovedHere] = useState<string[]>([]);
   /** The "add a colour" field, as typed. */
@@ -369,6 +372,7 @@ function CarMediaDialog({
     setFitWarnings([]);
     setNewColour("");
     setConfirmingDelete(null);
+    setRenaming(null);
     // "black" on one car is not "black" on the next: what was removed here stays with this car.
     setRemovedHere([]);
     setUploadColour(car?.colours[0]?.id ?? "");
@@ -450,6 +454,26 @@ function CarMediaDialog({
     },
     [car, uploadColour, refreshColours]
   );
+
+  /** Rename a colour: its videos move to the new name; nothing is uploaded again. */
+  const saveRename = useCallback(async () => {
+    if (!car || !renaming) return;
+    const { id, value } = renaming;
+    setBusy(true);
+    const result = await renameColour(car.id, id, value);
+    setBusy(false);
+    if (!result.ok) {
+      setUploadError(result.error ?? "Couldn't rename that colour.");
+      return;
+    }
+    setUploadError(null);
+    setRenaming(null);
+    const newId = result.colourId ?? colourIdFrom(value);
+    setRemovedHere((prev) => [...prev.filter((x) => x !== newId), id]);
+    setLibraryColours((prev) => [...prev.filter((x) => x !== id && x !== newId), newId]);
+    if (uploadColour === id) setUploadColour(newId);
+    await refreshColours();
+  }, [car, renaming, uploadColour, refreshColours]);
 
   const onVideoPick = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
@@ -571,7 +595,39 @@ function CarMediaDialog({
                         </span>
                       </button>
 
-                      {confirming ? (
+                      {renaming?.id === c.id ? (
+                        <span className="ws-colour-confirm">
+                          <input
+                            type="text"
+                            autoFocus
+                            value={renaming.value}
+                            aria-label={`New name for the colour ${c.name}`}
+                            disabled={busy}
+                            onChange={(e) => setRenaming({ id: c.id, value: e.target.value })}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                void saveRename();
+                              }
+                              if (e.key === "Escape") {
+                                e.stopPropagation();
+                                setRenaming(null);
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="btn"
+                            disabled={busy || renaming.value.trim() === "" || renaming.value.trim() === c.name}
+                            onClick={() => void saveRename()}
+                          >
+                            Save
+                          </button>
+                          <button type="button" className="btn quiet" onClick={() => setRenaming(null)}>
+                            Cancel
+                          </button>
+                        </span>
+                      ) : confirming ? (
                         <span className="ws-colour-confirm">
                           <span className="cap">
                             {count === 0
@@ -595,15 +651,32 @@ function CarMediaDialog({
                           </button>
                         </span>
                       ) : (
-                        <button
-                          type="button"
-                          className="btn quiet ws-colour-remove"
-                          disabled={busy}
-                          aria-label={`Remove the colour ${c.name} from the ${car.name}`}
-                          onClick={() => setConfirmingDelete(c.id)}
-                        >
-                          Remove
-                        </button>
+                        <span className="ws-colour-confirm">
+                          <button
+                            type="button"
+                            className="btn quiet"
+                            disabled={busy}
+                            aria-label={`Rename the colour ${c.name} of the ${car.name}`}
+                            onClick={() => {
+                              setConfirmingDelete(null);
+                              setRenaming({ id: c.id, value: c.name });
+                            }}
+                          >
+                            Rename
+                          </button>
+                          <button
+                            type="button"
+                            className="btn quiet ws-colour-remove"
+                            disabled={busy}
+                            aria-label={`Remove the colour ${c.name} from the ${car.name}`}
+                            onClick={() => {
+                              setRenaming(null);
+                              setConfirmingDelete(c.id);
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </span>
                       )}
                     </li>
                   );
@@ -636,7 +709,8 @@ function CarMediaDialog({
               </div>
               <p className="cap ws-media-hint">
                 A colour becomes real once it has a video. Add one, then upload
-                its video with the colour selected.
+                its video with the colour selected. Rename keeps the videos and
+                changes the name customers see; Remove deletes the colour&apos;s videos.
               </p>
             </div>
 

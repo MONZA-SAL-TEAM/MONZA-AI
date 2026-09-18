@@ -37,6 +37,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { AI_ANON_KEY, AI_URL } from "@/lib/env-public";
 import {
+  checkColourRename,
   MEDIA_BUCKET,
   STORAGE_MAX_BYTES,
   VIDEO_EXTENSIONS as STORAGE_VIDEO_EXTENSIONS,
@@ -780,6 +781,52 @@ export async function deleteColour(
   }
   notifyChanged();
   return { ok: true, removed };
+}
+
+/**
+ * Rename a colour: every video filed under it (and its send copies) moves to
+ * the new name. Nothing is uploaded again. Resolves the new colour id.
+ */
+export async function renameColour(
+  carId: string,
+  colourId: string,
+  typedName: string
+): Promise<{ ok: boolean; colourId?: string; error?: string }> {
+  if (!storageMode()) {
+    const files = await listFilesLocal(carId);
+    const taken = [...new Set(files.filter((f) => f.kind === "video" && f.colourId && f.colourId !== colourId).map((f) => f.colourId as string))];
+    const check = checkColourRename(colourId, typedName, taken);
+    if (!check.ok) return { ok: false, error: check.error };
+    try {
+      const db = await openDb();
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE, "readwrite");
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error ?? new Error("rename failed"));
+        tx.onabort = () => reject(tx.error ?? new Error("rename aborted"));
+        for (const f of files) {
+          if (f.kind === "video" && f.colourId === colourId) tx.objectStore(STORE).put({ ...f, colourId: check.toId });
+        }
+      });
+    } catch {
+      return { ok: false, error: "Couldn't rename that colour." };
+    }
+    notifyChanged();
+    return { ok: true, colourId: check.toId };
+  }
+
+  const res = await postApi({ action: "rename-colour", carId, colourId, name: typedName });
+  if (!res) return { ok: false, error: "Couldn't reach the server — please check the connection and try again." };
+  if (!res.ok) return { ok: false, error: await apiErrorMessage(res, "delete") };
+  let id = "";
+  try {
+    const body = (await res.json()) as { colourId?: unknown };
+    if (typeof body.colourId === "string") id = body.colourId;
+  } catch {
+    /* the rename happened; the list refresh below finds the new name */
+  }
+  notifyChanged();
+  return { ok: true, colourId: id || undefined };
 }
 
 /* ------------------------------------------------------------- the hook --- */
