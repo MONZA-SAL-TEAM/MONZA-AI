@@ -653,6 +653,24 @@ Two staff members can see different suggestions for the same lead. That is RLS
 working, not a bug — but it is why the candidate list is fetched per request and
 never cached.
 
+## Customers: the real people (`/customers`, 2026-09-18)
+
+Samer: "all my customers need to be tracked — somewhat a database for my company, my clients
+and ads". `/customers` no longer shows the ten example people: it lists everyone Monza has a
+chat with, from MONZA AI's OWN records (`lib/leads/people.ts` pure, `people-server.ts` the
+read): `channel_conversations` + the webhook's `leads` (name, WhatsApp number), the FIRST
+`lead_touchpoints` row (the ad or post, its headline and Meta id), `lead_interests` (cars named)
+and open `sales_alerts` (waiting for a person, listed first). Search, filters, per-ad and
+per-car counts, "Open the chat" (`/inbox?open=<thread>`) and a CSV of the list as filtered.
+
+- Read-only; no message text is read or returned; an Instagram/Messenger id is never a phone.
+- `direct` is shown as "Not tracked" and counted, never relabelled organic (see Leads below).
+- It covers what is STORED: WhatsApp fully; Instagram/Facebook only once their webhooks deliver.
+- Cars owned and payment plans stay absent until the CRM is connected — the screen says so.
+  The labelled example screen remains only where MONZA AI's database cannot be read (a local
+  preview without keys).
+- CSV cells that begin with = + - @ are defused: a customer chooses their own display name.
+
 ## The customer assistant (`/care`)
 
 The only public screen. Rules that keep it safe, all enforced in `lib/care/`

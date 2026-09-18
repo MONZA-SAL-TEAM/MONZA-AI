@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { requireStaffForPage } from "@/lib/auth-server";
 import { getSource, isDemoSource, readContext } from "@/lib/domain";
 import { DEMO_CONVERSATIONS } from "@/lib/inbox/demo-conversations";
+import { listPeople } from "@/lib/leads/people-server";
 import CustomersClient from "./CustomersClient";
+import PeopleClient from "./PeopleClient";
 
 export const metadata: Metadata = {
   title: "Customers — Monza AI",
@@ -24,6 +26,13 @@ export const dynamic = "force-dynamic";
 
 export default async function CustomersPage() {
   const user = await requireStaffForPage("/customers");
+
+  // THE REAL PEOPLE (Samer, 2026-09-18: "all my customers need to be tracked"): everyone Monza
+  // has a chat with, from Monza AI's own records. Null only where those records cannot be read
+  // (a local preview with no keys) — then, and only then, the labelled example screen below.
+  const people = await listPeople();
+  if (people) return <PeopleClient people={people} />;
+
   const source = getSource();
   const ctx = readContext(user);
 
