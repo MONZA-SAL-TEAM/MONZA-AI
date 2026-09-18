@@ -22,6 +22,9 @@ export interface SalesAlertItem {
   kind: string;
   threadId: string;
   label: string;
+  /** The alert's other reasons, as words ("Test drive", "Asked about installments"). */
+  tagLabels?: string[];
+  urgency?: "normal" | "qualified" | "hot" | "overdue";
   cars: string[];
   customerName: string | null;
   customerPhone: string | null;
@@ -171,7 +174,13 @@ export default function SalesAlerts({
               {alerts.map((a) => (
                 <li key={a.id} className="sa-item" data-kind={a.kind}>
                   <div className="sa-main">
+                    {(a.urgency === "hot" || a.urgency === "overdue") && (
+                      <span className="sa-urgent" data-urgency={a.urgency}>{a.urgency === "overdue" ? "Kept waiting" : "Ready to buy"}</span>
+                    )}
                     <span className="sa-kind">{a.label}</span>
+                    {(a.tagLabels ?? []).map((t) => (
+                      <span key={t} className="sa-tag">{t}</span>
+                    ))}
                     {a.cars.length > 0 && <span className="sa-cars">{a.cars.join(", ")}</span>}
                     {a.reason && <span className="sa-cars">{a.reason}</span>}
                     <span className="sa-who">

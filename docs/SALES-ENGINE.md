@@ -397,3 +397,42 @@ asked a one-button colour question). Now every one-video car sends its video.
 
 What still differs between cars is content, not logic: the Passion has no video; the Dream and
 the MHERO 1 have one; see `docs/SALES-FACTS-DISCREPANCIES.md`.
+
+## 2026-09-18: real customer language (Samer's audit — "fix all issues, in priority order")
+
+The audit ran ~330 conversations and found 54 problems. The cause of most of them was the same:
+the engine answered WORDS, not questions. "Dream" in a sentence was the Dream; "battery" was the
+kWh figure; "how much" was the car's price; "yes" was nothing at all. The fix is a pipeline in
+which each stage decides one thing and says why — not a longer list of patterns.
+
+| Stage | File | Decides |
+|---|---|---|
+| normalise, language, words | `intent.ts` `readMessage` | which phrases of the closed vocabulary appear |
+| which car is MEANT | `entities.ts` `resolveModels` | strong / weak / rejected, with evidence |
+| what is ASKED | `classify.ts` `classify` | qualifier beats topic · "how much" of what · owner beats sale · the customer ended it |
+| needs, day and time | `intent.ts` `readNeeds`, `booking.ts` `parseRequestedTime` / `showroomOpen` | "fastest", "family" · "tomorrow" → "at 4" · closed on Sunday |
+| the pending question | `engine.ts` step 2c | yes / no / ok against `state.awaiting` |
+| policy, answer, media | `engine.ts` | the workbook's facts and sentences; never a price, stock, a booking |
+| what Sales is told | `alerts.ts` | ONE alert per message, ONE open alert per chat, tags + urgency, self-closing |
+| memory | `context.ts` | lastAsked, recentModels, pendingDay, tradeIn(+photos), noVideo, noBrochure, adModel, pendingVisit, notInterested, brochuresJustSent |
+
+**Confidence is acted on, never hidden.** A strong car mention acts. A weak one asks "Did you mean
+the VOYAH Dream?" and does nothing else. A rejected one ("my dream car") is dropped, and the reason
+is kept in `understanding.dismissedModelWords` for staff and tests. Intents dropped by
+`classify` are in `understanding.droppedIntents` the same way.
+
+**Not automated, on purpose:** safety answers, valuations, prices, stock, budgets, booking or
+cancelling a test drive, recommending "the best" car, reading a photo, and anything about the
+Passion S. Each is handed to a person with an alert.
+
+**Needs content from Samer (the workbook has no column for it):** charger supplied, home charging,
+public charging in Lebanon, charging cost, battery lifespan, brand origin / manufacturer, email /
+website / Instagram addresses, equipment (CarPlay, sunroof…), body type (SUV / sedan / MPV),
+off-road and luxury positioning. Until then these get the named hand-off. Media still missing:
+a small copy of the Courage Pearl White video (40.6 MB — a link on every channel), Recon Green and
+Polar Silver videos, small brochure copies for Instagram / Messenger (Courage, Passion, MHERO 1),
+and the orphan send copies (mhero-2 black/green/white, courage grey, dream standard) can be removed
+on /sales — they are ignored, never sent.
+
+**Alerts close themselves** only for stored chats (WhatsApp). Instagram and Facebook keep no copy of
+messages here (the 2026-09-10 rule), so a person still presses Done on those.

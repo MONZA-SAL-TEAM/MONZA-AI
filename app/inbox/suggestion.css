@@ -173,6 +173,9 @@
 }
 .sa-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; font-size: var(--t-sm); }
 .sa-kind { font-weight: 600; color: var(--ink); }
+.sa-tag { font-size: 12px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line, #d9d9d9); color: var(--ink); }
+.sa-urgent { font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px; color: #fff; background: #b42318; }
+.sa-urgent[data-urgency="hot"] { background: #b54708; }
 .sa-cars { color: var(--ink-2); }
 .sa-who { color: var(--ink-2); overflow-wrap: anywhere; }
 .sa-who a { color: var(--accent); }

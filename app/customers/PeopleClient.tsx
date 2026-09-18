@@ -45,6 +45,9 @@ const ALERT_LABEL: Readonly<Record<string, string>> = {
   HUMAN: "Asked for a person",
   QUESTION: "Question for the team",
   LEAD: "Follow up the lead",
+  BUYING: "Wants to buy",
+  OVERDUE: "Kept waiting — reply now",
+  VISIT: "Wants to visit the showroom",
 };
 
 const day = (iso: string | null) => (iso ? longDate(iso.slice(0, 10)) : "—");

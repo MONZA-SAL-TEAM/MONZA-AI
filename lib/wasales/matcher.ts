@@ -364,6 +364,91 @@ function sameSpan(a: number[], b: number[]): boolean {
  * says "typo-tolerant" in the fuzzy case so the salesperson knows the system
  * corrected a spelling.
  */
+/**
+ * Every car the message's words land on, after most-specific-wins — with the
+ * evidence a caller needs to judge each one: which tokens matched, and whether
+ * a spelling was tolerated. This says only that the WORDS match; whether the
+ * customer MEANS the car is lib/wasales/entities.ts's decision ("my dream car"
+ * lands on the Dream and means nothing of the kind).
+ */
+export interface ModelHit {
+  car: WaCar;
+  /** Message token indices (of matchTokens) the alias covered, in order. */
+  span: number[];
+  usedFuzzy: boolean;
+}
+
+export function modelHits(text: string, catalog: readonly WaCar[]): { tokens: string[]; hits: ModelHit[] } {
+  const tokens = blankOrdinaryPhrases(matchTokens(text));
+  if (tokens.length === 0) return { tokens, hits: [] };
+  const hits: BestHit[] = [];
+  // Disabled cars STILL compete for the match. If they were dropped here, a
+  // sibling model could silently claim their words (Passion disabled makes
+  // "the passion" fuzzy-land on Passion L) and the customer would get the
+  // WRONG car's material. The disabled check happens after resolution, in
+  // decide(), where the honest answer is a hold — never a different car.
+  for (const car of catalog) {
+    const phrases: string[] = [];
+    for (const p of [car.name, ...car.aliases]) {
+      const n = matchTokens(p).join(" ");
+      if (n !== "" && !phrases.includes(n)) phrases.push(n);
+    }
+    let best: BestHit | null = null;
+    for (const phrase of phrases) {
+      const pts = phrase.split(" ");
+      for (let start = 0; start + pts.length <= tokens.length; start++) {
+        let score = 0;
+        let fuzzy = false;
+        let ok = true;
+        for (let j = 0; j < pts.length; j++) {
+          const pt = pts[j];
+          const mt = tokens[start + j];
+          // sameWord: "الكوراج" (the Courage) is the alias "كوراج".
+          if (sameWord(pt, mt)) {
+            score += 100;
+            continue;
+          }
+          const allow = fuzzyAllowance(pt);
+          // A typo drops a letter, not half the word: "pass" (in "i will pass
+          // by") is two letters short of the alias "passon" and is not a car.
+          if (allow > 0 && mt.length >= pt.length - 1 && editDistance(pt, mt, allow) <= allow) {
+            score += 60;
+            fuzzy = true;
+            continue;
+          }
+          ok = false;
+          break;
+        }
+        if (!ok) continue;
+        const span: number[] = [];
+        for (let j = 0; j < pts.length; j++) span.push(start + j);
+        if (
+          !best ||
+          score > best.score ||
+          (score === best.score && span[0] < best.span[0])
+        ) {
+          best = { car, span, score, usedFuzzy: fuzzy };
+        }
+      }
+    }
+    if (best) hits.push(best);
+  }
+
+
+  // Most-specific-wins: drop hits shadowed by a stronger hit (step 5 above).
+  const survivors = hits.filter(
+    (a) =>
+      !hits.some(
+        (b) =>
+          b !== a &&
+          (isProperSubset(a.span, b.span) ||
+            (sameSpan(a.span, b.span) && b.score > a.score))
+      )
+  );
+
+  return { tokens, hits: survivors.map((h) => ({ car: h.car, span: h.span, usedFuzzy: h.usedFuzzy })) };
+}
+
 export function matchModel(text: string, catalog: readonly WaCar[]): ModelMatch {
   const tokens = blankOrdinaryPhrases(matchTokens(text));
   if (tokens.length === 0) {

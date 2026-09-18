@@ -90,6 +90,7 @@ const SOURCE_LABEL: Readonly<Record<ModelSource, string>> = {
   text: "the message",
   choice: "the answer to “which model?”",
   referral: "the ad it came from",
+  ad: "the ad the customer came from (soft context)",
   state: "the conversation so far",
   none: "nowhere",
 };

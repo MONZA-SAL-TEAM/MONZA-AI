@@ -71,9 +71,16 @@ describe("sheet F: every spec question, every car, the workbook's own value", ()
       for (const car of CARS) {
         // "(trunk capacity not confirmed yet)" is the importer's wording for the workbook's "trunk not stated".
         const value = (WORKBOOK.models[car.code].facts as Record<string, { value: string }>)[fact].value.split(" (")[0];
+        // An ARABIC answer puts the plain English words of a value into Arabic ("6 years on the vehicle" →
+        // "6 سنوات على السيارة", 2026-09-18) and never touches a figure: every number of the workbook's value, in order.
+        const figures = value.match(/\d[\d,.]*/g) ?? [];
+        const says = (answer: string, w: string) =>
+          /[\u0600-\u06FF]/.test(w)
+            ? figures.every((n) => answer.includes(n)) && figures.reduce((at, n) => (at < 0 ? at : answer.indexOf(n, at)), 0) >= 0
+            : answer.includes(value);
         for (const w of wordings) {
-          assert.ok(words(last([`${car.displayName} ${w}`])).includes(value), `named: "${car.displayName} ${w}" must say "${value}"`);
-          assert.ok(words(last([car.displayName, w])).includes(value), `chosen earlier: "${car.displayName}" then "${w}" must say "${value}"`);
+          assert.ok(says(words(last([`${car.displayName} ${w}`])), w), `named: "${car.displayName} ${w}" must say "${value}"`);
+          assert.ok(says(words(last([car.displayName, w])), w), `chosen earlier: "${car.displayName}" then "${w}" must say "${value}"`);
         }
       }
     });

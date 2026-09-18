@@ -161,6 +161,8 @@ export interface RequestedTime {
   minutes: number | null;
   /** "morning" / "afternoon" when only a part of the day was named. */
   part: "morning" | "afternoon" | null;
+  /** True when the customer named the day ("tomorrow", "Saturday", "18/9"); false when only a time was typed. */
+  dayGiven?: boolean;
 }
 
 const DAY_WORDS: Record<string, number> = {
@@ -259,12 +261,35 @@ export function parseRequestedTime(text: string, nowIso: string): RequestedTime 
   }
 
   if (!day && minutes === null && part === null) return null;
+  const dayGiven = day !== null;
   if (!day) {
     // A time with no day: today if it is still ahead, otherwise tomorrow.
     const nowMinutes = today.hour * 60 + today.minute;
     day = minutes !== null && minutes > nowMinutes + 60 ? today : addDays(today, 1);
   }
-  return { year: day.year, month: day.month, day: day.day, minutes, part };
+  return { year: day.year, month: day.month, day: day.day, minutes, part, dayGiven };
+}
+
+/**
+ * Is the showroom open then? Workbook B: Monday to Friday 8:00–18:00, Saturday 8:00–14:00, closed
+ * on Sunday. (The same hours the OPENING_HOURS sentence states; a test keeps the two in step.)
+ * `minutes` null asks about the day only.
+ */
+export function showroomOpen(day: { year: number; month: number; day: number }, minutes: number | null): "open" | "closed_sunday" | "closed_then" {
+  const weekday = new Date(Date.UTC(day.year, day.month - 1, day.day)).getUTCDay();
+  if (weekday === 0) return "closed_sunday";
+  if (minutes === null) return "open";
+  const close = weekday === 6 ? 14 * 60 : 18 * 60;
+  return minutes >= 8 * 60 && minutes < close ? "open" : "closed_then";
+}
+
+/** A Beirut day as yyyy-mm-dd, and back. */
+export function dayKey(day: { year: number; month: number; day: number }): string {
+  return `${day.year}-${String(day.month).padStart(2, "0")}-${String(day.day).padStart(2, "0")}`;
+}
+export function dayFromKey(key: string | null): { year: number; month: number; day: number } | null {
+  const m = key ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(key) : null;
+  return m ? { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) } : null;
 }
 
 /** The slot starting at this Beirut wall-clock time, rounded down to the half hour, as UTC ISO. */

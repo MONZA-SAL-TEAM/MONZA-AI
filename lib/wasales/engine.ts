@@ -44,6 +44,7 @@
  */
 
 import {
+  vocabularyWords,
   asksForOptions,
   isFactIntent,
   isGlobalIntent,
@@ -51,17 +52,23 @@ import {
   readBodyType,
   readCategories,
   readMessage,
+  readNeeds,
   readsAll,
+  readsSameQuestion,
   readSeatCount,
   type CategoryFilter,
   type FactIntent,
   type Intent,
   type MessageReading,
 } from "@/lib/wasales/intent";
-import { familyMentioned, matchModel, normalize, pickAmong, type WaCar } from "@/lib/wasales/matcher";
+import { familyMentioned, normalize, pickAmong, type WaCar } from "@/lib/wasales/matcher";
+import { resolveModels } from "@/lib/wasales/entities";
+import { classify } from "@/lib/wasales/classify";
+import { consolidateAlerts } from "@/lib/wasales/alerts";
+import { normalizeLebanesePhone } from "@/lib/leads/phone";
 import { readColourAnswer, sendableColours, type WaColour } from "@/lib/wasales/colours";
 import { freshState, hasContext, isExpired, type SearchEngineState } from "@/lib/wasales/context";
-import { beirutTime as beirutTimeOf0, dayLabel, freeSlots, freeSlotsOn, isAfterHours, isBookableSlot, parseRequestedTime, slotAtBeirut, slotLabel } from "@/lib/wasales/booking";
+import { beirutTime as beirutTimeOf0, dayFromKey, dayKey, dayLabel, freeSlots, freeSlotsOn, isAfterHours, isBookableSlot, parseRequestedTime, showroomOpen, slotAtBeirut, slotLabel } from "@/lib/wasales/booking";
 const beirutTimeOf = (iso: string) => beirutTimeOf0(Date.parse(iso));
 import {
   decisionsOf,
@@ -73,6 +80,7 @@ import {
   modelByCode,
   modelsForBrand,
   NO_MEDIA,
+  CHANNEL_LIMITS,
   salesBrandOf,
   videoCounts,
   type FactStatus,
@@ -87,6 +95,7 @@ import {
   finalizeActions,
   isCustomerFacing,
   type AlertKind,
+  type AlertUrgency,
   type ContentGapKind,
   type EngineAction,
   type FactRow,
@@ -104,8 +113,8 @@ export interface EngineInput {
   text: string;
   /** A tapped button's payload ("MODEL:COURAGE"), when there was one. */
   payload?: string | null;
-  /** The ad or link the conversation started from, when Meta says. */
-  referral?: { ref?: string | null; adId?: string | null } | null;
+  /** The ad or link the conversation started from, when Meta says. `headline` is the ad's own title ("Voyah COURAGE"). */
+  referral?: { ref?: string | null; adId?: string | null; headline?: string | null } | null;
   /** The message carried a photo, video, sticker or shared post. */
   hasMedia?: boolean;
   eventKind?: EventKind;
@@ -135,7 +144,8 @@ export interface EngineDeps {
 }
 
 /** Where the model came from. "state" means nobody named it this message. */
-export type ModelSource = "payload" | "text" | "choice" | "referral" | "state" | "none";
+/** "ad": the car of the ad the customer came from — soft context, used only when nothing stronger names a car. */
+export type ModelSource = "payload" | "text" | "choice" | "referral" | "state" | "ad" | "none";
 
 export type ColourReading =
   | { kind: "none" }
@@ -162,6 +172,18 @@ export interface Understanding {
   /** A model named whose automation staff switched off on /sales. */
   switchedOff: ModelCode | null;
   colour: ColourReading;
+  /** Why the named cars were believed (entities.ts): shown to staff, asserted in tests. */
+  modelEvidence: string[];
+  /** A car's name appeared as an ordinary word with nothing to say it is the car: ASK, never act. */
+  weakModels: ModelCode[];
+  /** Words that landed on a car's name and were dismissed as ordinary English, with the reason. */
+  dismissedModelWords: string[];
+  /** Intents the words produced that are NOT what was asked, with the reason (classify.ts). */
+  droppedIntents: string[];
+  /** An owner needing after-sales: no sales material, no sales flow. */
+  ownerSupport: boolean;
+  /** "Not interested", "stop", "wrong number". */
+  ended: boolean;
 }
 
 export type Activation = { kind: "NEW" | "SWITCH" | "REFERRAL"; model: ModelCode; id: number };
@@ -187,6 +209,9 @@ export interface EngineDecision {
 function cloneState(s: SearchEngineState): SearchEngineState {
   return {
     ...s,
+    lastAsked: [...s.lastAsked],
+    recentModels: [...s.recentModels],
+    brochuresJustSent: [...s.brochuresJustSent],
     pendingIntents: [...s.pendingIntents],
     offeredModels: [...s.offeredModels],
     offeredColours: [...s.offeredColours],
@@ -214,6 +239,9 @@ export function asksAboutPassionS(raw: string): boolean {
   const text = raw.replace(/[’']s\b/gi, "");
   return /(^|[^a-z])passion[\s-]+s(?![a-z])/i.test(text) || /(باشن|باسيون)\s+(اس|إس)(\s|$)/.test(text);
 }
+
+/** The vocabulary's words, for the model-entity resolver: built once. */
+const VOCABULARY = vocabularyWords();
 
 /** The catalogue cars of every model the knowledge knows. */
 export function engineCars(k: SalesKnowledge, catalog: readonly WaCar[]): WaCar[] {
@@ -283,10 +311,33 @@ const COMPARE_FACTS_SHORT: readonly FactIntent[] = ["HORSEPOWER", "RANGE", "POWE
 const KEY_FACTS: readonly FactIntent[] = ["HORSEPOWER", "RANGE", "POWERTRAIN"];
 
 /** Sales questions a person follows up — answered with a hand-off, a lead, or a booking. */
-const SALES_INTENTS: readonly Intent[] = ["PRICE", "FINANCING", "TEST_DRIVE", "AVAILABILITY", "DISCOUNT", "TRADE_IN", "MODEL_YEAR"];
-const SERVICE_INTENTS: readonly Intent[] = ["SERVICE", "PARTS", "COMPLAINT"];
+const SALES_INTENTS: readonly Intent[] = ["BUYING_INTENT", "PRICE", "FINANCING", "TEST_DRIVE", "AVAILABILITY", "DISCOUNT", "TRADE_IN", "MODEL_YEAR"];
+const SERVICE_INTENTS: readonly Intent[] = ["SERVICE", "PARTS", "COMPLAINT", "OWNER_ISSUE", "WARRANTY_CLAIM", "BATTERY_REPLACEMENT"];
 /** Questions with no approved answer: answered honestly and handed to the team (Samer, 2026-09-17). */
-const QUESTION_INTENTS: readonly Intent[] = ["DELIVERY_LOCATION", "PAYMENT_CURRENCY", "USED_CARS", "OTHER_SPEC"];
+const QUESTION_INTENTS: readonly Intent[] = [
+  "DELIVERY_LOCATION", "PAYMENT_CURRENCY", "USED_CARS", "OTHER_SPEC",
+  // 2026-09-18: topics the workbook has no column for. Said honestly, handed over, never answered from a neighbouring fact.
+  "SAFETY", "BATTERY_LIFE", "CHARGER_INCLUDED", "HOME_CHARGING", "PUBLIC_CHARGING", "CHARGING_COST", "BRAND_ORIGIN", "CONTACT_CHANNELS",
+];
+/** What each of those topics is called in the sentence, and in the alert. */
+const TOPIC_NAMES: Partial<Record<Intent, string>> = {
+  SAFETY: "safety",
+  CHARGER_INCLUDED: "the charger supplied with the car",
+  HOME_CHARGING: "home charging",
+  PUBLIC_CHARGING: "public charging in Lebanon",
+  CHARGING_COST: "charging costs",
+  BRAND_ORIGIN: "where the brand comes from and who makes it",
+  CONTACT_CHANNELS: "our email, website and social pages",
+};
+/** A question whose answer depends on which car: the ad's car answers it when nothing stronger names one. */
+const NEEDS_A_CAR: readonly Intent[] = [
+  "PRICE", "FINANCING", "TEST_DRIVE", "AVAILABILITY", "DISCOUNT", "BUYING_INTENT", "BROCHURE", "COLOUR", "COLOUR_VIDEO", "GENERAL_INFO",
+  "MEDIA_PHOTOS", "INTERIOR_COLOUR", "OTHER_SPEC", "HORSEPOWER", "RANGE", "BATTERY", "POWERTRAIN", "CHARGING", "SEATS", "DIMENSIONS", "SPECIFICATIONS", "WARRANTY",
+];
+/** The previous question, asked again of another car ("and the Taishan?"). */
+const CARRIED_OVER: readonly Intent[] = [...NEEDS_A_CAR];
+/** "ok", "sure": a yes to the question the bot just asked — never to a question it did not ask. */
+const OK_WORDS: readonly string[] = ["ok", "okay", "okey", "oki", "k", "sure", "yep", "yeah", "yup", "تمام", "ماشي", "اوكي", "أوكي", "tamam", "mashi", "meshe", "eh", "ee", "oui"];
 /**
  * Colour folder ids that are not colours a customer chooses: the one video of a
  * car filmed without colour folders. Never shown as a button or in a sentence.
@@ -294,6 +345,8 @@ const QUESTION_INTENTS: readonly Intent[] = ["DELIVERY_LOCATION", "PAYMENT_CURRE
 const NO_CHOICE_COLOURS: readonly string[] = ["standard", "default", "all", "general", "misc", "other", "video", "videos"];
 const isChoiceColour = (c: { id: string }) => !NO_CHOICE_COLOURS.includes(c.id.toLowerCase());
 const MAX_BROCHURES = 8;
+/** "All brochures" sends the files only when there are this few; more becomes a menu ("which ones?"). */
+const MAX_BROCHURES_AT_ONCE = 3;
 
 /** A stored slot (UTC ISO) back into the day-and-minutes shape bookRequested reads. */
 function requestedFromIso(iso: string): ReturnType<typeof parseRequestedTime> {
@@ -325,10 +378,34 @@ export function readName(raw: string): string | null {
 export function readPhone(raw: string): string | null {
   const m = /(?:\+|00)?\d[\d\s\-()]{5,}\d/.exec(raw);
   if (!m) return null;
-  let digits = m[0].replace(/\D/g, "").replace(/^00/, "");
-  // A local number: 03 123 456 → 961 3 123 456.
-  if (/^0\d{7}$/.test(digits)) digits = `961${digits.slice(1)}`;
+  const international = /^\s*(?:\+|00)/.test(m[0]);
+  const digits = m[0].replace(/\D/g, "").replace(/^00/, "");
+  // Lebanese, however it was typed: 71222333, 71 222 333, 03 123 456, 03123456, +961…, 00961… → 961XXXXXXXX
+  // (lib/leads/phone.ts — the one normaliser the product trusts).
+  const lebanese = normalizeLebanesePhone(m[0]);
+  if (lebanese) return lebanese;
+  // A number that is not Lebanese is kept exactly as written: a valid international number is never rewritten.
+  if (international) return digits.length >= 8 && digits.length <= 15 ? digits : null;
   return digits.length >= 7 && digits.length <= 13 ? digits : null;
+}
+
+/** "How much will you give me?", "what's it worth?": the value of the customer's OWN car. */
+function asksValuation(normalized: string): boolean {
+  return (
+    /\b(how much|worth|value|valuation|evaluate|estimate|give me|offer me|pay me|combien)\b/.test(normalized) ||
+    /قديش|كم بتعطوني|بكم|تقييم|تخمين/.test(normalized) ||
+    /\b(adde|2adde|addeh|2addesh|addesh)\b/.test(normalized)
+  );
+}
+
+/** The car an ad is about, from the ad's own headline ("Voyah COURAGE"): one car, certainly named, or nothing. */
+function adModelOf(headline: string | null | undefined, k: SalesKnowledge, cars: readonly WaCar[], brand: SalesBrand): ModelCode | null {
+  if (!headline || headline.trim() === "") return null;
+  const found = resolveModels(headline, cars, { offeredCarIds: [], discussedCarIds: [], adCarId: null, intentWords: VOCABULARY.single, carTalkWords: VOCABULARY.carTalk });
+  const strong = found.mentions.filter((m) => m.confidence === "strong");
+  if (strong.length !== 1) return null;
+  const model = modelByCatalogueId(k, strong[0].carId);
+  return model && brandSells(brand, model) ? model.code : null;
 }
 
 /* ── Understanding: which models, which colour ───────────────────────────── */
@@ -351,12 +428,19 @@ function understand(
     return model !== null && brandSells(brand, model);
   };
 
+  // WHAT IS ASKED, refined before anything answers a keyword (classify.ts).
+  const classification = classify(reading.intents);
+  const choosing = state.awaiting === "MODEL" || state.awaiting === "CONFIRM_MODEL" || state.awaiting === "COLOUR_OF_WHICH";
+
   let models: ModelCode[] = [];
   let source = "none" as ModelSource;
   let matchedText = null as string | null;
   let candidates: ModelCode[] = [];
   const crossBrand: ModelCode[] = [];
   let payloadColour: string | null = null;
+  let modelEvidence: string[] = [];
+  let dismissed: string[] = [];
+  let weak: ModelCode[] = [];
 
   const named = (codes: ModelCode[], how: ModelSource, words: string | null) => {
     models = codes;
@@ -372,14 +456,28 @@ function understand(
     else if (m) crossBrand.push(m.code);
     if (m && payload.kind === "COLOUR") payloadColour = payload.colour;
   } else if (!payload && reading.tokens.length > 0) {
-    const match = matchModel(reading.raw, cars);
-    if (match.decision === "send" && match.model) {
-      const code = modelByCatalogueId(k, match.model.id)?.code ?? null;
-      if (code && sells(code)) named([code], "text", match.matchedText ?? null);
+    // WHICH CAR IS MEANT — never merely which words appear (entities.ts). Only a STRONG mention
+    // names a car; "my dream car", "is the service free?", "I need a person" name nothing.
+    const carIdOf = (code: ModelCode | null) => (code ? (modelByCode(k, code)?.catalogueId ?? null) : null);
+    const offeredNow = choosing ? state.offeredModels : [];
+    const resolution = resolveModels(reading.raw, cars, {
+      offeredCarIds: offeredNow.map(carIdOf).filter((id): id is string => id !== null),
+      discussedCarIds: unique([state.activeModel, ...state.selectedModels, ...state.recentModels]).map(carIdOf).filter((id): id is string => id !== null),
+      adCarId: carIdOf(state.adModel),
+      intentWords: VOCABULARY.single,
+      carTalkWords: VOCABULARY.carTalk,
+    });
+    const strong = resolution.mentions.filter((m) => m.confidence === "strong");
+    modelEvidence = strong.flatMap((m) => m.evidence);
+    dismissed = resolution.rejected.map((r) => r.reason);
+    weak = codesOf(k, resolution.mentions.filter((m) => m.confidence === "weak").map((m) => m.carId)).filter(sells);
+    if (strong.length === 1) {
+      const code = modelByCatalogueId(k, strong[0].carId)?.code ?? null;
+      if (code && sells(code)) named([code], "text", strong[0].matchedText);
       else if (code) crossBrand.push(code);
-    } else if (match.contenderIds && match.contenderIds.length > 1) {
+    } else if (strong.length > 1) {
       // Several cars named at once: all of them are kept (workbook E, "keep several models").
-      const all = codesOf(k, match.contenderIds);
+      const all = codesOf(k, strong.map((m) => m.carId));
       crossBrand.push(...all.filter((c) => !sells(c)));
       const ours = all.filter(sells);
       if (ours.length > 0) named(ours, "text", null);
@@ -411,7 +509,7 @@ function understand(
       models.length === 0 &&
       candidates.length === 0 &&
       crossBrand.length === 0 &&
-      state.awaiting === "MODEL" &&
+      choosing &&
       offered.length > 0
     ) {
       const n = reading.choiceNumber;
@@ -463,6 +561,26 @@ function understand(
     model = state.activeModel;
     source = "state";
   }
+  // The ad the customer came from: SOFT context. It answers "how much is it?" when nothing stronger
+  // names a car — and it never locks the chat: "actually I'm interested in the Dream" switches.
+  if (
+    model === null &&
+    models.length === 0 &&
+    candidates.length === 0 &&
+    crossBrand.length === 0 &&
+    switchedOff === null &&
+    state.selectedModels.length < 2 &&
+    state.adModel !== null &&
+    sells(state.adModel) &&
+    carOf(state.adModel)?.enabled !== false &&
+    !classification.ownerSupport &&
+    classification.intents.some((i) => NEEDS_A_CAR.includes(i))
+  ) {
+    model = state.adModel;
+    models = [state.adModel];
+    source = "ad";
+    modelEvidence = ["the customer came from this car's ad, and named no other car"];
+  }
 
   // Which colour — read against THIS model's colours only.
   let colour: ColourReading = { kind: "none" };
@@ -481,7 +599,9 @@ function understand(
       // question is open, "what's the range?" must not be heard as "orange".
       const covered = new Set<number>();
       for (const h of reading.hits) for (let i = h.start; i < h.end; i++) covered.add(i);
-      const colourWords = reading.tokens.filter((_, i) => !covered.has(i)).join(" ");
+      const typedColour = reading.tokens.filter((_, i) => !covered.has(i)).join(" ");
+      // "black" was typed while two cars were in play, and the bot asked of which: this is that colour.
+      const colourWords = state.awaiting === "COLOUR_OF_WHICH" && state.selectedColour ? `${typedColour} ${state.selectedColour}` : typedColour;
       // Colours with a video are heard first: a colour re-filed under its official name
       // ("Obsidian Black") and the old, now empty "Black" both answer to "black", and only one
       // can be sent. The full list is the fallback, so "white" on a car with no white video is
@@ -501,7 +621,8 @@ function understand(
   // "grey interior" is about the inside of the car, never the grey exterior video.
   if (reading.intents.includes("INTERIOR_COLOUR")) colour = { kind: "none" };
 
-  const intents: Intent[] = [...reading.intents];
+  const intents: Intent[] = [...classification.intents];
+  if (classification.ownerSupport || intents.includes("NO_VIDEO")) colour = { kind: "none" };
   if ((colour.kind === "one" || colour.kind === "no_preference") && !intents.includes("COLOUR_VIDEO")) {
     intents.push("COLOUR_VIDEO");
   }
@@ -523,6 +644,12 @@ function understand(
     crossBrand: unique(crossBrand),
     switchedOff,
     colour,
+    modelEvidence,
+    weakModels: source === "none" || source === "state" || source === "ad" ? weak : [],
+    dismissedModelWords: dismissed,
+    droppedIntents: classification.dropped.map((d) => `${d.intent}: ${d.because}`),
+    ownerSupport: classification.ownerSupport,
+    ended: classification.ended,
   };
 }
 
@@ -552,6 +679,12 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
       crossBrand: [],
       switchedOff: null,
       colour: { kind: "none" },
+      modelEvidence: [],
+      weakModels: [],
+      dismissedModelWords: [],
+      droppedIntents: [],
+      ownerSupport: false,
+      ended: false,
     },
     previousState: state,
     expired: false,
@@ -573,6 +706,8 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
 
   const expired = isExpired(state, input.now, deps.ttlHours);
   const base = expired ? freshState() : cloneState(state);
+  // The ad this chat started from, read once from its own headline and kept as soft context.
+  if (!base.adModel) base.adModel = adModelOf(input.referral?.headline, k, engineCars(k, deps.catalog), brand);
   const u = understand(reading, input, base, brand, deps);
   const next = cloneState(base);
   const channel: SalesChannel = input.channel ?? "whatsapp";
@@ -590,7 +725,7 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
   const alert = (
     kind: AlertKind,
     models: readonly ModelCode[],
-    extra: { name?: string | null; phone?: string | null; slot?: string | null; reason?: string } = {}
+    extra: { name?: string | null; phone?: string | null; slot?: string | null; reason?: string; urgency?: AlertUrgency } = {}
   ) =>
     out.push({
       type: "ALERT_SALES",
@@ -600,6 +735,7 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
       phone: extra.phone ?? null,
       slot: extra.slot ?? null,
       ...(extra.reason ? { reason: extra.reason } : {}),
+      ...(extra.urgency ? { urgency: extra.urgency } : {}),
     });
 
   const cars = engineCars(k, deps.catalog);
@@ -616,9 +752,39 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
   const intents = u.intents.filter((i) => i !== "UNKNOWN");
   const greeted = intents.includes("GREETING");
   const acknowledged = intents.includes("ACKNOWLEDGEMENT");
-  const substantive = intents.filter((i) => i !== "GREETING" && i !== "ACKNOWLEDGEMENT");
+  const substantive: Intent[] = intents.filter((i) => i !== "GREETING" && i !== "ACKNOWLEDGEMENT" && i !== "YES" && i !== "NO");
+  /** A bare yes / no: an answer to the question the bot asked, never a question of its own. */
+  const replied: "yes" | "no" | null = intents.includes("NO") ? "no" : intents.includes("YES") ? "yes" : null;
+  // "and the Taishan?", "same for the Dream": the PREVIOUS question, asked of the car named now.
+  let carriedOver = false;
+  if (u.models.length > 0 && substantive.length === 0 && base.lastAsked.length > 0 && !reading.payload && readsSameQuestion(reading.tokens)) {
+    substantive.push(...base.lastAsked.filter((i) => CARRIED_OVER.includes(i)));
+    carriedOver = substantive.length > 0;
+  }
+  // "Monday then, at 10" after "we're closed on Sundays — which other day?": still the VISIT.
+  if (base.pendingVisit && !reading.payload && substantive.every((i) => i === "OPENING_HOURS") && parseRequestedTime(reading.raw, validTime(input.now) ? input.now : new Date(0).toISOString()) !== null) {
+    (substantive as Intent[]).splice(0, substantive.length, "VISIT");
+  }
+  // A customer who said "not interested" and now asks something has come back: they are answered.
+  if (base.notInterested && substantive.length > 0 && !u.ended) base.notInterested = false;
+  next.notInterested = base.notInterested;
+  if (carriedOver) reasons.push(`The previous question (${substantive.join(", ")}) asked of another car.`);
+  for (const d of u.droppedIntents) reasons.push(`Not the question — ${d}`);
   const freshConversation = input.conversationIsNew && !hasContext(base);
   const nowIso = validTime(input.now) ? input.now : new Date(0).toISOString();
+
+  /** "I want the Courage" — the want-word right before the car's name, and not "…the Courage brochure". */
+  const wantsTheCar = (): boolean => {
+    if (u.modelSource !== "text" || !u.modelMatchedText || u.models.length !== 1 || u.ownerSupport || u.ended) return false;
+    const tokens = reading.tokens;
+    const name = u.modelMatchedText.split(" ");
+    const at = tokens.findIndex((_, i) => name.every((w, j) => tokens[i + j] === w));
+    if (at < 1) return false;
+    const before = tokens.slice(Math.max(0, at - 4), at).filter((t) => !["the", "a", "an", "el", "al", "l", "new", "voyah", "mhero"].includes(t)).join(" ");
+    const wants = /(^| )(i want|i d like|i would like|i wanna|we want|i ll have|i am getting|bade|bde|badde|baddi|bdi|je veux)$/.test(before) || /(^| )(بدي|اريد|أريد|بدنا)$/.test(before);
+    const after = tokens[at + name.length];
+    return wants && !(after !== undefined && VOCABULARY.carTalk.has(after));
+  };
 
   /** Show the choice of models: this account's, switched on, in the catalogue. */
   const offerModels = (codes: readonly ModelCode[], narrowed: boolean, prompt?: "which" | "explore" | "first") => {
@@ -685,6 +851,8 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
    * were already the bot's last words, the person who was told answers the next line.
    */
   let saidUnknown = false;
+  /** Brochures of a several-cars reply, remembered only while its "which one?" is open. */
+  let keepBrochures: ModelCode[] = [];
   const sayUnknown = (models: readonly ModelCode[], why: string) => {
     if (base.unknownSaid) {
       reasons.push(`${why} — a person reads it (the customer was just told Sales will follow up here).`);
@@ -759,6 +927,14 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
   const answerSales = (models: readonly ModelCode[], asked: readonly Intent[]) => {
     for (const intent of asked) {
       switch (intent) {
+        case "BUYING_INTENT": {
+          // "I'll take it", "reserve one for me": the strongest signal there is. One prioritised alert, at once —
+          // with or without the car (the car is added to the same alert when it is named).
+          const reserve = /\b(reserve|reservation|reserving|hold|deposit|book one|book it|put my name|acompte|reserver)\b/.test(reading.normalized) || /حجز|احجز|عربون/.test(reading.normalized);
+          if (models.length > 0) text("BUYING_HANDOFF", models);
+          alert("BUYING", models, { reason: reserve ? "Reservation request — wants one held" : "Strong buying intent — says they want to buy" });
+          break;
+        }
         case "PRICE":
           if (models.length === 0) break;
           text("PRICE_HANDOFF", models);
@@ -793,10 +969,11 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
         case "TEST_DRIVE": {
           if (!botBooks) {
             // Workbook C (2026-09-18): a team member arranges and confirms it; the bot never says "booked".
-            const asked = parseRequestedTime(reading.raw, nowIso);
-            const typed = asked && asked.minutes !== null ? slotAtBeirut(asked, asked.minutes) : base.requestedSlot;
+            const wish = readWish(requestedNow());
+            const typed = wish.slot ?? (wish.status === "none" ? base.requestedSlot : null);
             text("TEST_DRIVE_REQUEST", models, typed ? { slot: slotLabel(typed) } : undefined);
-            alert("TEST_DRIVE", models, { slot: typed ?? null, reason: "Asked for a test drive — a team member arranges and confirms it" });
+            sayWish(wish, models);
+            alert("TEST_DRIVE", models, { slot: typed ?? null, reason: `Asked for a test drive — a team member arranges and confirms it${wish.note ? ` (${wish.note})` : ""}` });
             next.lead = { kind: "TEST_DRIVE", models: [...models], captured: true };
             next.requestedSlot = typed ?? null;
             break;
@@ -814,10 +991,17 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
         }
         case "TRADE_IN": {
           const mileage = reading.hits.some((h) => h.intent === "TRADE_IN" && ["km", "kms"].includes(h.matched));
-          if (mileage || base.lastIntent === "TRADE_IN") {
+          // "How much will you give me?", "what is my car worth?": a VALUATION, which only a person gives.
+          const valuation = asksValuation(reading.normalized);
+          next.tradeIn = true;
+          if (base.tradeIn && valuation) {
+            text("TRADE_IN_VALUATION");
+            alert("TRADE_IN", models, { reason: "Trade-in: asked what their car is worth — a person values it" });
+          } else if (mileage || base.tradeIn || base.lastIntent === "TRADE_IN") {
             text("TRADE_IN_THANKS");
-            alert("TRADE_IN", models);
+            alert("TRADE_IN", models, { reason: "Trade-in: sent the details of their car" });
           } else {
+            // The steps are explained; Sales is told once the details (or photos) arrive — not for the question alone.
             text("TRADE_IN_INFO");
           }
           break;
@@ -831,9 +1015,13 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
 
   const answerService = () => {
     if (!substantive.some((i) => SERVICE_INTENTS.includes(i))) return;
-    text(substantive.includes("COMPLAINT") && !substantive.includes("SERVICE") && !substantive.includes("PARTS") ? "COMPLAINT_CONTACT" : "SERVICE_CONTACT");
+    const onlyComplaint = substantive.includes("COMPLAINT") && !substantive.includes("SERVICE") && !substantive.includes("PARTS");
+    text(onlyComplaint ? "COMPLAINT_CONTACT" : "SERVICE_CONTACT");
     if (substantive.includes("COMPLAINT")) {
       out.push({ type: "FLAG_FOR_STAFF", reason: "A complaint — a person should reply personally." });
+    } else if (u.ownerSupport) {
+      const what = substantive.includes("WARRANTY_CLAIM") ? "a warranty claim" : substantive.includes("BATTERY_REPLACEMENT") ? "a battery replacement" : "a problem with their car";
+      out.push({ type: "FLAG_FOR_STAFF", reason: `An owner needs after-sales (${what}) — given the Service number, never sales material.` });
     }
   };
 
@@ -853,6 +1041,9 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     tow: "towing capacity", towing: "towing capacity", camera: "camera system", "360 camera": "camera system",
     adas: "driver-assistance features", autopilot: "driver-assistance features", "self driving": "driver-assistance features",
     weight: "weight", nm: "torque", "screen size": "screen size", "display size": "screen size",
+    carplay: "Apple CarPlay / Android Auto", "apple carplay": "Apple CarPlay / Android Auto", "car play": "Apple CarPlay / Android Auto", "android auto": "Apple CarPlay / Android Auto",
+    sunroof: "sunroof", "panoramic roof": "sunroof", moonroof: "sunroof", "wireless charging": "wireless phone charging", "wireless charger": "wireless phone charging",
+    "head up display": "head-up display", hud: "head-up display", "ambient lighting": "ambient lighting", fridge: "on-board fridge", refrigerator: "on-board fridge",
   };
   const specName = (matched: string) => SPEC_NAMES[matched] ?? matched;
 
@@ -873,6 +1064,28 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
           text("USED_CARS_INFO", models);
           alert("QUESTION", models, { reason: "Asked about used cars" });
           break;
+        case "SAFETY":
+          // Never answered by the bot, and never a sentence with "safe" in it: the plain hand-off, and a person.
+          text("HANDOFF", models);
+          alert("NEEDS_PERSON", models, { reason: "Asked about SAFETY — a person answers personally; the bot said nothing about it" });
+          break;
+        case "CHARGER_INCLUDED":
+        case "HOME_CHARGING":
+        case "PUBLIC_CHARGING":
+        case "CHARGING_COST":
+        case "BRAND_ORIGIN":
+        case "CONTACT_CHANNELS": {
+          const topic = TOPIC_NAMES[intent] ?? "that";
+          text("TOPIC_HANDOFF", models, { topic, topicKey: intent });
+          alert("QUESTION", models, { reason: `Asked about ${topic} — not in the approved information` });
+          break;
+        }
+        case "BATTERY_LIFE":
+          // The approved fact that bears on it is the battery warranty; the lifespan itself is not in the workbook.
+          sendFacts(models.length > 0 ? models : scope, ["WARRANTY"], models.length === 1 ? "one" : models.length > 1 ? "several" : "all");
+          text("BATTERY_LIFE_INFO", models);
+          alert("QUESTION", models, { reason: "Asked how long the battery lasts — given the warranty; the lifespan is not in the approved information" });
+          break;
         case "OTHER_SPEC": {
           const detail = unique(reading.hits.filter((h) => h.intent === "OTHER_SPEC").map((h) => specName(h.matched))).join(", ") || "detail";
           text("SPEC_NOT_CONFIRMED", models, { detail });
@@ -882,6 +1095,50 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
       }
     }
   };
+
+  /** The day and time typed now — with the day given EARLIER when this message has only a time ("tomorrow" → "at 4"). */
+  type Requested = NonNullable<ReturnType<typeof parseRequestedTime>>;
+  function requestedNow(): Requested | null {
+    const asked = parseRequestedTime(reading.raw, nowIso);
+    if (!asked) return null;
+    const earlier = dayFromKey(base.pendingDay);
+    const today = beirutTimeOf(nowIso);
+    const stillAhead = earlier !== null && Date.UTC(earlier.year, earlier.month - 1, earlier.day) >= Date.UTC(today.year, today.month - 1, today.day);
+    if (asked.dayGiven === false && asked.minutes !== null && earlier && stillAhead) return { ...asked, ...earlier, dayGiven: true };
+    return asked;
+  }
+  /** What a wished day/time amounts to: a slot to pass on, a day still missing its time, or a time Monza is closed. */
+  interface Wish {
+    status: "none" | "slot" | "day_only" | "closed_sunday" | "closed_then";
+    slot: string | null;
+    day: Requested | null;
+    note: string;
+  }
+  function readWish(asked: Requested | null): Wish {
+    if (!asked) return { status: "none", slot: null, day: null, note: "" };
+    const open = showroomOpen(asked, asked.minutes);
+    if (open === "closed_sunday") return { status: "closed_sunday", slot: null, day: asked, note: "asked for a Sunday — told Monza is closed on Sundays and asked for another day" };
+    if (open === "closed_then") return { status: "closed_then", slot: null, day: asked, note: `asked for a time outside opening hours on ${dayLabel(asked)} — asked for another time` };
+    if (asked.minutes === null) return { status: "day_only", slot: null, day: asked, note: `prefers ${dayLabel(asked)}${asked.part ? ` ${asked.part}` : ""} — no time given yet` };
+    return { status: "slot", slot: slotAtBeirut(asked, asked.minutes), day: asked, note: "" };
+  }
+  /** Say what a wish needs said (closed / which time?), and remember the day. */
+  function sayWish(wish: Wish, models: readonly ModelCode[]): void {
+    if (wish.status === "closed_sunday") {
+      text("CLOSED_SUNDAY", models);
+      next.pendingDay = null;
+    } else if (wish.status === "closed_then" && wish.day) {
+      text("CLOSED_THEN", models, { day: dayLabel(wish.day) });
+      next.pendingDay = dayKey(wish.day);
+    } else if (wish.status === "day_only" && wish.day) {
+      // "Saturday afternoon" is enough for a person to arrange; a bare "tomorrow" is asked its time.
+      if (wish.day.part) text("TEST_DRIVE_TEAM", models);
+      else text("TEST_DRIVE_DAY_NOTED", models, { day: dayLabel(wish.day) });
+      next.pendingDay = dayKey(wish.day);
+    } else if (wish.status === "slot") {
+      next.pendingDay = null;
+    }
+  }
 
   /** A typed test-drive time: book it, or say why not and offer the free times near it. */
   function bookRequested(requested: ReturnType<typeof parseRequestedTime>, models: readonly ModelCode[]): void {
@@ -926,6 +1183,11 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
   const finish = (): EngineDecision => {
     next.unknownSaid = saidUnknown ? true : out.some(isCustomerFacing) ? false : base.unknownSaid;
     const alerted = () => out.some((a) => a.type === "ALERT_SALES");
+    // "I want the Courage", "بدي الكوراج": qualified buying interest. It changes nothing the customer receives —
+    // it is part of the ONE alert Sales gets ("wants the car · stock · financing · test drive, Friday").
+    if (wantsTheCar() && !out.some((a) => a.type === "ALERT_SALES" && a.kind === "BUYING") && out.some(isCustomerFacing)) {
+      alert("BUYING", u.models, { reason: "Buying interest — says they want the car", urgency: "qualified" });
+    }
     // "Our Sales Team will assist you right here" is a promise: someone must be told.
     const promised = out.some(
       (a) =>
@@ -940,10 +1202,18 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
       alert("LEAD", [video.model], { reason: "Received the brochure and the video — follow up on the lead" });
     }
     // A customer now waiting for a person, outside working hours, is told when the team is back.
-    if (isAfterHours(nowIso) && out.some((a) => a.type === "ALERT_SALES") && out.some(isCustomerFacing)) {
+    const saidHours = out.some((a) => a.type === "SEND_TEXT" && (a.key === "CLOSED_SUNDAY" || a.key === "CLOSED_THEN" || a.key === "VISIT_WELCOME"));
+    if (isAfterHours(nowIso) && !saidHours && out.some((a) => a.type === "ALERT_SALES") && out.some(isCustomerFacing)) {
       text("AFTER_HOURS_NOTE");
     }
-    const actions = finalizeActions(out);
+    // ONE actionable alert per inbound message, carrying every reason (alerts.ts).
+    const actions = finalizeActions(consolidateAlerts(out));
+    // What was asked, kept so "and the Taishan?" can ask it again of another car.
+    const askedNow = unique(substantive.filter((i) => CARRIED_OVER.includes(i)));
+    if (askedNow.length > 0) next.lastAsked = askedNow.slice(0, 8);
+    next.brochuresJustSent = next.awaiting === "MODEL" || next.awaiting === "COLOUR_OF_WHICH" ? keepBrochures : [];
+    // A colour typed for "which car?" is forgotten once that question is no longer open.
+    if (base.awaiting === "COLOUR_OF_WHICH" && next.awaiting !== "COLOUR_OF_WHICH" && next.activeModel === null) next.selectedColour = null;
     next.lastIntent = substantive[0] ?? intents[0] ?? (u.intents.includes("UNKNOWN") ? "UNKNOWN" : base.lastIntent);
     next.updatedAt = validTime(input.now) ? input.now : base.updatedAt;
     const outcome = actions.some(isCustomerFacing) ? "ACTIONS" : "NO_AUTOMATIC_ACTION";
@@ -964,6 +1234,20 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
   const payload = reading.payload;
 
   /* 0. A photo, a story reply, an emoji: nothing a rule can read. */
+  if (reading.tokens.length === 0 && !payload && u.modelSource !== "referral" && input.hasMedia && base.tradeIn) {
+    // The bot asked for photos of the car to trade in: this is one. It is filed with the trade-in, never read.
+    next.tradeInPhotos = base.tradeInPhotos + 1;
+    if (base.tradeInPhotos === 0) text("TRADE_IN_PHOTO_THANKS");
+    else reasons.push("Another photo for the trade-in — already thanked.");
+    alert("TRADE_IN", base.selectedModels, { reason: "Trade-in: sent photos of their car — see the chat" });
+    return finish();
+  }
+  if (reading.tokens.length === 0 && !payload && u.modelSource !== "referral" && !input.hasMedia && /[?؟]/.test(reading.raw)) {
+    // "?", "??": somebody is there and waiting. A light nudge — never silence, never a salesperson for a question mark.
+    if (hasContext(base)) text("NUDGE");
+    else out.push({ type: "SHOW_DEPARTMENTS" });
+    return finish();
+  }
   if (reading.tokens.length === 0 && !payload && u.modelSource !== "referral") {
     reasons.push(
       input.hasMedia
@@ -991,6 +1275,50 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     return finish();
   }
 
+  /* 0c1. The customer ended it: acknowledged, and nothing is pushed at them. */
+  if (u.ended && !payload) {
+    text(substantive.includes("WRONG_NUMBER") ? "WRONG_NUMBER_ACK" : substantive.includes("OPT_OUT") ? "OPT_OUT_ACK" : "NOT_INTERESTED_ACK");
+    next.notInterested = true;
+    next.awaiting = "NONE";
+    next.pendingIntents = [];
+    next.offeredModels = [];
+    next.offeredColours = [];
+    next.lead = null;
+    next.pendingDay = null;
+    reasons.push("The customer ended the sales conversation — acknowledged; no material, no alert, no menu.");
+    return finish();
+  }
+
+  /* 0c1b. "I've been waiting since yesterday", "nobody answered": an apology and an OVERDUE alert — the top of the list. */
+  if (substantive.includes("WAITING_COMPLAINT") && !payload) {
+    const models = u.models.length > 0 ? u.models : base.selectedModels;
+    text("WAITING_APOLOGY", models);
+    alert("OVERDUE", models, { reason: "Says they have been waiting for an answer — reply now" });
+    if (substantive.every((i) => i === "WAITING_COMPLAINT" || i === "COMPLAINT")) return finish();
+  }
+
+  /* 0c1c. An OWNER needing after-sales: the Service number, a flag — and never a brochure, a colour or a video,
+     whatever car they named ("I own a Voyah Free and the screen is frozen"). */
+  if (u.ownerSupport && !payload) {
+    answerService();
+    answerGlobal();
+    reasons.push("An owner needing after-sales — routed to Service; no sales material and no sales flow.");
+    return finish();
+  }
+
+  /* 0c1d. "No video please", "I don't want the brochure": kept for the whole conversation. */
+  const refused = substantive.filter((i) => i === "NO_VIDEO" || i === "NO_BROCHURE");
+  if (refused.length > 0 && !payload) {
+    if (refused.includes("NO_VIDEO")) next.noVideo = true;
+    if (refused.includes("NO_BROCHURE")) next.noBrochure = true;
+    text("PREFERENCE_NOTED", [], { what: refused.length === 2 ? "both" : refused[0] === "NO_VIDEO" ? "video" : "brochure" });
+    if (refused.includes("NO_VIDEO") && next.awaiting === "COLOUR") {
+      next.awaiting = "NONE";
+      next.offeredColours = [];
+    }
+    if (substantive.length === refused.length && u.models.length === 0 && u.modelCandidates.length === 0) return finish();
+  }
+
   /* 0c2. The Passion S (Samer, 2026-09-18: "leave passion s only to be answered by sales team
      instead of chat bot"). It is not in A Car Facts, so the bot has nothing approved to say about
      it — and it must never be answered as the Passion. "the passion's price" is not the Passion S. */
@@ -1015,12 +1343,17 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
   if ((substantive.includes("TEST_DRIVE_CHANGE") || retimed) && !payload && !botBooks) {
     // A person arranges test drives: the bot passes the wish on, and never confirms or cancels anything itself.
     const models = base.lead?.models ?? base.selectedModels;
-    const asked = parseRequestedTime(reading.raw, nowIso);
-    const typed = asked && asked.minutes !== null ? slotAtBeirut(asked, asked.minutes) : null;
+    const wish = wantsCancel ? readWish(null) : readWish(requestedNow());
+    const typed = wish.slot;
     if (typed && !wantsCancel) {
       text("TEST_DRIVE_TIME_PASSED", models, { slot: slotLabel(typed) });
       alert("TEST_DRIVE", models, { slot: typed, reason: wantsChange ? "Asked to change the test drive time" : "Gave a preferred test drive time" });
       next.requestedSlot = typed;
+      next.pendingDay = null;
+    } else if (wish.status !== "none") {
+      // A day with no time, a Sunday, a time we are closed: said, and the day is kept for the time that follows.
+      sayWish(wish, models);
+      alert("TEST_DRIVE", models, { reason: `Test drive: ${wish.note}` });
     } else {
       text("TEST_DRIVE_TEAM", models);
       alert("TEST_DRIVE", models, { reason: wantsCancel ? "Asked to cancel the test drive" : wantsChange ? "Asked to change the test drive" : retimed ? "Gave a preferred day for the test drive — see the chat" : "Asked about their test drive" });
@@ -1191,16 +1524,76 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     return finish();
   }
 
+  /* 2a2. "Can I pass by tomorrow?", "I want to come see the car": welcome — after checking we are open then. */
+  if (substantive.includes("VISIT") && !payload) {
+    const models = u.models.length > 0 ? u.models : u.model ? [u.model] : base.selectedModels;
+    const wish = readWish(requestedNow());
+    next.pendingVisit = wish.status === "closed_sunday" || wish.status === "closed_then";
+    if (wish.status === "closed_sunday" || wish.status === "closed_then") sayWish(wish, models);
+    else text("VISIT_WELCOME", models, wish.slot ? { when: slotLabel(wish.slot) } : wish.day ? { when: dayLabel(wish.day) } : undefined);
+    alert("VISIT", models, { slot: wish.slot, reason: `Wants to visit the showroom${wish.slot ? "" : wish.day ? ` (${wish.note || dayLabel(wish.day)})` : ""}` });
+    if (substantive.every((i) => i === "VISIT")) return finish();
+  }
+
   /* 2b. Details of the customer's OWN car after the trade-in answer ("bmw x5 2019 120000 km"). */
   if (base.lastIntent === "TRADE_IN" && !payload && u.models.length === 0) {
     const details =
       substantive.some((i) => i === "TRADE_IN" || i === "RANGE" || i === "OTHER_BRAND" || i === "MODEL_YEAR") ||
       reading.tokens.some((t) => /^\d{4,}$/.test(t)) ||
       (reading.tokens.length === 0 && input.hasMedia === true);
-    if (details) {
+    if (details && !substantive.includes("TRADE_IN")) {
       text("TRADE_IN_THANKS");
-      alert("TRADE_IN", []);
+      alert("TRADE_IN", [], { reason: "Trade-in: sent the details of their car" });
+      next.tradeIn = true;
       next.lastIntent = "TRADE_IN";
+      return finish();
+    }
+  }
+
+  /* 2b2. In a trade-in, "what's it worth?" / "how much will you give me?" is the valuation — asked of a person. */
+  if (base.tradeIn && !payload && substantive.length === 0 && u.models.length === 0 && asksValuation(reading.normalized)) {
+    text("TRADE_IN_VALUATION");
+    alert("TRADE_IN", base.selectedModels, { reason: "Trade-in: asked what their car is worth — a person values it" });
+    next.lastIntent = "TRADE_IN";
+    return finish();
+  }
+
+  /* 2c. A bare yes / no / ok: the answer to the question the bot just asked — and to nothing else. */
+  // "not now, tomorrow" is more than a no: only a message made of nothing BUT the yes / no / ok words is a bare reply.
+  const replyWords = reading.hits.filter((h) => h.intent === "YES" || h.intent === "NO" || h.intent === "ACKNOWLEDGEMENT" || h.intent === "GREETING").reduce((n, h) => n + (h.end - h.start), 0);
+  const onlyReply = reading.tokens.length - replyWords <= 1;
+  const nothingElse = onlyReply && substantive.length === 0 && !payload && u.models.length === 0 && u.modelCandidates.length === 0 && u.crossBrand.length === 0 && u.colour.kind === "none";
+  if (nothingElse && (replied !== null || acknowledged)) {
+    const affirmed = replied === "yes" || (replied === null && reading.tokens.length <= 3 && reading.tokens.some((t) => OK_WORDS.includes(t)));
+    const askedWhich = base.awaiting === "MODEL" || base.awaiting === "CONFIRM_MODEL" || base.awaiting === "COLOUR_OF_WHICH";
+    const offered = base.offeredModels.filter(sells);
+    if (affirmed && askedWhich && offered.length === 1) {
+      // "Did you mean the VOYAH Dream?" — "yes".
+      reasons.push(`"Yes" to the ${modelLabel(offered[0])} the bot had just asked about.`);
+      decideForModel(offered[0], true);
+      return finish();
+    }
+    if (replied === "no" && base.awaiting === "CONFIRM_MODEL") {
+      next.pendingIntents = [...base.pendingIntents];
+      offerModels(scope, false);
+      return finish();
+    }
+    if (replied === "no" && (askedWhich || base.awaiting === "COLOUR")) {
+      text("NO_PROBLEM");
+      next.awaiting = "NONE";
+      next.pendingIntents = [];
+      next.offeredModels = [];
+      next.offeredColours = [];
+      return finish();
+    }
+    if (replied === "yes" && base.awaiting === "COLOUR" && base.activeModel && sells(base.activeModel)) {
+      // "Which colour would you like to see?" — "yes": any of them.
+      u.colour = { kind: "no_preference" };
+      decideForModel(base.activeModel);
+      return finish();
+    }
+    if (replied !== null) {
+      reasons.push("A bare yes / no with no open question — nothing new was asked.");
       return finish();
     }
   }
@@ -1219,11 +1612,40 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     return finish();
   }
 
+  /* 4b. A car's name used as an ordinary word, with nothing to say it is the car ("dream is nice"): ASK.
+     Never a brochure, a video, colours or a model alert from a weak match. */
+  if (u.weakModels.length > 0 && u.model === null && u.models.length === 0 && u.modelCandidates.length === 0 && !payload) {
+    answerService();
+    answerQuestions([], substantive.filter((i) => QUESTION_INTENTS.includes(i)));
+    answerGlobal();
+    next.pendingIntents = unique([...base.pendingIntents, ...substantive.filter((i) => NEEDS_A_CAR.includes(i))]);
+    out.push({ type: "SHOW_MODEL_CHOICES", models: [...u.weakModels], greet: false, narrowed: true, prompt: "confirm" });
+    next.awaiting = "CONFIRM_MODEL";
+    next.offeredModels = [...u.weakModels];
+    reasons.push(`"${u.weakModels.map(modelLabel).join(", ")}" may be meant, but nothing says so — asked, not assumed.`);
+    return finish();
+  }
+
   /* 5. After-sales, other brands and questions with no approved answer answer the same whatever the car. */
   answerService();
-  answerQuestions(u.models.length > 0 ? u.models : u.model ? [u.model] : [], substantive.filter((i) => QUESTION_INTENTS.includes(i)));
-  if (substantive.includes("OTHER_BRAND") && u.models.length === 0 && u.model === null) {
+  const needsAsked = u.models.length === 0 && u.model === null ? readNeeds(reading.tokens) : [];
+  answerQuestions(
+    u.models.length > 0 ? u.models : u.model ? [u.model] : [],
+    substantive.filter((i) => QUESTION_INTENTS.includes(i) && !(i === "OTHER_SPEC" && needsAsked.includes("OFF_ROAD")))
+  );
+  // "Where is Voyah from?" names the brand, not a wish to pick a model: the answer is the whole reply.
+  if (substantive.length > 0 && substantive.every((i) => QUESTION_INTENTS.includes(i)) && u.models.length === 0 && u.model === null && out.some(isCustomerFacing)) {
+    answerGlobal();
+    return finish();
+  }
+  if (substantive.includes("OTHER_BRAND") && u.models.length === 0 && u.model === null && !base.tradeIn) {
     text("OTHER_BRAND");
+  }
+  // After-sales only ("I need a service for my Courage"): the Service number is the whole answer — never the car's brochure.
+  if (substantive.length > 0 && substantive.every((i) => SERVICE_INTENTS.includes(i) || isGlobalIntent(i))) {
+    answerGlobal();
+    reasons.push("An after-sales request — the Service number; no sales material.");
+    return finish();
   }
 
   const namedNow = u.models;
@@ -1277,6 +1699,53 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     next.awaiting = shown.length > 0 ? "MODEL" : "NONE";
   }
 
+  /* 5b. "The fastest one", "a family car", "something for off-road": answered ONLY from the workbook's columns,
+     listed — never "the best". A need the workbook has no column for goes to the team with the list of models. */
+  const needs = needsAsked;
+  if (needs.length > 0 && namedNow.length === 0 && u.model === null && u.modelCandidates.length === 0 && !payload && categories.length === 0 && seats === null) {
+    const numberIn = (code: ModelCode, fact: FactIntent): number | null => {
+      const km = modelByCode(k, code);
+      const found = km ? lookupFact(km, fact) : null;
+      if (!found || found.status !== "OK" || !found.fact) return null;
+      const nums = (found.fact.value.replace(/(\d),(\d{3})/g, "$1$2").match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
+      return nums.length > 0 ? (fact === "DIMENSIONS" ? nums[0] : Math.max(...nums)) : null;
+    };
+    const ranked = (fact: FactIntent): ModelCode[] =>
+      scope
+        .map((code) => ({ code, n: numberIn(code, fact) }))
+        .filter((r): r is { code: ModelCode; n: number } => r.n !== null)
+        .sort((a, b) => b.n - a.n)
+        .map((r) => r.code);
+    const byFact: Partial<Record<(typeof needs)[number], FactIntent>> = { FASTEST: "HORSEPOWER", LONGEST_RANGE: "RANGE", BIGGEST: "DIMENSIONS" };
+    const dataNeed = needs.find((n) => byFact[n] !== undefined);
+    if (needs.includes("BUDGET")) {
+      // Never a price, never "the cheapest is…": a person recommends by budget.
+      text("BUDGET_HANDOFF");
+      alert("PRICE", [], { reason: "Asked for a recommendation by budget — a person answers; the bot states no price" });
+      offerModels(scope, false);
+    } else if (dataNeed) {
+      const fact = byFact[dataNeed] as FactIntent;
+      const top = ranked(fact).slice(0, 3);
+      if (top.length > 0) {
+        sendFacts(top, [fact], "several");
+        next.selectedModels = [];
+        offerModels(top, true, "explore");
+      } else offerModels(scope, false);
+    } else if (needs.includes("FAMILY")) {
+      const roomy = scope.filter((c) => (modelByCode(k, c)?.seatOptions ?? [modelByCode(k, c)?.seatCount ?? 0]).some((s) => (s ?? 0) >= 6));
+      sendFacts(roomy.length > 0 ? roomy : scope, ["SEATS"], roomy.length > 0 ? "several" : "all");
+      offerModels(roomy.length > 0 ? roomy : scope, roomy.length > 0, "explore");
+    } else {
+      const need = needs.includes("SUV") ? "an SUV" : needs.includes("OFF_ROAD") ? "off-road driving" : needs.includes("LUXURY") ? "a luxury car" : "your needs";
+      text("RECOMMEND_HANDOFF", [], { need });
+      alert("QUESTION", [], { reason: `Asked for a recommendation (${need}) — the workbook has no column for it` });
+      offerModels(scope, false);
+    }
+    answerGlobal();
+    answerSales([], substantive.filter((i) => SALES_INTENTS.includes(i) && i !== "PRICE"));
+    return finish();
+  }
+
   const typeQuestion = categories.length > 0 || seats !== null;
   const onlyTypeFacts = factsAsked.every((f) => f === "POWERTRAIN" || f === "SEATS");
   if (typeQuestion && namedNow.length === 0 && u.modelCandidates.length === 0 && !onlyTypeFacts && u.model === null) {
@@ -1309,7 +1778,9 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
 
   /* 7. "Compare them", "which is better, the Dream or the Passion?". */
   if (substantive.includes("COMPARE")) {
-    const models = namedNow.length >= 2 ? namedNow : context.length >= 2 ? context : u.modelCandidates.length >= 2 ? u.modelCandidates : scope;
+    // "Courage" → "Dream" → "which has more range?": the two cars just discussed are the ones compared.
+    const recent = unique([...(namedNow.length === 1 ? namedNow : []), ...base.recentModels]).filter(sells).slice(0, 2);
+    const models = namedNow.length >= 2 ? namedNow : context.length >= 2 ? context : recent.length >= 2 ? recent : u.modelCandidates.length >= 2 ? u.modelCandidates : scope;
     const facts = factsAsked.length > 0 ? factsAsked : models.length > 3 ? COMPARE_FACTS_SHORT : COMPARE_FACTS;
     out.push({ type: "SEND_COMPARISON", models: [...models], rows: factRows(models, facts) });
     if (models !== scope) next.selectedModels = [...models];
@@ -1397,16 +1868,19 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
       next.offeredColours = [];
       next.offeredModels = [];
       next.categoryFilter = null;
-      if (next.awaiting === "MODEL") next.awaiting = "NONE";
+      if (next.awaiting === "MODEL" || next.awaiting === "CONFIRM_MODEL" || next.awaiting === "COLOUR_OF_WHICH") next.awaiting = "NONE";
     }
+    // The cars talked about, newest first: "which has more range?" compares the last two.
+    if (isNamed) next.recentModels = unique([model, ...base.recentModels]).slice(0, 2);
 
     // The answer to "which model?" releases what was asked before it.
-    const consumePending = activating || (isNamed && base.awaiting === "MODEL");
+    const askedWhich = base.awaiting === "MODEL" || base.awaiting === "CONFIRM_MODEL" || base.awaiting === "COLOUR_OF_WHICH";
+    const consumePending = activating || (isNamed && askedWhich);
     const toAnswer = unique([...(consumePending ? base.pendingIntents : []), ...substantive]);
     if (consumePending) {
       next.pendingIntents = [];
       next.offeredModels = [];
-      if (next.awaiting === "MODEL") next.awaiting = "NONE";
+      if (next.awaiting === "MODEL" || next.awaiting === "CONFIRM_MODEL" || next.awaiting === "COLOUR_OF_WHICH") next.awaiting = "NONE";
     }
     if (next.lead && !next.lead.models.includes(model)) next.lead = { ...next.lead, models: [...next.lead.models, model] };
 
@@ -1422,7 +1896,12 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     if (consumePending && base.pendingIntents.includes("TEST_DRIVE") && base.requestedSlot && base.lead?.captured) {
       bookRequested(requestedFromIso(base.requestedSlot), [model]);
     }
-    const brochureDue = activating || wantsBrochure || ((wantsInfo || wantsStock) && !next.brochureSentForCurrentActivation);
+    // "I don't want the brochure" holds for the conversation — until the customer asks for it.
+    if (wantsBrochure) next.noBrochure = false;
+    const justSent = base.brochuresJustSent.includes(model) && !wantsBrochure;
+    if (justSent) next.brochureSentForCurrentActivation = true;
+    const brochureDue = (activating || wantsBrochure || ((wantsInfo || wantsStock) && !next.brochureSentForCurrentActivation)) && !next.noBrochure && !justSent;
+    if (next.noBrochure && activating) reasons.push("The customer asked not to be sent the brochure — it is not sent.");
     if (brochureDue) {
       if (have.brochure) {
         out.push({ type: "SEND_BROCHURE", model, asset: have.brochure, explicit: wantsBrochure && !activating });
@@ -1459,7 +1938,28 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     // 3. The colour.
     const wantVideo = toAnswer.includes("COLOUR_VIDEO") || (wantsPhotos && !toAnswer.includes("INTERIOR_COLOUR"));
     const wantColours = toAnswer.includes("COLOUR") || wantsStock;
+    // "No video please" holds for the conversation — until the customer asks for a video or names a colour.
+    if (wantVideo && !substantive.includes("NO_VIDEO")) next.noVideo = false;
+    /** The video sent when the customer names no colour: the FIRST colour of the workbook's own list that
+     *  has a video fitting this channel — an approved order, never the alphabet. */
+    const defaultColour = (): WaColour | undefined => {
+      const fits = (c: WaColour) => {
+        const asset = (have.videosByColour[c.id] ?? []).find((v) => v.view !== "interior");
+        return asset !== undefined && (asset.bytes === null || asset.bytes <= CHANNEL_LIMITS[channel].videoBytes);
+      };
+      const order = knowledgeModel.colourNames ?? [];
+      const byWorkbook = order
+        .map((name) => sendable.find((c) => normalize(c.name) === normalize(name)))
+        .filter((c): c is WaColour => c !== undefined);
+      return byWorkbook.find(fits) ?? sendable.find(fits) ?? byWorkbook[0] ?? sendable[0];
+    };
     const offerColours = () => {
+      if (next.noVideo) {
+        // The colours are named; the video they lead to is not pushed.
+        if (toAnswer.includes("COLOUR") && sendable.length > 0) out.push({ type: "SEND_COLOUR_LIST", rows: [colourRow(model)] });
+        next.colourPromptSentForCurrentActivation = true;
+        return;
+      }
       if (sendable.length === 0) {
         gap(model, "COLOUR_MEDIA", null, null, `NO COLOUR VIDEOS: ${modelLabel(model)}`);
         next.colourPromptSentForCurrentActivation = true;
@@ -1477,6 +1977,11 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
       next.colourPromptSentForCurrentActivation = true;
     };
     const sendVideo = (colour: WaColour, chosenForThem: boolean) => {
+      if (next.noVideo) {
+        reasons.push("The customer asked not to be sent videos — none is sent.");
+        next.colourPromptSentForCurrentActivation = true;
+        return;
+      }
       const asset = (have.videosByColour[colour.id] ?? []).find((v) => v.view !== "interior");
       if (!asset) {
         offerColours();
@@ -1489,9 +1994,14 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
       if (next.awaiting === "COLOUR") next.awaiting = "NONE";
     };
 
-    const commercial = toAnswer.some((i) => i === "PRICE" || i === "FINANCING" || i === "TEST_DRIVE" || i === "DISCOUNT");
+    const commercial = toAnswer.some((i) => i === "PRICE" || i === "FINANCING" || i === "TEST_DRIVE" || i === "DISCOUNT" || i === "BUYING_INTENT");
     // A lead question or a slot list is the one question of this reply.
-    const askingSomethingElse = next.awaiting === "LEAD_NAME" || next.awaiting === "LEAD_PHONE" || next.awaiting === "TEST_DRIVE_SLOT";
+    const askingSomethingElse =
+      next.awaiting === "LEAD_NAME" ||
+      next.awaiting === "LEAD_PHONE" ||
+      next.awaiting === "TEST_DRIVE_SLOT" ||
+      // "What time would suit you?", "which other day?": ONE question per reply — the colour waits.
+      out.some((a) => a.type === "SEND_TEXT" && (a.key === "TEST_DRIVE_DAY_NOTED" || a.key === "CLOSED_SUNDAY" || a.key === "CLOSED_THEN"));
     const c = u.colour;
     if (c.kind === "one") {
       const colour = sendable.find((s) => s.id === c.id);
@@ -1508,7 +2018,7 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     } else if (c.kind === "several") {
       offerColours();
     } else if (c.kind === "no_preference") {
-      const pick = sendable[0];
+      const pick = defaultColour();
       if (pick) sendVideo(pick, true);
       else offerColours();
     } else if (wantVideo) {
@@ -1520,7 +2030,7 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     } else if (commercial && !wantColours && sendable.length > 0 && (activating || !base.selectedColour)) {
       // Workbook C (2026-09-18): price, installments, offers and test drives get the brochure AND the
       // model video before Sales takes over — no colour question in the way.
-      sendVideo(sendable.find((s) => s.id === next.selectedColour) ?? sendable[0], false);
+      sendVideo(sendable.find((s) => s.id === next.selectedColour) ?? (defaultColour() as WaColour), false);
     } else if (wantColours) {
       offerColours();
     } else if (activating) {
@@ -1532,9 +2042,14 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     // Also named: a model this account does not sell.
     for (const code of u.crossBrand) fallback({ kind: "CROSS_BRAND", model: code });
 
+    if (out.length === 0 && isNamed && !activating && substantive.length === 0 && u.modelSource !== "state") {
+      // The same car named again ("Courage" … "Courage"): never silence. Its key facts, and the colour question if still open.
+      sendFacts([model], KEY_FACTS, "one");
+      if (!base.selectedColour && choices.length > 1) offerColours();
+    }
     if (out.length === 0) {
       // Words the rules cannot read (a name, a sentence of their own) are for a person — never a silent ignore.
-      const unread = substantive.length === 0 && !acknowledged && u.modelSource === "state" && reading.tokens.length > 0 && !payload;
+      const unread = substantive.length === 0 && !acknowledged && (replied === null || !onlyReply) && u.modelSource === "state" && reading.tokens.length > 0 && !payload && !base.notInterested;
       if (unread) sayUnknown([model], "Words the bot has no approved answer for");
       else reasons.push(`Already talking about the ${modelLabel(model)} — nothing new was asked.`);
     }
@@ -1546,7 +2061,23 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     next.selectedModels = [...models];
     next.activeModel = null;
     next.offeredColours = [];
-    if (next.awaiting === "MODEL" || next.awaiting === "COLOUR") next.awaiting = "NONE";
+    if (namedTogether) next.recentModels = unique([...models, ...base.recentModels]).slice(0, 2);
+    if (next.awaiting === "MODEL" || next.awaiting === "COLOUR" || next.awaiting === "CONFIRM_MODEL" || next.awaiting === "COLOUR_OF_WHICH") next.awaiting = "NONE";
+
+    // Two cars in play and the customer types "black": of WHICH car? Asked — never guessed.
+    if (substantive.length === 0 && !namedTogether && !payload && reading.tokens.length > 0 && reading.tokens.length <= 4) {
+      const all = models.flatMap((code) => carOf(code)?.colours ?? []);
+      const heard = all.length > 0 ? readColourAnswer(reading.normalized, all, { noPreference: false, fuzzy: false }) : null;
+      if (heard && (heard.kind === "one" || heard.kind === "several")) {
+        const word = heard.kind === "one" ? heard.colour.name : reading.normalized;
+        out.push({ type: "SHOW_MODEL_CHOICES", models: [...models], greet: false, narrowed: true, prompt: "colour_which", colour: word });
+        next.awaiting = "COLOUR_OF_WHICH";
+        next.offeredModels = [...models];
+        next.selectedColour = reading.normalized;
+        keepBrochures = base.brochuresJustSent;
+        return;
+      }
+    }
     const toAnswer = unique([...(namedTogether && base.awaiting === "MODEL" ? base.pendingIntents : []), ...substantive]);
     if (namedTogether) next.pendingIntents = [];
     if (next.lead) next.lead = { ...next.lead, models: unique([...next.lead.models, ...models]) };
@@ -1556,12 +2087,16 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     const wantsColours = toAnswer.includes("COLOUR") || toAnswer.includes("COLOUR_VIDEO");
     const sales = toAnswer.filter((i) => SALES_INTENTS.includes(i));
 
+    const sentNow: ModelCode[] = [];
     const sendBrochures = () => {
+      if (next.noBrochure && !toAnswer.includes("BROCHURE")) return;
       for (const code of models.slice(0, MAX_BROCHURES)) {
         const car = carOf(code);
         const have = car ? deps.media(car.id) : NO_MEDIA;
-        if (have.brochure) out.push({ type: "SEND_BROCHURE", model: code, asset: have.brochure, explicit: true });
-        else gap(code, "BROCHURE", null, null, `MISSING BROCHURE: ${modelLabel(code)}`);
+        if (have.brochure) {
+          out.push({ type: "SEND_BROCHURE", model: code, asset: have.brochure, explicit: true });
+          sentNow.push(code);
+        } else gap(code, "BROCHURE", null, null, `MISSING BROCHURE: ${modelLabel(code)}`);
       }
     };
 
@@ -1581,6 +2116,8 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     answerQuestions(models, toAnswer.filter((i) => QUESTION_INTENTS.includes(i) && !(substantive as readonly Intent[]).includes(i)));
 
     for (const code of u.crossBrand) fallback({ kind: "CROSS_BRAND", model: code });
+    // Kept while the "which one?" that follows is open — also through "black" → "which car in black?".
+    keepBrochures = sentNow.length > 0 ? sentNow : base.brochuresJustSent;
 
     const asking = next.awaiting === "LEAD_NAME" || next.awaiting === "LEAD_PHONE" || next.awaiting === "TEST_DRIVE_SLOT";
     if (!asking && (out.length > 0 || namedTogether)) {
@@ -1606,6 +2143,13 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
       sendFacts(scope, factsAsked, "all");
       explore = true;
     }
+    if (wantsBrochure && wantsAll && scope.length > MAX_BROCHURES_AT_ONCE) {
+      // "Send me all the brochures": eight large files in one reply is a flood. A menu — which ones?
+      text("ALL_BROCHURES_ASK");
+      next.pendingIntents = unique([...base.pendingIntents, "BROCHURE"]);
+      offerModels(scope, false);
+      return;
+    }
     if (wantsBrochure && wantsAll) {
       for (const code of scope.slice(0, MAX_BROCHURES)) {
         const car = carOf(code);
@@ -1626,7 +2170,7 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     answerSales([], substantive.filter((i) => SALES_INTENTS.includes(i)));
 
     const PENDING: readonly Intent[] = [
-      "PRICE", "AVAILABILITY", "GENERAL_INFO", "BROCHURE", "COLOUR", "COLOUR_VIDEO", "MEDIA_PHOTOS", "INTERIOR_COLOUR",
+      "BUYING_INTENT", "PRICE", "AVAILABILITY", "GENERAL_INFO", "BROCHURE", "COLOUR", "COLOUR_VIDEO", "MEDIA_PHOTOS", "INTERIOR_COLOUR",
       // Workbook C (2026-09-18): "ask which model only when missing", then brochure, video and Sales.
       ...(askLeadName ? [] : (["FINANCING"] as const)),
       ...(botBooks ? [] : (["TEST_DRIVE"] as const)),
@@ -1643,7 +2187,8 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     }
 
     if (out.length === 0) {
-      sayUnknown([], base.awaiting === "MODEL" ? 'Not an answer to "which model?"' : "Words the bot has no approved answer for");
+      if (base.notInterested) reasons.push("The customer said they are not interested — nothing is pushed at them; a person reads it.");
+      else sayUnknown([], base.awaiting === "MODEL" || base.awaiting === "CONFIRM_MODEL" ? 'Not an answer to "which model?"' : "Words the bot has no approved answer for");
     }
   }
 }

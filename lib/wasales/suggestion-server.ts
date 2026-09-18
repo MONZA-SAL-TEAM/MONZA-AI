@@ -18,7 +18,7 @@
 
 import { channelsSendLive } from "@/lib/env";
 import { decodeThreadId } from "@/lib/channels/live-map";
-import { listAccounts, recordWhatsAppSent, type StoredAccount } from "@/lib/channels/store";
+import { channelDb, listAccounts, recordWhatsAppSent, type StoredAccount } from "@/lib/channels/store";
 import { isPilotAccount, isPilotChat } from "@/lib/wasales/autoreply-pilot";
 import { readThreadForStaff, suggestionTarget, threadPeerId } from "@/lib/channels/live";
 import { libraryColour, libraryMedia, loadCatalog, type LibraryFile } from "@/lib/wasales/catalog";
@@ -124,6 +124,33 @@ function withLibraryColours(catalog: WaCar[], files: readonly LibraryFile[]): Wa
   });
 }
 
+/**
+ * The ad this chat came from: the headline of its FIRST touchpoint, recorded by the webhook at arrival
+ * (Meta sends it once and never again). Only stored chats have one (WhatsApp; Instagram and Facebook
+ * once their webhooks deliver). Best effort: no headline is simply no ad context — never an error.
+ */
+async function adHeadlineFor(conversationRef: string): Promise<string | null> {
+  if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(conversationRef)) return null;
+  const sb = channelDb();
+  if (!sb) return null;
+  try {
+    const { data: link } = await sb.from("lead_conversations").select("lead_id").eq("conversation_id", conversationRef).maybeSingle();
+    const leadId = (link as { lead_id?: string } | null)?.lead_id;
+    if (!leadId) return null;
+    const { data: touch } = await sb
+      .from("lead_touchpoints")
+      .select("headline, occurred_at")
+      .eq("lead_id", leadId)
+      .not("headline", "is", null)
+      .order("occurred_at", { ascending: true })
+      .limit(1);
+    const headline = Array.isArray(touch) && touch.length > 0 ? (touch[0] as { headline?: unknown }).headline : null;
+    return typeof headline === "string" && headline.trim() !== "" ? headline.slice(0, 200) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function load(threadId: unknown): Promise<Loaded | Failure> {
   const ids = decodeThreadId(threadId);
   if (!ids) return { ok: false, status: 400, problem: "That conversation link is not valid." };
@@ -134,11 +161,12 @@ async function load(threadId: unknown): Promise<Loaded | Failure> {
   if (!brand || !channel) return { ok: false, status: 404, problem: "Suggestions are not available for this account." };
 
   const catalog = loadCatalog();
-  const [view, memory, library, booked] = await Promise.all([
+  const [view, memory, library, booked, adHeadline] = await Promise.all([
     readThreadForStaff(threadId),
     loadSuggestion(account.id, ids.metaConversationId),
     listLibraryFiles(catalog.map((c) => c.id)),
     bookedSlotsFrom(new Date().toISOString()),
+    adHeadlineFor(ids.metaConversationId),
   ]);
   if (!view.ok) return { ok: false, status: view.status, problem: view.problem };
 
@@ -153,7 +181,7 @@ async function load(threadId: unknown): Promise<Loaded | Failure> {
     brand,
     channel,
     ref: ids.metaConversationId,
-    facts: { brand, channel, messages: view.messages, windowOpen: view.window.open },
+    facts: { brand, channel, messages: view.messages, windowOpen: view.window.open, adHeadline },
     saved: memory.ok ? memory.saved : freshSaved(),
     memoryOk: memory.ok,
     deps: {
@@ -315,7 +343,7 @@ async function deliver(
   if (!result.failed) {
     for (const a of s.turn.decision.actions) {
       if (a.type !== "ALERT_SALES") continue;
-      const ok = await recordAlert(chat, { kind: a.kind, models: a.models, name: a.name, phone: a.phone, slot: a.slot, reason: a.reason ?? null });
+      const ok = await recordAlert(chat, { kind: a.kind, tags: a.tags, urgency: a.urgency, models: a.models, name: a.name, phone: a.phone, slot: a.slot, reason: a.reason ?? null });
       if (!ok) console.error(`[sales/alert] ${a.kind} on ${c.account.id} could not be recorded (migration 013?)`);
     }
     for (const a of s.turn.decision.actions) {

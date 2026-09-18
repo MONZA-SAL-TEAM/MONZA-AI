@@ -192,11 +192,41 @@ function notConfirmed(row: FactRow, k: SalesKnowledge): string {
 }
 
 /** One fact of one car, as a sentence (workbook E, section 4). */
+/**
+ * A workbook value inside an ARABIC answer: the FIGURES are never touched; only the plain English
+ * words around them are put into Arabic ("6 years on the vehicle" → "6 سنوات على السيارة"). Units and
+ * technical terms stay as the workbook writes them (km, hp, kWh, mm, WLTP, CLTC, EV, PHEV).
+ * Unapproved wording, like every Arabic sentence here, until Samer approves it.
+ */
+const VALUE_WORDS_AR: readonly (readonly [RegExp, string])[] = [
+  [/(\d+) years on the vehicle and (\d+) years on the battery/gi, "$1 سنوات على السيارة و$2 سنوات على البطارية"],
+  [/of WLTP range on a full charge, and (\S+ km) if uphill/gi, "(WLTP) بشحنة كاملة، و$1 في الطرقات الصاعدة"],
+  [/\(trunk capacity not confirmed yet\)/gi, "(سعة الصندوق غير مؤكدة بعد)"],
+  [/\bnot confirmed yet\b/gi, "غير مؤكد بعد"],
+  [/(\d+) to (\d+) seats/gi, "$1 إلى $2 مقاعد"],
+  [/\bseats\b/gi, "مقاعد"],
+  [/\bfolded\b/gi, "مع طي المقاعد"],
+  [/\bcombined\b/gi, "إجمالي"],
+  [/\bFully Electric\b/gi, "كهربائية بالكامل"],
+  [/\bup to\b/gi, "حتى"],
+  [/\bapproximately\b|\bapprox\.?/gi, "حوالي"],
+  [/\bminutes\b/gi, "دقيقة"],
+  [/\bhours\b/gi, "ساعات"],
+  [/\bfrom\b/gi, "من"],
+  [/\bto\b/gi, "إلى"],
+  [/\band\b/gi, "و"],
+];
+function valueAr(value: string): string {
+  let v = value;
+  for (const [re, ar] of VALUE_WORDS_AR) v = v.replace(re, ar);
+  return v;
+}
+
 function factSentence(row: FactRow, k: SalesKnowledge): string {
   if (!row.confirmed) return notConfirmed(row, k);
   const car = nameOf(k, row.model);
   const v = row.value;
-  if (LANG === "ar") return `${FACT_NAME_AR[row.fact]} لسيارة ${car}: ${v}.`;
+  if (LANG === "ar") return `${FACT_NAME_AR[row.fact]} لسيارة ${car}: ${valueAr(v)}.`;
   switch (row.fact) {
     case "HORSEPOWER":
       return `The ${car} produces ${v}.`;
@@ -221,7 +251,7 @@ function factSentence(row: FactRow, k: SalesKnowledge): string {
 
 /** One fact as a labelled line in a list of several cars. */
 function factLine(row: FactRow, k: SalesKnowledge, label: "model" | "fact"): string {
-  const value = row.confirmed ? row.value : pick("not confirmed yet", "غير مؤكد بعد");
+  const value = row.confirmed ? (LANG === "ar" ? valueAr(row.value) : row.value) : pick("not confirmed yet", "غير مؤكد بعد");
   return label === "model" ? `• ${nameOf(k, row.model)} — ${value}` : `• ${pick(FACT_LABEL[row.fact], FACT_NAME_AR[row.fact])}: ${value}`;
 }
 
@@ -382,6 +412,54 @@ function renderText(key: TextKey, models: readonly ModelCode[], vars: Record<str
       return `Your test drive${vars.slot ? ` on ${vars.slot}` : ""} is cancelled. Please choose a new time:`;
     case "AFTER_HOURS_NOTE":
       return "Our team is available Monday to Friday from 8:00 AM to 6:00 PM and Saturday from 8:00 AM to 2:00 PM, and will follow up with you during working hours.";
+
+    /* ── NEW WORDING, 2026-09-18 (the audit) — written for Samer's approval, none of it from the workbook ── */
+    case "WRONG_NUMBER_ACK":
+      return "No problem at all, and sorry for the confusion. If you ever need Monza S.A.L., we're right here.";
+    case "OPT_OUT_ACK":
+      return "Understood. We won't send you anything further. If you ever need us, just write to us here.";
+    case "NOT_INTERESTED_ACK":
+      return "No problem at all. Thank you for your time, and if you ever need anything, we're right here.";
+    case "WAITING_APOLOGY":
+      return "We're sorry to have kept you waiting. I've flagged your conversation to our Sales Team as a priority, and a team member will reply to you right here.";
+    case "PREFERENCE_NOTED":
+      return vars.what === "both"
+        ? "Noted. I won't send you the brochure or the video."
+        : vars.what === "brochure"
+          ? "Noted. I won't send you the brochure."
+          : "Noted. I won't send you the video.";
+    case "NO_PROBLEM":
+      return "No problem. If you need anything else, we're right here.";
+    case "NUDGE":
+      return "We're here. How can we help you?";
+    case "TRADE_IN_VALUATION":
+      return "The valuation is done by our team once they have reviewed your vehicle. They will get back to you with it right here.";
+    case "TRADE_IN_PHOTO_THANKS":
+      return "Thank you, we've received your photos. Our team will review them with your vehicle details and get back to you about the valuation right here.";
+    case "BUYING_HANDOFF":
+      return `Wonderful. I've let our Sales Team know that you'd like to go ahead with the ${cars}, and a team member will take you through the next steps right here.`;
+    case "CLOSED_SUNDAY":
+      return "We're closed on Sundays. We're open Monday to Friday from 8:00 AM to 6:00 PM and Saturday from 8:00 AM to 2:00 PM. Which other day would suit you?";
+    case "CLOSED_THEN":
+      return `We're open Monday to Friday from 8:00 AM to 6:00 PM and Saturday from 8:00 AM to 2:00 PM. Which time within those hours would suit you${vars.day ? ` on ${vars.day}` : ""}?`;
+    case "TEST_DRIVE_DAY_NOTED":
+      return `Noted, ${vars.day ?? "that day"}${vars.part ? ` in the ${vars.part}` : ""}. What time would suit you?`;
+    case "VISIT_WELCOME": {
+      const lead = vars.when ? `You're most welcome to visit us. I've let our Sales Team know to expect you on ${vars.when}.` : "You're most welcome to visit us.";
+      return [lead, k.global.LOCATION?.value ?? "", k.global.OPENING_HOURS?.value ?? ""].filter(Boolean).join("\n\n");
+    }
+    case "TOPIC_HANDOFF":
+      return models.length > 0
+        ? `I don't have approved information about ${vars.topic ?? "that"} for the ${cars} to share here. Our Sales Team can confirm it with you right here.`
+        : `I don't have approved information about ${vars.topic ?? "that"} to share here. Our Sales Team can confirm it with you right here.`;
+    case "BATTERY_LIFE_INFO":
+      return "The battery's expected lifespan beyond the warranty is not in our approved information yet. Our Sales Team can confirm it with you right here.";
+    case "RECOMMEND_HANDOFF":
+      return `Our Sales Team can recommend the right model for ${vars.need ?? "your needs"} and will assist you right here. In the meantime, here is our current range.`;
+    case "BUDGET_HANDOFF":
+      return "Our Sales Team can recommend the right model for your budget and will assist you right here. In the meantime, here is our current range.";
+    case "ALL_BROCHURES_ASK":
+      return "Happy to send brochures. They are large files, so please tell me which model or models you'd like.";
   }
 }
 
@@ -400,6 +478,17 @@ function globalAr(key: string, value: string, k: SalesKnowledge): string {
       return value;
   }
 }
+
+/** The topics of TOPIC_HANDOFF in Arabic — no English label inside an Arabic answer. */
+const TOPIC_AR: Readonly<Record<string, string>> = {
+  SAFETY: "السلامة والأمان",
+  CHARGER_INCLUDED: "الشاحن المرفق مع السيارة",
+  HOME_CHARGING: "الشحن المنزلي",
+  PUBLIC_CHARGING: "محطات الشحن العامة في لبنان",
+  CHARGING_COST: "كلفة الشحن",
+  BRAND_ORIGIN: "بلد المنشأ والشركة المصنّعة",
+  CONTACT_CHANNELS: "بريدنا الإلكتروني وموقعنا وصفحاتنا",
+};
 
 /** The Arabic fixed sentences (written for Samer's approval, 2026-09-17). Null: English is used. */
 function renderTextAr(key: TextKey, models: readonly ModelCode[], cars: string, vars: Record<string, string>, k: SalesKnowledge): string | null {
@@ -487,6 +576,47 @@ function renderTextAr(key: TextKey, models: readonly ModelCode[], cars: string, 
       return `تمام، ${vars.slot ?? ""}. أي موديل ترغبون بتجربته؟`;
     case "AFTER_HOURS_NOTE":
       return "فريقنا متواجد من الاثنين إلى الجمعة من 8:00 صباحاً حتى 6:00 مساءً، والسبت من 8:00 صباحاً حتى 2:00 ظهراً، وسيتابع معكم خلال ساعات العمل.";
+
+    /* ── صياغة جديدة، 2026-09-18 — بانتظار موافقة سامر (UNAPPROVED) ── */
+    case "WRONG_NUMBER_ACK":
+      return "لا مشكلة أبداً، ونعتذر عن الالتباس. إذا احتجتم Monza S.A.L. في أي وقت، نحن هنا.";
+    case "OPT_OUT_ACK":
+      return "حاضر. لن نرسل لكم أي شيء بعد الآن. إذا احتجتم إلينا، راسلونا هنا.";
+    case "NOT_INTERESTED_ACK":
+      return "لا مشكلة أبداً. شكراً لوقتكم، وإذا احتجتم أي شيء فنحن هنا.";
+    case "WAITING_APOLOGY":
+      return "نعتذر عن التأخير. أبلغت فريق المبيعات بأن محادثتكم أولوية، وسيرد عليكم أحد أعضاء الفريق هنا مباشرةً.";
+    case "PREFERENCE_NOTED":
+      return vars.what === "both" ? "حاضر. لن أرسل لكم الكتالوج ولا الفيديو." : vars.what === "brochure" ? "حاضر. لن أرسل لكم الكتالوج." : "حاضر. لن أرسل لكم الفيديو.";
+    case "NO_PROBLEM":
+      return "لا مشكلة. إذا احتجتم أي شيء آخر فنحن هنا.";
+    case "NUDGE":
+      return "نحن هنا. كيف يمكننا مساعدتكم؟";
+    case "TRADE_IN_VALUATION":
+      return "يتولى فريقنا التقييم بعد مراجعة سيارتكم، وسيعودون إليكم به هنا مباشرةً.";
+    case "TRADE_IN_PHOTO_THANKS":
+      return "شكراً لكم، استلمنا الصور. سيراجعها فريقنا مع تفاصيل سيارتكم ويعود إليكم بشأن التقييم هنا مباشرةً.";
+    case "BUYING_HANDOFF":
+      return `ممتاز. أبلغت فريق المبيعات برغبتكم في المضي قدماً بسيارة ${cars}، وسيتابع معكم أحد أعضاء الفريق الخطوات التالية هنا مباشرةً.`;
+    case "CLOSED_SUNDAY":
+      return "نحن مغلقون يوم الأحد. دوامنا من الاثنين إلى الجمعة من 8:00 صباحاً حتى 6:00 مساءً، والسبت من 8:00 صباحاً حتى 2:00 ظهراً. أي يوم آخر يناسبكم؟";
+    case "CLOSED_THEN":
+      return `دوامنا من الاثنين إلى الجمعة من 8:00 صباحاً حتى 6:00 مساءً، والسبت من 8:00 صباحاً حتى 2:00 ظهراً. أي وقت ضمن هذا الدوام يناسبكم${vars.day ? ` يوم ${vars.day}` : ""}؟`;
+    case "TEST_DRIVE_DAY_NOTED":
+      return `تمام، ${vars.day ?? ""}. أي ساعة تناسبكم؟`;
+    case "VISIT_WELCOME": {
+      const lead = vars.when ? `أهلاً وسهلاً بكم. أبلغت فريق المبيعات بزيارتكم يوم ${vars.when}.` : "أهلاً وسهلاً بكم في صالة العرض.";
+      return [lead, globalAr("LOCATION", k.global.LOCATION?.value ?? "", k), globalAr("OPENING_HOURS", k.global.OPENING_HOURS?.value ?? "", k)].filter(Boolean).join("\n\n");
+    }
+    case "TOPIC_HANDOFF":
+      return `لا تتوفر لدي معلومات معتمدة عن ${TOPIC_AR[vars.topicKey ?? ""] ?? "هذا الموضوع"}${models.length > 0 ? ` لسيارة ${cars}` : ""}. سيؤكدها لكم فريق المبيعات هنا مباشرةً.`;
+    case "BATTERY_LIFE_INFO":
+      return "العمر المتوقع للبطارية بعد فترة الكفالة غير متوفر بعد ضمن معلوماتنا المعتمدة. سيؤكده لكم فريق المبيعات هنا مباشرةً.";
+    case "RECOMMEND_HANDOFF":
+    case "BUDGET_HANDOFF":
+      return "يمكن لفريق المبيعات أن ينصحكم بالموديل الأنسب لكم، وسيتابعون معكم هنا مباشرةً. في الأثناء، هذه مجموعتنا الحالية.";
+    case "ALL_BROCHURES_ASK":
+      return "يسعدني إرسال الكتالوجات. حجم الملفات كبير، فأي موديل أو موديلات تودون؟";
     default:
       return null;
   }
@@ -607,7 +737,12 @@ export function renderPlan(actions: readonly EngineAction[], ctx: RenderContext)
         break;
       case "SEND_TEXT": {
         // Price + offers both end in the same hand-off sentence: said once.
-        const sentence = renderText(a.key, a.models, a.vars ?? {}, ctx);
+        let sentence = renderText(a.key, a.models, a.vars ?? {}, ctx);
+        // "…and a test drive": the hand-off sentence already said in this reply is not said a second time.
+        const handoff = LANG === "ar" ? AR_HERE : k.showroom.handoff;
+        if (sentence !== handoff && sentence.endsWith(` ${handoff}`) && parts.some((p) => p.kind === "text" && p.text.includes(handoff))) {
+          sentence = sentence.slice(0, -handoff.length - 1);
+        }
         if (!parts.some((p) => p.kind === "text" && p.text === sentence)) parts.push(say(sentence));
         break;
       }
@@ -630,8 +765,15 @@ export function renderPlan(actions: readonly EngineAction[], ctx: RenderContext)
         break;
       case "SHOW_MODEL_CHOICES": {
         const lead = a.greet ? `${welcomeText(ctx)}\n\n` : "";
+        const one = a.models.length === 1 ? nameOf(k, a.models[0]) : null;
         const ask =
-          a.prompt === "explore"
+          a.prompt === "confirm"
+            ? one
+              ? pick(`Did you mean the ${one}?`, `هل تقصدون ${one}؟`)
+              : pick("Did you mean one of these models?", "هل تقصدون أحد هذه الموديلات؟")
+            : a.prompt === "colour_which"
+              ? pick(`Which car would you like to see in ${a.colour ?? "that colour"}?`, `أي سيارة تودون رؤيتها باللون ${a.colour ?? "المطلوب"}؟`)
+              : a.prompt === "explore"
             ? pick("Which model would you like to explore further?", "أي موديل تودون معرفة المزيد عنه؟")
             : a.prompt === "first"
               ? pick("Which one would you like to see first?", "أيهما تودون رؤيته أولاً؟")
@@ -803,7 +945,7 @@ export function actionLabel(a: EngineAction): string {
     case "FLAG_FOR_STAFF":
       return `FLAG FOR STAFF — ${a.reason}`;
     case "ALERT_SALES":
-      return `ALERT SALES — ${label(a.kind)}${a.models.length > 0 ? ` (${a.models.map(label).join(", ")})` : ""}${a.name ? " WITH NAME" : ""}${a.phone ? " WITH PHONE" : ""}`;
+      return `ALERT SALES — ${(a.tags && a.tags.length > 1 ? a.tags : [a.kind]).map(label).join(" + ")}${a.models.length > 0 ? ` (${a.models.map(label).join(", ")})` : ""}${a.name ? " WITH NAME" : ""}${a.phone ? " WITH PHONE" : ""}`;
     case "BOOK_TEST_DRIVE":
       return `BOOK TEST DRIVE ${a.slot}`;
   }

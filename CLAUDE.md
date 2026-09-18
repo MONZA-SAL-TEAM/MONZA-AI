@@ -980,6 +980,54 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   pitches, the chats outside the pilot, and a chat a person is in (the 12-hour pause). A loose
   word never hijacks a technical question: "power" and "powerful" are WEAK, a bare "wheels" is
   not a wheel-size question, and generator / cc / drivetrain questions are asked of the team.
+- **Real customer language (Samer's audit, 2026-09-18: "the goal is not to make the current tests
+  pass").** The pipeline is explicit, and each stage says WHY: `intent.ts` (which words) →
+  `entities.ts` `resolveModels` (WHICH CAR IS MEANT — strong / weak / rejected, with evidence) →
+  `classify.ts` (what is ASKED: a qualifier beats a topic word, an owner beats a sale) →
+  `engine.ts` (pending question → policy → answer → media → alert → state) → `alerts.ts` (ONE alert).
+  - **An ordinary word is never a car.** Dream, Passion, Free and Courage are English words: "my
+    dream car", "is the first service free?", "I need a person" name NOTHING. A car is believed only
+    on evidence — brand + model, an unambiguous name ("taishan", "free 318"), the conversation (just
+    offered / being discussed), the ad, or grammar ("the dream", "dream price", "courage black",
+    "a courage"). A WEAK match is ASKED ("Did you mean the VOYAH Dream?", `CONFIRM_MODEL`): never a
+    brochure, a video, colours or a model alert. Extend the neighbour rules in `entities.ts`; never
+    add an exception sentence.
+  - **The bot understands answers to its own questions.** yes / sure / send it / ok and no / no
+    thanks resolve against `state.awaiting` and nothing else. State (context.ts) also keeps
+    `lastAsked` ("and the Taishan?" asks the previous question of that car), `recentModels` ("which
+    has more range?"), `pendingDay` ("tomorrow" → "at 4"), `tradeIn` + `tradeInPhotos` (a photo
+    belongs to the trade-in), `noVideo` / `noBrochure` (kept until the customer asks for one),
+    `adModel`, `pendingVisit`, `notInterested`, `brochuresJustSent`.
+  - **Monza is closed on Sundays** (`booking.ts` `showroomOpen`, workbook B hours): a test drive or a
+    visit asked for a Sunday, or outside opening hours, is told so and asked another day/time.
+  - **An OWNER with a problem is after-sales, before anything else**: frozen screen, won't start,
+    warranty claim, spare key, software update, battery replacement → 76 877 278 and a staff flag;
+    never a brochure, colours, a video, the price flow or a sales alert, whatever car they named.
+  - **"How much" belongs to what it is asked of**: charging cost, battery replacement, a service or a
+    part is NOT the car's price. Battery safety / lifespan / replacement and charging time / charger /
+    home / public / cost are separate questions; those the workbook has no column for get a named,
+    controlled hand-off (`TOPIC_HANDOFF`) — SAFETY gets the plain hand-off and a person, and the bot
+    never writes a sentence about safety itself.
+  - **ONE alert per inbound message, ONE open alert per chat** (`alerts.ts`, migration 018 `tags` +
+    `urgency`, APPLIED 2026-09-18): every reason is a tag, the most important is the kind
+    (BUYING > OVERDUE > HUMAN > CALLBACK > TEST_DRIVE > FINANCING > PRICE > STOCK > DISCOUNT >
+    TRADE_IN > VISIT > QUESTION > LEAD > NEEDS_PERSON), urgency normal / qualified / hot / overdue.
+    New kinds: `BUYING` ("I'll take it", "reserve one" = hot; "I want the Courage" = qualified),
+    `OVERDUE` ("I've been waiting since yesterday"), `VISIT`. An alert CLOSES ITSELF when a STAFF
+    message in the same stored (WhatsApp) chat is later than it — except BUYING / CALLBACK /
+    TEST_DRIVE / TRADE_IN, which a person closes by hand.
+  - **The ad is soft context**: the first touchpoint's headline ("Voyah COURAGE") names `adModel`;
+    it answers "how much is it?" when no car is named, and any named or discussed car beats it.
+  - "Not interested" / "stop" / "wrong number" are acknowledged and nothing is pushed afterwards.
+    Lebanese numbers are normalised (71222333 → 96171222333, `lib/leads/phone.ts`); a foreign number
+    is never rewritten. "All brochures" is a menu above 3 cars. The default video is the workbook's
+    first colour with a video that FITS the channel. Recommendations ("fastest", "family car") are
+    lists from the workbook's own columns — never "best", and a budget never gets a price.
+  - **Every sentence added on 2026-09-18 is NEW WORDING awaiting Samer's approval** (the TextKeys
+    after `TEST_DRIVE_TEAM` in `actions.ts`, English and Arabic), and Arabic stays unapproved.
+  - `tests/real_customer_language.test.ts` is the adversarial suite (the audit's examples plus
+    paraphrases, against `tests/_current-library.ts`, the library as listed after the re-filing).
+    The pilot list is unchanged: nothing here widens who the bot answers.
 - **Memory:** `database/migrations/012_sales_suggestion_state.sql` — engine
   state and our own sent ids per chat, never words. NOT applied until Samer
   says so: suggestions still show without it, but cannot be sent.

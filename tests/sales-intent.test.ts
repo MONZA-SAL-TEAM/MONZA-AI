@@ -145,6 +145,7 @@ describe("the openers the first-message study found", () => {
     ["what colours do you have", ["COLOUR"]],
     ["is it electric or hybrid?", ["POWERTRAIN"]],
     ["how long does charging take", ["CHARGING"]],
+    // An owner with a problem: after-sales, never sales material (audit, 2026-09-18).
     ["I have a problem with my car", ["COMPLAINT"]],
     ["do you take my old car in exchange", ["TRADE_IN"]],
     ["what's your whatsapp number", ["CONTACT_NUMBER"]],

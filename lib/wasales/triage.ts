@@ -15,12 +15,16 @@
 
 import { decide, type EngineDeps } from "@/lib/wasales/engine";
 import { freshState } from "@/lib/wasales/context";
-import type { AlertKind } from "@/lib/wasales/actions";
+import type { AlertKind, AlertUrgency } from "@/lib/wasales/actions";
 import type { Intent } from "@/lib/wasales/intent";
 import type { ModelCode } from "@/lib/wasales/knowledge";
+import { sortKinds, urgencyOf } from "@/lib/wasales/alerts";
 
 export interface Triage {
   kind: AlertKind;
+  /** Everything the message is about, most important first — ONE alert, never one per topic. */
+  tags: AlertKind[];
+  urgency: AlertUrgency;
   models: ModelCode[];
   /** Why a person is needed, in the engine's words: intents and model codes, never customer text. */
   reason: string;
@@ -39,6 +43,18 @@ const KIND_BY_INTENT: Partial<Record<Intent, AlertKind>> = {
   PAYMENT_CURRENCY: "QUESTION",
   USED_CARS: "QUESTION",
   OTHER_SPEC: "QUESTION",
+  // 2026-09-18 (the audit).
+  BUYING_INTENT: "BUYING",
+  WAITING_COMPLAINT: "OVERDUE",
+  VISIT: "VISIT",
+  SAFETY: "QUESTION",
+  BATTERY_LIFE: "QUESTION",
+  CHARGER_INCLUDED: "QUESTION",
+  HOME_CHARGING: "QUESTION",
+  PUBLIC_CHARGING: "QUESTION",
+  CHARGING_COST: "QUESTION",
+  BRAND_ORIGIN: "QUESTION",
+  CONTACT_CHANNELS: "QUESTION",
 };
 
 const INTENT_WORDS: Partial<Record<Intent, string>> = {
@@ -82,6 +98,27 @@ const INTENT_WORDS: Partial<Record<Intent, string>> = {
   USED_CARS: "used cars",
   OTHER_SPEC: "a specification",
   TEST_DRIVE_CHANGE: "changing a test drive",
+  BUYING_INTENT: "BUYING the car",
+  VISIT: "visiting the showroom",
+  WAITING_COMPLAINT: "having been kept waiting",
+  NOT_INTERESTED: "not being interested",
+  OPT_OUT: "not wanting more messages",
+  WRONG_NUMBER: "a wrong number",
+  OWNER_ISSUE: "a problem with the car they own (after-sales)",
+  WARRANTY_CLAIM: "a warranty claim (after-sales)",
+  SAFETY: "safety",
+  BATTERY_LIFE: "how long the battery lasts",
+  BATTERY_REPLACEMENT: "a battery replacement (after-sales)",
+  CHARGER_INCLUDED: "the charger supplied",
+  HOME_CHARGING: "home charging",
+  PUBLIC_CHARGING: "public charging",
+  CHARGING_COST: "charging costs",
+  BRAND_ORIGIN: "where the brand is from",
+  CONTACT_CHANNELS: "our email / website / social pages",
+  NO_VIDEO: "not wanting a video",
+  NO_BROCHURE: "not wanting the brochure",
+  YES: "yes",
+  NO: "no",
 };
 
 /**
@@ -103,7 +140,9 @@ export function triageInbound(
   const u = d.understanding;
   const models = u.models.length > 0 ? u.models : u.model ? [u.model] : u.modelCandidates;
   const intents = u.intents.filter((i) => i !== "UNKNOWN" && i !== "GREETING" && i !== "ACKNOWLEDGEMENT");
-  const kind = intents.map((i) => KIND_BY_INTENT[i]).find((k): k is AlertKind => k !== undefined) ?? "NEEDS_PERSON";
+  const found = sortKinds(intents.map((i) => KIND_BY_INTENT[i]).filter((k): k is AlertKind => k !== undefined));
+  const tags: AlertKind[] = found.length > 0 ? found : ["NEEDS_PERSON"];
+  const kind = tags[0];
 
   const about = intents.map((i) => INTENT_WORDS[i] ?? i.toLowerCase()).filter((w, i, all) => all.indexOf(w) === i);
   const what =
@@ -116,6 +155,8 @@ export function triageInbound(
           : "wrote something the bot does not recognise";
   return {
     kind,
+    tags,
+    urgency: urgencyOf(tags),
     models,
     reason: `Bot not switched on for this chat: the customer ${what}${models.length > 0 ? ` (${models.join(", ")})` : ""}.`,
   };

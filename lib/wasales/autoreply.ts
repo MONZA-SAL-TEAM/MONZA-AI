@@ -123,7 +123,7 @@ async function markForPerson(f: FreshInbound): Promise<boolean> {
 
   // Instagram and Facebook words are never stored (Samer, 2026-09-10): the mark says only that
   // a customer wrote. WhatsApp is stored, so its message can be read and classified.
-  let triage: Triage = { kind: "NEEDS_PERSON", models: [], reason: "Bot not switched on for this chat: a new customer message." };
+  let triage: Triage = { kind: "NEEDS_PERSON", tags: ["NEEDS_PERSON"], urgency: "normal", models: [], reason: "Bot not switched on for this chat: a new customer message." };
   let threadId: string | null;
   if (f.channel === "whatsapp") {
     threadId = encodeThreadId(f.accountId, f.conversationId);
@@ -149,7 +149,7 @@ async function markForPerson(f: FreshInbound): Promise<boolean> {
       threadId,
       customerPhone: f.channel === "whatsapp" ? f.peerExternalId.replace(/\D/g, "") || null : null,
     },
-    { kind: triage.kind, models: triage.models, name: null, phone: null, slot: null, reason: triage.reason }
+    { kind: triage.kind, tags: triage.tags, urgency: triage.urgency, models: triage.models, name: null, phone: null, slot: null, reason: triage.reason }
   );
 }
 

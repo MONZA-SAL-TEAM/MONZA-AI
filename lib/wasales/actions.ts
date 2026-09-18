@@ -120,15 +120,41 @@ export type TextKey =
   | "SALES_FOLLOWUP"
   | "TEST_DRIVE_REQUEST"
   | "TEST_DRIVE_TIME_PASSED"
-  | "TEST_DRIVE_TEAM";
+  | "TEST_DRIVE_TEAM"
+  // Samer's audit, 2026-09-18 — every one of these is NEW WORDING awaiting his approval.
+  | "WRONG_NUMBER_ACK"
+  | "OPT_OUT_ACK"
+  | "NOT_INTERESTED_ACK"
+  | "WAITING_APOLOGY"
+  | "PREFERENCE_NOTED"
+  | "NO_PROBLEM"
+  | "NUDGE"
+  | "TRADE_IN_VALUATION"
+  | "TRADE_IN_PHOTO_THANKS"
+  | "BUYING_HANDOFF"
+  | "CLOSED_SUNDAY"
+  | "CLOSED_THEN"
+  | "TEST_DRIVE_DAY_NOTED"
+  | "VISIT_WELCOME"
+  | "TOPIC_HANDOFF"
+  | "BATTERY_LIFE_INFO"
+  | "RECOMMEND_HANDOFF"
+  | "BUDGET_HANDOFF"
+  | "ALL_BROCHURES_ASK";
 
 /** Sentences that already carry a phone number. */
-const GIVES_NUMBER: readonly TextKey[] = ["SALES_FOLLOWUP", "TEST_DRIVE_REQUEST", "TEST_DRIVE_TIME_PASSED", "TEST_DRIVE_TEAM", "INTERIOR_INFO", "PRICE_HANDOFF", "DISCOUNT_HANDOFF", "STOCK_CONFIRM", "SERVICE_CONTACT", "COMPLAINT_CONTACT", "ADMIN_CONTACT", "HANDOFF", "DELIVERY_INFO", "PAYMENT_HANDOFF", "USED_CARS_INFO", "SPEC_NOT_CONFIRMED", "TEST_DRIVE_NO_SLOTS"];
+const GIVES_NUMBER: readonly TextKey[] = ["TOPIC_HANDOFF", "BUYING_HANDOFF", "RECOMMEND_HANDOFF", "BUDGET_HANDOFF", "SALES_FOLLOWUP", "TEST_DRIVE_REQUEST", "TEST_DRIVE_TIME_PASSED", "TEST_DRIVE_TEAM", "INTERIOR_INFO", "PRICE_HANDOFF", "DISCOUNT_HANDOFF", "STOCK_CONFIRM", "SERVICE_CONTACT", "COMPLAINT_CONTACT", "ADMIN_CONTACT", "HANDOFF", "DELIVERY_INFO", "PAYMENT_HANDOFF", "USED_CARS_INFO", "SPEC_NOT_CONFIRMED", "TEST_DRIVE_NO_SLOTS"];
 
-const QUESTION_TEXT: readonly TextKey[] = ["ASK_NAME", "ASK_NAME_AND_PHONE", "TEST_DRIVE_ASK_NAME", "ASK_PHONE", "CALLBACK_ASK_NUMBER"];
+const QUESTION_TEXT: readonly TextKey[] = ["ASK_NAME", "ASK_NAME_AND_PHONE", "TEST_DRIVE_ASK_NAME", "ASK_PHONE", "CALLBACK_ASK_NUMBER", "TEST_DRIVE_DAY_NOTED", "CLOSED_SUNDAY", "CLOSED_THEN"];
 
 /** What the team is alerted about (inbox flag + WhatsApp to a salesperson). */
-export type AlertKind = "PRICE" | "FINANCING" | "TEST_DRIVE" | "STOCK" | "DISCOUNT" | "TRADE_IN" | "NEEDS_PERSON" | "CALLBACK" | "HUMAN" | "QUESTION" | "LEAD";
+export type AlertKind =
+  | "PRICE" | "FINANCING" | "TEST_DRIVE" | "STOCK" | "DISCOUNT" | "TRADE_IN" | "NEEDS_PERSON" | "CALLBACK" | "HUMAN" | "QUESTION" | "LEAD"
+  // 2026-09-18: "I'll take it" / "reserve one" · "I've been waiting since yesterday" · "can I pass by tomorrow?"
+  | "BUYING" | "OVERDUE" | "VISIT";
+
+/** How soon a person should act: a question · a commercial enquiry · ready to buy · already kept waiting. */
+export type AlertUrgency = "normal" | "qualified" | "hot" | "overdue";
 
 export type EngineAction =
   | { type: "SEND_BROCHURE"; model: ModelCode; asset: MediaRef; explicit: boolean }
@@ -160,6 +186,9 @@ export type EngineAction =
       slot: string | null;
       /** Why, for a QUESTION or HUMAN alert: the engine's words only. */
       reason?: string;
+      /** Everything this ONE alert is about, most important first (alerts.ts). `kind` is tags[0]. */
+      tags?: AlertKind[];
+      urgency?: AlertUrgency;
     }
   | { type: "BOOK_TEST_DRIVE"; slot: string; models: ModelCode[] }
   | { type: "CANCEL_TEST_DRIVE"; slot: string }
@@ -194,8 +223,14 @@ export type EngineAction =
       greet: boolean;
       /** A narrowed "which one?" of a few, rather than the whole range. */
       narrowed: boolean;
-      /** How to ask: "which" (default), "explore" (after a list of every car), "first" (after several brochures). */
-      prompt?: "which" | "explore" | "first";
+      /**
+       * How to ask: "which" (default), "explore" (after a list of every car), "first" (after several
+       * brochures), "confirm" ("Did you mean the VOYAH Dream?" — a weak model match is ASKED, never
+       * acted on), "colour_which" (two cars in play and the customer named a colour).
+       */
+      prompt?: "which" | "explore" | "first" | "confirm" | "colour_which";
+      /** The colour the customer named, for "colour_which". */
+      colour?: string;
     }
   | {
       type: "CONTENT_GAP";

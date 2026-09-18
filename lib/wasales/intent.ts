@@ -82,6 +82,28 @@ export const INTENTS = [
   "USED_CARS",
   "OTHER_SPEC",
   "TEST_DRIVE_CHANGE",
+  // Samer, 2026-09-18 (the audit): real customer language the bot answered wrongly or not at all.
+  "YES",
+  "NO",
+  "BUYING_INTENT",
+  "VISIT",
+  "WAITING_COMPLAINT",
+  "NOT_INTERESTED",
+  "OPT_OUT",
+  "WRONG_NUMBER",
+  "OWNER_ISSUE",
+  "WARRANTY_CLAIM",
+  "SAFETY",
+  "BATTERY_LIFE",
+  "BATTERY_REPLACEMENT",
+  "CHARGER_INCLUDED",
+  "HOME_CHARGING",
+  "PUBLIC_CHARGING",
+  "CHARGING_COST",
+  "BRAND_ORIGIN",
+  "CONTACT_CHANNELS",
+  "NO_VIDEO",
+  "NO_BROCHURE",
   "UNKNOWN",
 ] as const;
 
@@ -177,7 +199,7 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "good morning", "good afternoon", "good evening", "good day", "greetings",
     "salam", "salaam", "salam alaykom", "salamo alaykom", "assalamu alaikum",
     "marhaba", "mar7aba", "marhabtein", "hala", "ahla", "ahlan", "ahlein",
-    "bonjour", "bonsoir", "salut", "kifak", "kifik", "kifkon",
+    "bonjour", "bonsoir", "salut", "kifak", "kifik", "kifkon", "anyone", "anybody", "any one", "allo", "alo", "yo",
     "sabaho", "saba7o", "sabah el kheir", "saba7 el kheir",
     "مرحبا", "مرحبتين", "أهلا", "أهلين", "هلا", "السلام عليكم", "سلام",
     "صباح الخير", "مسا الخير", "مساء الخير", "كيفك", "كيفكن",
@@ -198,6 +220,9 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "colour", "colours", "color", "colors", "which colour", "which color",
     "available colours", "available colors", "couleur", "couleurs",
     "alwan", "alwen", "لون", "ألوان", "الوانها", "لونها",
+    // An Arabic COLOUR question says "available colours": it is about colours, not stock (audit, 2026-09-18).
+    "الالوان المتوفرة", "الألوان المتوفرة", "الوان متوفرة", "ألوان متوفرة", "الالوان الموجودة", "الألوان الموجودة", "الالوان", "الألوان",
+    "colurs", "colers", "colrs", "coulors", "colour options", "color options", "couleurs disponibles",
   ],
   COLOUR_VIDEO: [
     "video", "videos", "vid", "clip", "clips", "reel", "reels", "walkaround",
@@ -214,14 +239,14 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
   RANGE: [
     "range", "autonomy", "autonomie", "how far", "km range", "kilometers",
     "kilometres", "kilometer", "kilometre", "km", "kms", "how many km",
-    "per charge", "masafe", "masafeh",
+    "per charge", "masafe", "masafeh", "rnge", "rnage", "raneg", "ragne",
     // Workbook E/F wordings (2026-09-18). "full charge" yields to a charging question beside it.
     weak("full charge"), "electric range", "combined range", "كم كيلو", "كم كيلو بتمشي", "قديش بتمشي", "بتمشي",
     "مسافة", "مدى", "كم كيلو", "كيلومتر",
   ],
   BATTERY: [
     "battery", "batteries", "batterie", "battery capacity", "battery size",
-    "kwh", "بطارية",
+    "kwh", "بطارية", "batery", "battry", "batterry", "baterry",
     // Workbook E/F wordings (2026-09-18). "capacity" alone is the battery; "trunk capacity" is longer and wins.
     weak("capacity"), "what battery", "سعة البطارية", "قديش البطارية",
   ],
@@ -236,9 +261,9 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
   CHARGING: [
     "charging", "charge", "charger", "chargers", "charging time",
     "fast charging", "fast charge", "supercharge", "dc", "wallbox",
-    "charging station", "plug", "sha7en", "شحن", "شاحن",
+    "plug", "sha7en", "شحن", "شاحن",
     // Workbook E/F wordings (2026-09-18): "AC / DC?", "20–80", "30–80", "how long to charge".
-    weak("ac"), "ac dc", "20 80", "30 80", "charge time", "how long to charge", "قديش بدو شحن",
+    weak("ac"), "ac dc", "20 80", "30 80", "charge time", "how long to charge", "قديش بدو شحن", "chargng", "charing", "chrging", "chargin",
   ],
   SEATS: [
     "seats", "seat", "seater", "seaters", "7 seater", "7seater", "5 seater",
@@ -253,6 +278,9 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "clearance", "قياس", "قياسات", "طول", "ارتفاع", "أبعاد", "صندوق",
     // Workbook E/F wordings (2026-09-18).
     "luggage", "trunk size", "trunk capacity", "حجم",
+    // "Will it fit in my garage?" is about the car's size — "garage" alone is a workshop word (SERVICE).
+    "fit in my garage", "fit in the garage", "fit in a garage", "fit my garage", "fit into my garage", "will it fit",
+    "fit in my parking", "fit in the parking", "fit in a parking", "fit in my driveway", "how big", "is it big", "how long is the car", "how wide",
   ],
   SPECIFICATIONS: [
     "specs", "spec", "specifications", "specification", "features",
@@ -266,6 +294,7 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "how to get", weak("where"), weak("wen"), weak("wein"), "wen ntou",
     weak("وين"), "وينكم", "وين محلكم", "عنوان", "العنوان", "موقعكم",
     "مكانكم", "صالة العرض", "معرض",
+    "ou etes vous", "où êtes vous", "ou êtes vous", "où etes vous", "situés", "situes", "adresse", "localisation", "c est ou", "wen el showroom",
   ],
   OPENING_HOURS: [
     "opening hours", "open hours", "working hours", "business hours",
@@ -300,6 +329,13 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "interest", "daf3a", "daf3a oula", "awal daf3a", "dafe3", "طريقة الدفع",
     "تقسيط", "بالتقسيط", "أقساط", "قسط", "قرض", "دفعة أولى", "دفعة",
     "شهري", "تسهيلات",
+    // Financing in every shape customers use (audit, 2026-09-18).
+    "bank finance", "bank financing", "through the bank", "through a bank", "with banks", "work with banks", "via bank",
+    "pay monthly", "monthly installments", "monthly instalments", "per month", "a month",
+    "12 months", "24 months", "36 months", "48 months", "60 months", "72 months",
+    "pay over", "over 2 years", "over 3 years", "over 4 years", "over 5 years", "years to pay", "in house financing", "in house",
+    "تمويل", "دفعات", "دفعة شهرية", "على دفعات", "tamwil", "tamweel", "ta2seet bank", "aksat", "dafa3at", "bel ta2sit", "bil ta2sit",
+    "facilités de paiement", "facilites de paiement", "facilite de paiement", "paiement échelonné", "credit auto", "mensualités", "mensualites",
     // Workbook E wording "0%" (2026-09-18): read as "zero percent" by readMessage, never a bare 0.
     "zero percent", "zero interest", "0 interest", "0 percent",
   ],
@@ -309,10 +345,11 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "جرب", "اجرب", "جربها", "اجربها", "jarrib", "jarreb",
     // Workbook E wordings (2026-09-18).
     "drive it", "book test drive",
+    "try it", "can i try", "try the", "essai", "un essai", "essayer", "test de conduite", "faire un essai",
   ],
   WARRANTY: [
     "warranty", "warranties", "guarantee", "guaranty", "garantie",
-    "kafele", "kafeleh", "kafala", "كفالة", "ضمان",
+    "kafele", "kafeleh", "kafala", "كفالة", "ضمان", "warrnty", "waranty", "warrenty", "warantee", "warrantee", "garanty",
   ],
   AVAILABILITY: [
     "available", "availability", "in stock", "stock", "instock",
@@ -330,6 +367,11 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "my old car", "badal", "بدل", "مبادلة", "تبديل",
     // Workbook E wordings (2026-09-18).
     "exchange my car", "take my old car", "بتاخدو سيارتي", "بتاخدو",
+    // Selling or swapping the customer's OWN car is the trade-in workflow (audit, 2026-09-18).
+    "do you buy cars", "buy my car", "buy cars", "sell my car", "sell you my car", "sell my old car", "selling my car",
+    "car to exchange", "a car to exchange", "swap my car", "my car worth", "car worth", "valuation", "evaluate my car",
+    "value my car", "how much will you give me", "how much would you give", "give me for my car", "how much for my car",
+    "بدي بيع سيارتي", "بيع سيارتي", "بتشترو سيارات", "تقييم سيارتي", "bade bi3 siyarte", "btishtro siyarat",
   ],
   SERVICE: [
     "service", "servicing", "maintenance", "repair", "repairs", "workshop",
@@ -368,6 +410,11 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
   COMPARE: [
     "compare", "comparison", "difference", "differences", "vs", "versus",
     "which is better", "better", "قارن", "مقارنة", "الفرق", "شو الفرق",
+    // Comparatives ask for a comparison of the cars in play ("which has more range?").
+    "which has more", "which one has more", "which has the most", "which has better", "which has the longer", "which has longer",
+    "which is faster", "which one is faster", "which is bigger", "which one is bigger", "which is larger", "which is more powerful",
+    "which one is more powerful", "which is stronger", "which goes further", "which goes farther", "between them", "between the two", "of the two",
+    "أيهما", "ايهما", "مين اقوى", "مين اسرع", "anou a7san", "ayya a7san", "min a2wa", "min asra3",
   ],
   MODEL_YEAR: [
     "model year", "what year", "which year", weak("year"), weak("2024"), weak("2025"),
@@ -395,6 +442,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "talk to a person", "can someone help", "is anyone there", "anyone there",
     "are you a bot", "is this a bot", "is this a robot", "chatbot",
     "حدا", "موظف", "شخص", "بدي احكي مع حدا", "في حدا",
+    "7ada", "bade 7ada", "7ada ye7kine", "bade 7ada ye7kine", "e7ke ma3 7ada", "bade e7ke ma3 7ada", "mowazaf", "mwazzaf",
+    "parler à quelqu un", "parler a quelqu un", "un conseiller", "quelqu un", "real human", "a real person", "live agent",
   ],
   CALLBACK: [
     "call me", "call me back", "callback", "call back", "give me a call",
@@ -434,6 +483,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "camera", "360 camera", "towing", "tow", "snow", "off road", "offroad",
     "off-road", "sound system", "speakers", "screen size", "display size",
     "heated seats", "ventilated seats", "massage seats",
+    // Equipment the workbook has no column for (2026-09-18): named back, handed to the team.
+    "carplay", "apple carplay", "car play", "android auto", "wireless charging", "wireless charger", "head up display", "hud", "ambient lighting", "fridge", "refrigerator",
     "weight", "kerb weight", "torque", "nm", "سرعة", "سرعه", "فتحة سقف", "جلد",
     "ثلج", "تلج",
   ],
@@ -445,6 +496,127 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "my test drive", "my booking", "my appointment", "غير الموعد", "الغي الموعد",
     "الغاء الموعد", "تأجيل",
   ],
+  /* ── Answers to the bot's own question (resolved against the pending question, engine.ts) ── */
+  YES: [
+    weak("yes"), "yes please", "yes pls", "yeah", "yea", "yep", "yup", "sure", "of course", "please do", "go ahead", "why not",
+    "send it", "send them", "send it please", "show me", "show it", "i do", "i would", "definitely", "absolutely",
+    "ايه", "اي", "نعم", "اكيد", "أكيد", "طبعا", "eh", "ee", "aywa", "akid", "tab3an", "yalla", "oui", "d accord", "bien sur", "bien sûr",
+  ],
+  NO: [
+    weak("no"), "no thanks", "no thank you", "nope", "nah", "not now", "maybe later", "not really", "no need",
+    "لا", "لا شكرا", "لأ", "la2", "non", "non merci",
+  ],
+  /* ── Customer control: negatives and preferences, kept for the conversation ── */
+  NO_VIDEO: [
+    "no video", "no videos", "no video please", "dont send video", "don't send video", "dont send the video", "don't send the video",
+    "dont send videos", "don't send videos", "without video", "without the video", "stop sending videos", "i dont want the video",
+    "i don't want the video", "i dont want videos", "i don't want videos", "بلا فيديو", "بدون فيديو", "ما بدي فيديو", "bala video",
+  ],
+  NO_BROCHURE: [
+    "no brochure", "no brochures", "no brochure please", "dont send the brochure", "don't send the brochure", "dont send brochure",
+    "don't send brochure", "without the brochure", "without brochure", "i dont want the brochure", "i don't want the brochure",
+    "i dont want a brochure", "i don't want a brochure", "no pdf", "no catalogue", "no catalog", "بلا كتالوج", "بدون كتالوج",
+    "ما بدي كتالوج", "bala catalogue",
+  ],
+  NOT_INTERESTED: [
+    "not interested", "no longer interested", "not interested anymore", "im not interested", "i am not interested",
+    "changed my mind", "i changed my mind", "never mind", "nevermind", "forget it", "مش مهتم", "غير مهتم", "مش مهتمة", "ما بدي",
+    "mesh mehtam", "mish mehtam", "ma bade", "ma baddi", "pas intéressé", "pas interesse", "pas intéressée",
+  ],
+  OPT_OUT: [
+    weak("stop"), "stop messaging", "stop messaging me", "stop sending", "stop sending me", "stop texting", "stop texting me",
+    "unsubscribe", "remove me", "remove my number", "delete my number", "do not contact", "dont contact me", "don't contact me",
+    "dont message me", "don't message me", "leave me alone", "وقفو", "لا ترسلو", "ما تبعتولي", "شيلو رقمي", "arrêtez", "arretez",
+  ],
+  WRONG_NUMBER: [
+    "wrong number", "wrong person", "wrong chat", "sorry wrong", "sent by mistake", "by mistake", "my mistake wrong",
+    "رقم غلط", "غلط بالرقم", "ra2em ghalat", "ghalat", "mauvais numéro", "mauvais numero",
+  ],
+  /* ── High-intent and people ── */
+  BUYING_INTENT: [
+    "want to buy", "i want to buy", "wanna buy", "would like to buy", "like to buy", "looking to buy", "ready to buy", "ready to purchase",
+    "i ll take it", "ill take it", "i will take it", "take it", "i want one", "i want it", "i want this car", "i want this one",
+    "reserve", "reserve one", "reserve it", "reservation", "book one", "book it for me", "hold one", "hold it", "hold one for me", "hold it for me", "hold a", "hold the", "can you hold", "keep one for me", "keep it for me", "put my name down",
+    "how do i buy", "how can i buy", "how to buy", "how do i order", "place an order", "order one", "i want to order", "pay a deposit", "deposit",
+    "bade eshtere", "bade eshtre", "baddi eshtere", "bde eshtere", "bade ishtere", "eshtere", "eshtre", "bade e7joz", "e7joz",
+    "بدي اشتري", "بدي اشتريها", "اشتريها", "اشتري", "أريد شراء", "اريد شراء", "أريد حجز", "اريد حجز", "حجز السيارة", "بدي احجز", "احجز", "عربون",
+    "je veux acheter", "acheter", "je la prends", "réserver", "reserver",
+  ],
+  VISIT: [
+    "pass by", "come by", "come see", "come and see", "come to see", "come see the car", "see the car", "see it in person", "in person",
+    "visit", "visit you", "visit the showroom", "showroom visit", "can i come", "can i visit", "come today", "come tomorrow", "come over",
+    "drop by", "stop by", "walk in", "come to the showroom", "بدي مر", "بدي امرق", "امرق", "بمرق", "زيارة", "بدي شوف السيارة", "شوف السيارة",
+    "bade mor", "bade emro2", "emro2", "bemro2", "shouf el siyara", "passer", "je peux passer", "venir voir", "visiter",
+  ],
+  WAITING_COMPLAINT: [
+    "still waiting", "i am waiting", "im waiting", "i m waiting", "been waiting", "waiting since", "waiting for a reply", "waiting for an answer",
+    "nobody answered", "no one answered", "nobody replied", "no one replied", "nobody answers", "no one answers", "no reply", "no answer", "no response",
+    "no one called", "nobody called", "no one called me", "nobody called me", "didnt call", "didn't call", "never called", "any update", "any updates",
+    "any news", "hours ago", "since yesterday", "since morning", "since this morning", "days ago", "why no one",
+    "ما حدا رد", "ما حدا جاوب", "ما حدا اتصل", "ناطر", "بعدني ناطر", "من مبارح", "ma 7ada rad", "ma 7ada jeweb", "natir", "ba3dne natir",
+    "personne ne répond", "personne ne repond", "toujours pas de réponse",
+  ],
+  /* ── Owners and after-sales: never answered with sales material ── */
+  OWNER_ISSUE: [
+    "i own", "i own a", "i bought", "i bought a", "i have a voyah", "i have a mhero", "my voyah", "my mhero",
+    // Ownership alone is not a problem: "trade in my car", "charge my car at home". WEAK — any real question wins.
+    weak("my car"), weak("my vehicle"),
+    "screen is frozen", "screen frozen", "frozen", "screen is black", "black screen", "stopped working", "not starting", "wont start", "won't start",
+    "doesnt start", "doesn't start", "does not start", "error", "error message", "warning light", "warning", "check engine", "noise", "leak", "leaking",
+    "stuck", "spare key", "lost my key", "lost key", "key fob", "new key", "software update", "update the software", "system update", "ota", "recall",
+    "breakdown", "broke down", "flat tire", "flat tyre", "puncture", "ac not cooling", "air conditioning", "technical issue", "technical problem",
+    "malfunction", "fault", "faulty", "had an accident", "after an accident", "after the accident", "accident repair", "body repair", "scratch", "dent", weak("سيارتي"), "عندي فوياه", "معطلة", "مفتاح", "تحديث",
+    weak("siyarte"), "3otol", "m3attale", weak("ma voiture"), "en panne",
+  ],
+  WARRANTY_CLAIM: [
+    "warranty claim", "claim warranty", "claim the warranty", "under warranty", "warranty repair", "covered by warranty", "warranty issue",
+    "warranty problem", "my warranty", "use my warranty", "use the warranty", "مطالبة كفالة", "على الكفالة", "تحت الكفالة", "sous garantie",
+  ],
+  /* ── Topics the workbook has no column for: named honestly, handed to the team, never a neighbouring fact ── */
+  SAFETY: [
+    "safe", "safety", "is it safe", "fire", "fire risk", "catch fire", "catches fire", "explode", "explodes", "explosion", "blow", "blow up",
+    "burn", "burns", "crash test", "crash", "ncap", "euro ncap", "safety rating", "airbag", "airbags", "how many airbags",
+    "آمنة", "امنة", "امان", "أمان", "حريق", "انفجار", "aman", "amene", "sécurité", "securite",
+  ],
+  BATTERY_LIFE: [
+    "battery life", "battery lifespan", "lifespan", "life span", "battery last", "battery lasts", "how long does the battery last",
+    "how long will the battery last", "battery health", "battery degradation", "degradation", "battery years", "years does the battery",
+    "عمر البطارية", "3omr el battery", "3omr el batarye", "durée de vie",
+  ],
+  BATTERY_REPLACEMENT: [
+    "battery replacement", "replace the battery", "replacing the battery", "replacement battery", "new battery", "battery replacement cost",
+    "battery cost", "battery price", "cost of the battery", "price of the battery", "cost of a battery", "price of a battery",
+    "سعر البطارية", "تغيير البطارية", "كلفة البطارية", "se3r el battery",
+  ],
+  CHARGER_INCLUDED: [
+    "give a charger", "charger included", "include a charger", "includes a charger", "comes with a charger", "come with a charger",
+    "charger with the car", "with a charger", "wallbox included", "charging cable", "cable included", "is there a charger", "get a charger",
+    "شاحن مع السيارة", "بيجي معها شاحن", "مع شاحن", "ma3a charger", "chargeur inclus",
+  ],
+  HOME_CHARGING: [
+    "charge at home", "charging at home", "home charging", "home charger", "charge it at home", "at my house", "normal socket", "regular socket",
+    "wall socket", "household socket", "wallbox at home", "wall box at home", "need a wallbox", "charger at home", "install a charger", "charger installation", "شحن بالبيت", "اشحنها بالبيت", "بالبيت", "bel beit", "bil beit",
+    "recharger à la maison", "a la maison",
+  ],
+  PUBLIC_CHARGING: [
+    "where can i charge", "where to charge", "where do i charge", "where can i charge it", "charging stations", "charging station",
+    "public charging", "public chargers", "chargers in lebanon", "charging points", "charging network", "charge on the road",
+    "وين بشحن", "وين بشحنها", "محطات شحن", "محطة شحن", "wen bish7an", "wen bsha7en", "bornes de recharge",
+  ],
+  CHARGING_COST: [
+    "charging cost", "cost of charging", "cost to charge", "charging price", "price to charge", "how much to charge",
+    "how much does charging cost", "how much does it cost to charge", "electricity cost", "electricity bill", "cost per charge",
+    "كلفة الشحن", "سعر الشحن", "تكلفة الشحن", "kelfet el sha7en",
+  ],
+  BRAND_ORIGIN: [
+    "who makes", "who makes voyah", "who makes mhero", "who manufactures", "manufacturer", "made in", "where is it made", "where is voyah from",
+    "where is mhero from", "where is it from", "where are they from", "which country", "what country", "country of origin", "is it chinese",
+    "chinese", "china", "dongfeng", "what brand is", "صيني", "صينية", "مين بيصنع", "صناعة", "بلد المنشأ", "sine", "chinois", "chinoise",
+  ],
+  CONTACT_CHANNELS: [
+    "email", "e mail", "email address", "mail address", "website", "web site", "site web", "instagram", "insta", "instagram page",
+    "facebook", "facebook page", "tiktok", "social media", "linkedin", "ايميل", "بريد", "موقع الكتروني", "موقعكم الالكتروني", "انستغرام", "انستا",
+  ],
   // An acknowledgement only counts when nothing else was said: all weak.
   ACKNOWLEDGEMENT: [
     weak("thanks"), weak("thank you"), weak("thankyou"), weak("thx"), weak("merci"),
@@ -452,7 +624,7 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     weak("tnx"), weak("thanx"), weak("شكرا"), weak("ok"), weak("okay"), weak("okk"),
     weak("noted"), weak("great"), weak("perfect"), weak("alright"), weak("tamam"),
     weak("تمام"), weak("ماشي"), weak("okay deal"), weak("ok deal"), weak("deal done"),
-    weak("pass by"), weak("stay in contact"), weak("will send them"), weak("i will send"),
+    weak("stay in contact"), weak("will send them"), weak("i will send"),
   ],
 };
 
@@ -528,6 +700,37 @@ const PROTECTED: ReadonlySet<string> = new Set([
   ...COMPILED.flatMap((c) => c.tokens),
   ...NEVER_A_TYPO,
 ]);
+
+/**
+ * The vocabulary's own words, for the model-entity resolver (entities.ts):
+ *  - `single`: every one-word phrase ("person", "price", "garage") — a typo-tolerant model match
+ *    that lands on one of these is that word, never a misspelt car;
+ *  - `carTalk`: the content words of the sales and specification intents — "price", "range",
+ *    "colours", "brochure", "stock" — whose presence beside "dream" says the Dream is meant.
+ */
+const CAR_TALK_INTENTS: readonly Intent[] = [
+  "PRICE", "HORSEPOWER", "RANGE", "BATTERY", "POWERTRAIN", "CHARGING", "SEATS", "DIMENSIONS", "SPECIFICATIONS", "WARRANTY",
+  "COLOUR", "COLOUR_VIDEO", "BROCHURE", "GENERAL_INFO", "AVAILABILITY", "FINANCING", "TEST_DRIVE", "DISCOUNT", "COMPARE",
+  "MODEL_YEAR", "INTERIOR_COLOUR", "MEDIA_PHOTOS", "BUYING_INTENT",
+];
+const NOT_CONTENT = new Set([
+  "how", "much", "many", "the", "what", "which", "tell", "more", "know", "for", "can", "does", "do", "you", "have", "is", "it", "in", "of", "to", "a", "me",
+  "about", "and", "or", "i", "my", "your", "with", "on", "at", "this", "that", "are", "be", "per", "up", "out", "off", "no", "new", "time", "long", "far", "full",
+  "want", "take", "one", "ll", "ready", "go", "ahead", "put", "name", "down", "first", "free", "plan", "check", "service", "any", "get", "big", "size", "real", "drive", "test", "try", "car", "now", "available",
+]);
+
+export function vocabularyWords(): { single: ReadonlySet<string>; carTalk: ReadonlySet<string> } {
+  const single = new Set<string>();
+  const carTalk = new Set<string>();
+  for (const c of COMPILED) {
+    if (c.tokens.length === 1) single.add(c.tokens[0]);
+    if (c.intent !== null && CAR_TALK_INTENTS.includes(c.intent)) {
+      for (const t of c.tokens) if (t.length >= 2 && !NOT_CONTENT.has(t)) carTalk.add(t);
+    }
+  }
+  for (const t of ["available", "test", "drive", "stock"]) carTalk.add(t);
+  return { single, carTalk };
+}
 
 /** Each phrase, normalized, with its intent — for the uniqueness test. */
 export function lexiconPhrases(): { intent: Intent | null; phrase: string }[] {
@@ -767,10 +970,14 @@ export function readChoiceNumber(tokens: readonly string[]): number | null {
 
 export type CategoryFilter = "EV" | "EREV" | "PHEV" | "HYBRID";
 
-const EV_WORDS = ["ev", "evs", "bev", "electric", "fully electric", "full electric", "electric cars", "كهربا", "كهرباء", "كهربائي", "كهربائية"];
+const EV_WORDS = [
+  "ev", "evs", "bev", "electric", "fully electric", "full electric", "electric cars", "كهربا", "كهرباء", "كهربائي", "كهربائية", "كهربائيه",
+  // Arabizi and French (2026-09-18): "3andkon siyarat kahraba?", "voiture électrique".
+  "kahraba", "kahrabe", "kahraba2", "kahrabaiye", "kahraba2iye", "kahrabeye", "electrique", "électrique", "electriques", "électriques",
+];
 const EREV_WORDS = ["erev", "erevs", "reev", "range extender", "extended range", "range extended"];
 const PHEV_WORDS = ["phev", "phevs", "plug in", "plugin", "plug in hybrid"];
-const HYBRID_WORDS = ["hybrid", "hybrids", "هايبرد", "هايبريد"];
+const HYBRID_WORDS = ["hybrid", "hybrids", "هايبرد", "هايبريد", "hybride", "hybrides", "haybrid", "هجين", "هجينة"];
 
 function hasRun(tokens: readonly string[], phrase: string): boolean {
   const words = normalize(phrase).split(" ");
@@ -787,6 +994,45 @@ export function readCategories(tokens: readonly string[]): CategoryFilter[] {
   if (EREV_WORDS.some((w) => hasRun(tokens, w))) out.push("EREV");
   if (PHEV_WORDS.some((w) => hasRun(tokens, w))) out.push("PHEV");
   else if (HYBRID_WORDS.some((w) => hasRun(tokens, w))) out.push("HYBRID");
+  return out;
+}
+
+/**
+ * "and the Taishan?", "same for the Dream", "what about the Passion L": the PREVIOUS question,
+ * asked of another car. Not an intent — it carries no question of its own — so it is read apart.
+ */
+const SAME_QUESTION_RUNS: readonly string[][] = [
+  ["same", "for"], ["same", "question"], ["same", "thing"], ["and", "for"], ["what", "about"], ["how", "about"], ["and", "the"], ["also", "the"],
+  ["and"], ["also"], ["same"], ["w", "lal"], ["w", "el"], ["kamen"], ["كمان"], ["نفس", "الشي"], ["et", "la"], ["et", "pour"], ["et"],
+];
+
+export function readsSameQuestion(tokens: readonly string[]): boolean {
+  return SAME_QUESTION_RUNS.some((run) => run.every((w, i) => tokens[i] === w)) || tokens.includes("same") || tokens.includes("too");
+}
+
+/**
+ * WHAT KIND OF CAR the customer is looking for, when they name a need and not a model ("the
+ * fastest one", "a family car", "something for off-road"). The engine answers ONLY from the
+ * workbook's columns — power, range, size, seats — and never says "best"; a need the workbook has
+ * no column for (SUV, luxury, off-road, a budget) is handed to the team with the list of models.
+ */
+export type Need = "FASTEST" | "LONGEST_RANGE" | "BIGGEST" | "FAMILY" | "SUV" | "OFF_ROAD" | "LUXURY" | "BUDGET" | "GENERAL";
+
+const NEED_WORDS: Readonly<Record<Need, readonly string[]>> = {
+  FASTEST: ["fastest", "quickest", "most powerful", "strongest", "sportiest", "most hp", "most horsepower", "اسرع", "أسرع", "اقوى", "أقوى", "asra3", "a2wa", "le plus rapide", "la plus rapide", "plus puissant", "plus puissante"],
+  LONGEST_RANGE: ["longest range", "most range", "best range", "highest range", "goes furthest", "goes farthest", "اطول مدى", "أطول مدى", "plus grande autonomie"],
+  BIGGEST: ["biggest", "largest", "most spacious", "roomiest", "most space", "اكبر", "أكبر", "akbar", "le plus grand", "la plus grande"],
+  FAMILY: ["family car", "family", "for my family", "for the family", "kids", "children", "big family", "عائلة", "عائلية", "عيلة", "للعيلة", "3ayle", "3ayle kbire", "famille", "familiale"],
+  SUV: ["suv", "suvs", "crossover", "4x4", "jeep style"],
+  OFF_ROAD: ["for off road", "for offroad", "off roader", "offroader", "for the mountains", "mountains", "for the jabal", "jabal", "للجبل", "جبل", "tout terrain"],
+  LUXURY: ["luxury", "luxurious", "most luxurious", "premium", "vip", "high end", "فخمة", "فخامة", "افخم", "أفخم", "luxe"],
+  BUDGET: ["budget", "my budget", "most expensive", "least expensive one", "top of the range", "cheapest", "most affordable", "affordable", "least expensive", "lowest price", "entry level", "ميزانية", "ميزانيتي", "moins cher", "moins chere"],
+  GENERAL: ["recommend", "recommendation", "recommendations", "suggest", "suggestion", "which car should i", "which one should i", "what should i get", "what should i buy", "best car", "which is the best", "help me choose", "help me pick", "بتنصح", "بتنصحني", "شو بتنصحني", "تنصحني", "btensa7", "btensa7ne", "conseillez", "conseil"],
+};
+
+export function readNeeds(tokens: readonly string[]): Need[] {
+  const out: Need[] = [];
+  for (const need of Object.keys(NEED_WORDS) as Need[]) if (NEED_WORDS[need].some((w) => hasRun(tokens, w))) out.push(need);
   return out;
 }
 

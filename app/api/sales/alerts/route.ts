@@ -32,6 +32,8 @@ export async function GET(request: Request): Promise<NextResponse> {
       alerts: alerts.map((a) => ({
         ...a,
         label: alertKindLabel(a.kind),
+        // One alert, every reason: "Wants to buy" + [Test drive, Financing, Stock].
+        tagLabels: a.tags.filter((t) => t !== a.kind).map(alertKindLabel),
         cars: a.models.map((m) => modelByCode(MONZA_KNOWLEDGE, m)?.displayName ?? m),
       })),
     },

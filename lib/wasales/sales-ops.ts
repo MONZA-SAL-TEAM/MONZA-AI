@@ -20,7 +20,8 @@ import { channelDb, listAccounts } from "@/lib/channels/store";
 import { sendWhatsAppTemplate } from "@/lib/channels/whatsapp";
 import { slotLabel } from "@/lib/wasales/booking";
 import { MONZA_KNOWLEDGE, modelByCode, type ModelCode } from "@/lib/wasales/knowledge";
-import type { AlertKind } from "@/lib/wasales/actions";
+import type { AlertKind, AlertUrgency } from "@/lib/wasales/actions";
+import { closedByStaffReply, mergeIntoOpen, sortKinds, urgencyOf, type OpenAlertRow } from "@/lib/wasales/alerts";
 
 export interface ChatRef {
   accountId: string;
@@ -42,6 +43,9 @@ export interface SalesAlert {
   slotAt: string | null;
   /** Why a person is needed (NEEDS_PERSON): the engine's words, never the customer's. */
   reason: string | null;
+  /** Everything this one alert is about, most important first; `kind` is the first. */
+  tags: AlertKind[];
+  urgency: AlertUrgency;
   status: "open" | "done";
   createdAt: string;
 }
@@ -69,6 +73,9 @@ const KIND_LABEL: Readonly<Record<AlertKind, string>> = {
   HUMAN: "Asked for a person",
   QUESTION: "Question for the team",
   LEAD: "Follow up: received the brochure and the video",
+  BUYING: "Wants to buy",
+  OVERDUE: "Kept waiting — reply now",
+  VISIT: "Wants to visit the showroom",
 };
 
 export function alertKindLabel(kind: AlertKind): string {
@@ -250,12 +257,48 @@ export function alertSummary(a: {
 
 export async function recordAlert(
   chat: ChatRef,
-  a: { kind: AlertKind; models: readonly ModelCode[]; name: string | null; phone: string | null; slot: string | null; reason?: string | null }
+  a: { kind: AlertKind; models: readonly ModelCode[]; name: string | null; phone: string | null; slot: string | null; reason?: string | null; tags?: readonly AlertKind[]; urgency?: AlertUrgency }
 ): Promise<boolean> {
   const sb = channelDb();
   if (!sb) return false;
   const phone = digits(a.phone) ?? chat.customerPhone;
   const name = a.name ? a.name.slice(0, 120) : null;
+  const tags = sortKinds(a.tags && a.tags.length > 0 ? [...a.tags] : [a.kind]);
+  const urgency: AlertUrgency = a.urgency ?? urgencyOf(tags);
+
+  // ONE OPEN ALERT PER CHAT (2026-09-18): a chat that is already waiting for a person keeps its alert, and
+  // what the customer asks next is ADDED to it — escalated when it is more urgent. Needs migration 018
+  // (tags, urgency); until it is applied this read fails and the older per-kind rule below still runs.
+  const sinceAny = new Date(Date.now() - 24 * 3_600_000).toISOString();
+  const { data: openAny, error: openAnyError } = await sb
+    .from("sales_alerts")
+    .select("id, kind, tags, urgency, models, customer_name, customer_phone, slot_at, reason")
+    .eq("account_id", chat.accountId)
+    .eq("conversation_ref", chat.conversationRef)
+    .eq("status", "open")
+    .gte("created_at", sinceAny)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (!openAnyError && Array.isArray(openAny) && openAny.length > 0) {
+    const r = openAny[0] as Record<string, unknown>;
+    const current: OpenAlertRow = {
+      kind: r.kind as AlertKind,
+      tags: Array.isArray(r.tags) ? (r.tags as AlertKind[]) : [],
+      urgency: (typeof r.urgency === "string" ? r.urgency : "normal") as AlertUrgency,
+      models: Array.isArray(r.models) ? (r.models as string[]) : [],
+      customer_name: typeof r.customer_name === "string" ? r.customer_name : null,
+      customer_phone: typeof r.customer_phone === "string" ? r.customer_phone : null,
+      slot_at: typeof r.slot_at === "string" ? r.slot_at : null,
+      reason: typeof r.reason === "string" ? r.reason : null,
+    };
+    const merged = mergeIntoOpen(current, { kind: a.kind, tags, urgency, models: a.models, name, phone, slot: a.slot, reason: a.reason ?? null });
+    if (merged.changed) {
+      const { error: mergeError } = await sb.from("sales_alerts").update(merged.row).eq("id", String(r.id));
+      if (mergeError) console.error(`[sales/alert] could not merge (${mergeError.code ?? "?"})`);
+      else await notifySalesPhone(alertSummary({ kind: merged.row.kind, models: merged.row.models as ModelCode[], name: merged.row.customer_name, phone: merged.row.customer_phone, slot: merged.row.slot_at }));
+    }
+    return true;
+  }
 
   // The same question twice in a row is one follow-up, not two.
   const since = new Date(Date.now() - 6 * 3_600_000).toISOString();
@@ -296,6 +339,7 @@ export async function recordAlert(
       customer_phone: phone,
       slot_at: a.slot,
       reason: a.reason ? a.reason.slice(0, 300) : null,
+      ...(openAnyError ? {} : { tags, urgency }),
     })
     .select("id")
     .single();
@@ -310,19 +354,85 @@ export async function recordAlert(
   return true;
 }
 
+/**
+ * ALERTS CLOSE THEMSELVES WHEN A PERSON HAS REPLIED (2026-09-18: 8 of the 14 open alerts were stale —
+ * the customer had been answered hours before). An alert is closed when a STAFF message in the same
+ * chat is later than it — never the bot's own messages, and never the kinds a person closes by hand
+ * (a call to make, a test drive to arrange, a car to value, a sale to follow: alerts.ts MANUAL_CLOSE).
+ * Only WhatsApp chats are stored (Instagram/Facebook keep no copy), so only those can be checked.
+ * Best effort: a failure here closes nothing and hides nothing.
+ */
+async function closeAnswered(rows: Record<string, unknown>[]): Promise<Set<string>> {
+  const closed = new Set<string>();
+  const sb = channelDb();
+  if (!sb) return closed;
+  const isUuid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(v);
+  const refs = [...new Set(rows.map((r) => r.conversation_ref).filter(isUuid))];
+  if (refs.length === 0) return closed;
+  const { data, error } = await sb
+    .from("channel_messages")
+    .select("conversation_id, sent_at")
+    .in("conversation_id", refs)
+    .eq("direction", "out")
+    .eq("author", "staff")
+    .order("sent_at", { ascending: false })
+    .limit(2000);
+  if (error || !Array.isArray(data)) return closed;
+  const lastReply = new Map<string, string>();
+  for (const m of data as { conversation_id: string; sent_at: string }[]) if (!lastReply.has(m.conversation_id)) lastReply.set(m.conversation_id, m.sent_at);
+  const at = new Date().toISOString();
+  for (const r of rows) {
+    const ref = r.conversation_ref;
+    if (!isUuid(ref)) continue;
+    const answered = closedByStaffReply(
+      { kind: r.kind as AlertKind, tags: Array.isArray(r.tags) ? (r.tags as AlertKind[]) : [], created_at: String(r.created_at) },
+      lastReply.get(ref) ?? null
+    );
+    if (!answered) continue;
+    const { error: closeError } = await sb
+      .from("sales_alerts")
+      .update({ status: "done", closed_at: at, closed_by: "auto: a person replied in the chat" })
+      .eq("id", String(r.id))
+      .eq("status", "open");
+    if (!closeError) closed.add(String(r.id));
+  }
+  return closed;
+}
+
 export async function listOpenAlerts(): Promise<SalesAlert[] | null> {
   const sb = channelDb();
   if (!sb) return null;
-  const { data, error } = await sb
+  let { data, error } = await sb
     .from("sales_alerts")
-    .select("id, account_id, thread_id, kind, models, customer_name, customer_phone, slot_at, reason, status, created_at")
+    .select("id, account_id, conversation_ref, thread_id, kind, tags, urgency, models, customer_name, customer_phone, slot_at, reason, status, created_at")
     .eq("status", "open")
     .order("created_at", { ascending: false })
     .limit(100);
+  if (error) {
+    // Migration 018 (tags, urgency) not applied yet: the alerts are still listed, as they were.
+    const older = await sb
+      .from("sales_alerts")
+      .select("id, account_id, conversation_ref, thread_id, kind, models, customer_name, customer_phone, slot_at, reason, status, created_at")
+      .eq("status", "open")
+      .order("created_at", { ascending: false })
+      .limit(100);
+    data = older.data as typeof data;
+    error = older.error;
+  }
   if (error || !Array.isArray(data)) return null;
-  return data.map((row) => {
+  const rows = data as Record<string, unknown>[];
+  const closed = await closeAnswered(rows).catch(() => new Set<string>());
+  const URGENCY_RANK: Record<string, number> = { overdue: 0, hot: 1, qualified: 2, normal: 3 };
+  return rows
+    .filter((r) => !closed.has(String(r.id)))
+    .sort((a, b) => (URGENCY_RANK[String(a.urgency ?? "normal")] ?? 3) - (URGENCY_RANK[String(b.urgency ?? "normal")] ?? 3))
+    .map((row) => {
     const r = row as Record<string, unknown>;
+    const kind = r.kind as AlertKind;
+    const tags = Array.isArray(r.tags) && r.tags.length > 0 ? (r.tags as AlertKind[]) : [kind];
     return {
+      tags,
+      urgency: (typeof r.urgency === "string" ? r.urgency : urgencyOf(tags)) as AlertUrgency,
       id: String(r.id),
       accountId: String(r.account_id),
       threadId: String(r.thread_id),

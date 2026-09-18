@@ -235,8 +235,9 @@ describe("the definition of done (§62)", () => {
     assert.deepEqual(labels(range), ["SEND COURAGE RANGE"]);
   });
 
-  test("5. what about Passion L? — its brochure, then its colours", () => {
-    assert.deepEqual(labels(passionL), ["SEND PASSION L BROCHURE", "SHOW PASSION L COLOURS"]);
+  test("5. what about Passion L? — its brochure, the question just asked (range) carried over, then its colours", () => {
+    // 2026-09-18: "and the Taishan?", "what about the Passion L?" ask the PREVIOUS question of the car named now.
+    assert.deepEqual(labels(passionL), ["SEND PASSION L BROCHURE", "SEND PASSION L RANGE", "SHOW PASSION L COLOURS"]);
     assert.equal(passionL.activation?.kind, "SWITCH");
     assert.equal(passionL.nextState.selectedColour, null, "the Courage's colour does not carry over");
   });
@@ -474,7 +475,11 @@ describe("questions a person answers", () => {
     assert.ok(labels(d).includes("SAY PRICE HANDOFF (COURAGE)"));
     assert.ok(labels(d).includes("SAY FINANCING INFO (COURAGE)"));
     assert.ok(labels(d).includes("SAY TEST DRIVE REQUEST (COURAGE)"));
-    for (const kind of ["PRICE", "FINANCING", "TEST DRIVE"]) assert.ok(labels(d).includes(`ALERT SALES — ${kind} (COURAGE)`), kind);
+    // ONE actionable alert for the message, carrying every reason — never three rows on the inbox (2026-09-18).
+    const alerts = d.actions.filter((a) => a.type === "ALERT_SALES");
+    assert.equal(alerts.length, 1, labels(d).join(" | "));
+    assert.ok(labels(d).includes("ALERT SALES — TEST DRIVE + FINANCING + PRICE (COURAGE)"), labels(d).join(" | "));
+    if (alerts[0].type === "ALERT_SALES") assert.equal(alerts[0].urgency, "qualified");
     assert.ok(!d.actions.some((a) => a.type === "SEND_CONTACT_FALLBACK"), "the hand-off is already said");
     const nameQuestions = textKeys(d).filter((k) => k === "ASK_NAME" || k === "ASK_NAME_AND_PHONE" || k === "TEST_DRIVE_ASK_NAME");
     assert.equal(nameQuestions.length, 0, labels(d).join(" | "));
@@ -558,7 +563,8 @@ describe("leads, test drives, stock and trade-ins", () => {
     assert.ok(alert?.type === "ALERT_SALES");
     if (alert?.type === "ALERT_SALES") {
       assert.equal(alert.name, "Mary");
-      assert.equal(alert.phone, "70123456");
+      // A Lebanese number however it is typed is kept in one form: 70123456 → 96170123456 (2026-09-18).
+      assert.equal(alert.phone, "96170123456");
     }
   });
 
@@ -958,9 +964,11 @@ describe("the invariants (§60), over every pattern on every account", () => {
           }
 
           // An activation opens with its own brochure.
-          if (d.activation) {
+          // …unless that brochure went out in the reply just before ("both brochures — which one first?"),
+          // or the customer asked not to be sent brochures (2026-09-18).
+          if (d.activation && !d.previousState.brochuresJustSent.includes(d.activation.model) && !d.nextState.noBrochure) {
             const b = customer[0];
-            assert.ok(b.type === "SEND_BROCHURE" && b.model === d.activation.model, where);
+            assert.ok(b && b.type === "SEND_BROCHURE" && b.model === d.activation.model, where);
           }
 
           // No action twice.

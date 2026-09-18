@@ -64,6 +64,12 @@ export interface ThreadFacts {
   channel: SalesChannel;
   messages: readonly InboxMessage[];
   windowOpen: boolean;
+  /**
+   * The headline of the ad or post this chat started from ("Voyah COURAGE"), as Meta sent it with the
+   * FIRST message (lead_touchpoints). Soft context for the engine: it answers "how much is it?" when the
+   * customer names no car, and never locks the chat to that car.
+   */
+  adHeadline?: string | null;
 }
 
 /**
@@ -206,6 +212,7 @@ export function suggestForThread(
       channel: facts.channel,
       conversationIsNew: outs.length === 0,
       now: latest.at,
+      ...(facts.adHeadline ? { referral: { headline: facts.adHeadline } } : {}),
     },
     saved.state,
     deps,

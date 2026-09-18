@@ -23,6 +23,9 @@ describe("what a non-pilot message is about", () => {
       kind: "PRICE",
       models: ["COURAGE"],
       reason: "Bot not switched on for this chat: the customer asked about the price (COURAGE).",
+      // ONE alert per message, with every reason as a tag and how soon to act (2026-09-18).
+      tags: ["PRICE"],
+      urgency: "qualified",
     });
     assert.equal(triage("do you have installments?")?.kind, "FINANCING");
     assert.equal(triage("can i book a test drive for the taishan")?.kind, "TEST_DRIVE");

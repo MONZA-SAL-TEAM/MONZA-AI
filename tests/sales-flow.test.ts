@@ -81,6 +81,8 @@ describe("the definition of done, as a customer on Instagram would receive it", 
     assert.deepEqual(said[4], [
       "Here is the VOYAH Passion L brochure.",
       "[PDF: VOYAH PASSION L Catalogue 2026.pdf]",
+      // "what about Passion L?" right after "range?": the same question, asked of the car named now (2026-09-18).
+      "The VOYAH Passion L offers TEST-RANGE-PASSION-L.",
       "Which exterior colour would you like to see? We can show you the VOYAH Passion L in Obsidian Black or Titanium Grey. [quick_replies: Obsidian Black | Titanium Grey]",
     ]);
     assert.deepEqual(said[5], ["The VOYAH Passion L offers TEST-RANGE-PASSION-L."]);

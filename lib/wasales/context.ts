@@ -24,7 +24,12 @@
 import { INTENTS, type CategoryFilter, type Intent } from "@/lib/wasales/intent";
 import { isModelCode, type ModelCode } from "@/lib/wasales/knowledge";
 
-export type Awaiting = "NONE" | "MODEL" | "COLOUR" | "LEAD_NAME" | "LEAD_PHONE" | "TEST_DRIVE_SLOT" | "PERSON";
+/**
+ * The question the bot is waiting on. CONFIRM_MODEL: "Would you like to see it?" / "Did you mean
+ * the VOYAH Dream?" — answered by yes / no (offeredModels holds the car). COLOUR_OF_WHICH: two
+ * cars in play and the customer named a colour — "which car?" (selectedColour holds the colour word).
+ */
+export type Awaiting = "NONE" | "MODEL" | "COLOUR" | "LEAD_NAME" | "LEAD_PHONE" | "TEST_DRIVE_SLOT" | "PERSON" | "CONFIRM_MODEL" | "COLOUR_OF_WHICH";
 
 /**
  * A sales request the team must follow up (workbook, C Decisions): what it is
@@ -91,6 +96,29 @@ export interface SearchEngineState {
    * to the person who has already been told, and any real answer clears this.
    */
   unknownSaid: boolean;
+
+  /* ── Explicit conversation memory (2026-09-18): the bot answers in context, not per message ── */
+
+  /** The car of the ad the customer came from: soft context, never a lock (any named car wins). */
+  adModel: ModelCode | null;
+  /** What was last asked about a car (PRICE, RANGE…), so "and the Taishan?" asks the same of it. */
+  lastAsked: Intent[];
+  /** The last two cars discussed, newest first: "which has more range?" compares them. */
+  recentModels: ModelCode[];
+  /** "No video please" / "I don't want the brochure": kept for the rest of the conversation. */
+  noVideo: boolean;
+  noBrochure: boolean;
+  /** A test-drive DAY given without an hour ("tomorrow"), as yyyy-mm-dd, waiting for "at 4". */
+  pendingDay: string | null;
+  /** A trade-in is being taken down: the customer's next photos and figures belong to it. */
+  tradeIn: boolean;
+  tradeInPhotos: number;
+  /** "Not interested" / "stop": no more sales material is pushed at this customer. */
+  notInterested: boolean;
+  /** A showroom visit was asked for a day Monza is closed: the next day or time typed is for that visit. */
+  pendingVisit: boolean;
+  /** Brochures sent in the reply that asked "which one first?": not sent again when the customer picks one. */
+  brochuresJustSent: ModelCode[];
   /** ISO time of the last message the engine read, from the message itself. */
   updatedAt: string | null;
 }
@@ -117,6 +145,17 @@ export function freshState(): SearchEngineState {
     requestedSlot: null,
     manualTakeover: false,
     unknownSaid: false,
+    adModel: null,
+    lastAsked: [],
+    recentModels: [],
+    noVideo: false,
+    noBrochure: false,
+    pendingDay: null,
+    tradeIn: false,
+    tradeInPhotos: 0,
+    notInterested: false,
+    pendingVisit: false,
+    brochuresJustSent: [],
     updatedAt: null,
   };
 }
@@ -167,7 +206,7 @@ export function hasContext(state: SearchEngineState): boolean {
 
 /* ── Reading a stored state ──────────────────────────────────────────────── */
 
-const AWAITING: readonly Awaiting[] = ["NONE", "MODEL", "COLOUR", "LEAD_NAME", "LEAD_PHONE", "TEST_DRIVE_SLOT", "PERSON"];
+const AWAITING: readonly Awaiting[] = ["NONE", "MODEL", "COLOUR", "LEAD_NAME", "LEAD_PHONE", "TEST_DRIVE_SLOT", "PERSON", "CONFIRM_MODEL", "COLOUR_OF_WHICH"];
 const CATEGORIES: readonly CategoryFilter[] = ["EV", "EREV", "PHEV", "HYBRID"];
 
 function leadOrNull(value: unknown): LeadState | null {
@@ -246,6 +285,17 @@ export function parseState(stored: unknown): SearchEngineState {
     requestedSlot: typeof s.requestedSlot === "string" && Number.isFinite(Date.parse(s.requestedSlot)) ? s.requestedSlot : null,
     manualTakeover: s.manualTakeover === true,
     unknownSaid: s.unknownSaid === true,
+    adModel: modelOrNull(s.adModel),
+    lastAsked: Array.isArray(s.lastAsked) ? [...new Set(s.lastAsked.filter(isIntent))].slice(0, 8) : [],
+    recentModels: Array.isArray(s.recentModels) ? s.recentModels.map(modelOrNull).filter((m): m is ModelCode => m !== null).slice(0, 2) : [],
+    noVideo: s.noVideo === true,
+    noBrochure: s.noBrochure === true,
+    pendingDay: typeof s.pendingDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s.pendingDay) ? s.pendingDay : null,
+    tradeIn: s.tradeIn === true,
+    tradeInPhotos: typeof s.tradeInPhotos === "number" && Number.isInteger(s.tradeInPhotos) && s.tradeInPhotos >= 0 ? Math.min(s.tradeInPhotos, 50) : 0,
+    notInterested: s.notInterested === true,
+    pendingVisit: s.pendingVisit === true,
+    brochuresJustSent: Array.isArray(s.brochuresJustSent) ? s.brochuresJustSent.map(modelOrNull).filter((m): m is ModelCode => m !== null).slice(0, 8) : [],
     updatedAt:
       typeof s.updatedAt === "string" && Number.isFinite(Date.parse(s.updatedAt))
         ? s.updatedAt

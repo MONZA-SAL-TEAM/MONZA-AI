@@ -229,7 +229,9 @@ const CASES: Case[] = [
   { category: "colours", name: "one-video cars (Dream, Passion) send it, never a one-answer question", messages: ["passion colours"], say: [/VOYAH Passion/], notSay: [/Which exterior colour/], files: 2 },
   { category: "colours", name: "MHERO 2 never offers Polar Silver without a video", messages: ["mhero 2 colours"], say: [/Piano Black/, /Olive Green/, /Clouds White/], notSay: [/Polar Silver/] },
   { category: "brochure", name: "one brochure", messages: ["send me the courage brochure"], say: [/Courage brochure/], files: 1 },
-  { category: "brochure", name: "all brochures", messages: ["all brochures"], files: 8 },
+  // Eight large files in one reply is a flood (the audit, 2026-09-18): a menu — which model(s)?
+  { category: "brochure", name: "all brochures: a menu, not a flood", messages: ["all brochures"], say: [/which model or models/i, /Which model/i], files: 0 },
+  { category: "brochure", name: "all brochures, then the one they pick", messages: ["all brochures", "VOYAH Courage"], say: [/Courage brochure/], files: 1 },
   { category: "photos", name: "photos become a video offer", messages: ["send me photos of the taishan"], say: [/video of the VOYAH Taishan/i, /Obsidian Black/] },
   { category: "media in", name: "a photo with no words goes to a person", messages: [{ text: "", hasMedia: true }], quietForPerson: true },
 
