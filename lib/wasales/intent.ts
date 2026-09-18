@@ -104,6 +104,13 @@ export const INTENTS = [
   "CONTACT_CHANNELS",
   "NO_VIDEO",
   "NO_BROCHURE",
+  // Word traps (2026-09-18): accounts / an existing order / the cost of something that is not the car /
+  // a file that will not open / a refusal ("don't call me", "no test drive").
+  "ACCOUNTS",
+  "ORDER_STATUS",
+  "OTHER_COST",
+  "MEDIA_PROBLEM",
+  "DECLINE",
   "UNKNOWN",
 ] as const;
 
@@ -213,10 +220,14 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "معلومات", "معلومة", "تفاصيل", "مهتم", "مهتمة", "استفسار", "بدي اعرف",
   ],
   BROCHURE: [
+    "brocher", "brochur", "broshure", "broucher", "brochre", "borchure",
     "brochure", "brochures", "catalogue", "catalogues", "catalog", "catalogs",
     "pdf", "leaflet", "كتالوج", "كاتالوج", "كاتالوغ", "بروشور",
   ],
   COLOUR: [
+    "colur", "collor", "colr", "coulour",
+    // Word traps (2026-09-18).
+    "range of colours", "range of colors", "colour range", "color range", "colours available", "colors available",
     "colour", "colours", "color", "colors", "which colour", "which color",
     "available colours", "available colors", "couleur", "couleurs",
     "alwan", "alwen", "لون", "ألوان", "الوانها", "لونها",
@@ -237,6 +248,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "how powerful", weak("powerful"), "how many horses", "قوة السيارة", "قديش قوتها", "قوتها",
   ],
   RANGE: [
+    // Word traps (2026-09-18).
+    "how far", "how far can it go", "how many km", "battery range", "electric range", "total range", "ade range", "adde range", "ade el range",
     "range", "autonomy", "autonomie", "how far", "km range", "kilometers",
     "kilometres", "kilometer", "kilometre", "km", "kms", "how many km",
     "per charge", "masafe", "masafeh", "rnge", "rnage", "raneg", "ragne",
@@ -245,10 +258,12 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "مسافة", "مدى", "كم كيلو", "كيلومتر",
   ],
   BATTERY: [
+    // Word traps (2026-09-18).
+    "battrey", "batterie size", "how big is the battery", "big is the battery", "قديش حجمها", "حجم البطارية", "البطارية قديش حجمها",
     "battery", "batteries", "batterie", "battery capacity", "battery size",
     "kwh", "بطارية", "batery", "battry", "batterry", "baterry",
     // Workbook E/F wordings (2026-09-18). "capacity" alone is the battery; "trunk capacity" is longer and wins.
-    weak("capacity"), "what battery", "سعة البطارية", "قديش البطارية",
+    weak("capacity"), "what battery", "which battery", "battery chemistry", "battery type", "lfp", "nmc", "سعة البطارية", "قديش البطارية",
   ],
   POWERTRAIN: [
     "electric", "full electric", "fully electric", "ev", "bev", "hybrid",
@@ -266,6 +281,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     weak("ac"), "ac dc", "20 80", "30 80", "charge time", "how long to charge", "قديش بدو شحن", "chargng", "charing", "chrging", "chargin",
   ],
   SEATS: [
+    // Word traps (2026-09-18).
+    "seating capacity", "seating", "persons", "7 persons", "5 persons", "6 persons", "person capacity", "five person", "seven person", "six person", "how many people", "how many persons", "كم مقعد",
     "seats", "seat", "seater", "seaters", "7 seater", "7seater", "5 seater",
     "how many seats", "number of seats", "passengers", "passenger",
     "مقاعد", "مقعد", "ركاب", "كم راكب",
@@ -288,6 +305,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "مواصفات", "مميزات",
   ],
   LOCATION: [
+    // Word traps (2026-09-18).
+    "where is monza", "pin", "send me the pin", "location pin", "wen ma7alkon", "wein ma7alkon", "wen ma7alkoun", "ma7alkon", "وين موقعكم", "موقعكم",
     "location", "located", "where are you", "where are you located",
     "where is your showroom", "where is the showroom", "address", "showroom",
     "branch", "branches", "map", "maps", "google maps", "directions",
@@ -297,6 +316,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "ou etes vous", "où êtes vous", "ou êtes vous", "où etes vous", "situés", "situes", "adresse", "localisation", "c est ou", "wen el showroom",
   ],
   OPENING_HOURS: [
+    // Word traps (2026-09-18).
+    "when do you open", "when do you close", "fat7in", "fat7in lyom", "fat7in el yom", "fete7", "closed sunday", "closed on sunday", "open on sunday", "open tomorrow",
     "opening hours", "open hours", "working hours", "business hours",
     "hours", weak("open"), "opening", weak("close"), "closing", "what time",
     "until what time", "till what time", "are you open", "open today",
@@ -310,7 +331,9 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "ra2em", "ra2m", "nemra", "رقم", "رقمكم", "تلفون", "تلفونكم", "واتساب",
   ],
   PRICE: [
-    "price", "prices", "pricing", "price range", "cost", "costs",
+    // Word traps (2026-09-18).
+    "pricerange", "range of prices", "how much do you charge", "what do you charge", "do you charge", "you charge", "ade se3ra", "adde se3ra", "ade se3ro", "adde se3ro", "2adde se3ra",
+    "price", "prices", "pricing", "cost", "costs", "expensive", "is it expensive", "too expensive", "pricey",
     weak("how much"), "how much does it cost", "usd", "dollars", "dollar",
     "prix", "combien", "se3er", "si3r", "sa3er", "se3r", weak("ade"),
     "adesh", "addesh", "2adesh", weak("adde"), "pricr", "prise", "as3ar",
@@ -321,6 +344,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "price list", "pricelist", "devis", "عرض سعر", "عرض اسعار", "عرض أسعار", "لائحة الاسعار",
   ],
   FINANCING: [
+    // Word traps (2026-09-18).
+    "down payment", "downpayment", "5 snin", "khams snin", "5 sneen", "خمس سنين", "5 سنين", "على خمس سنين", "bel ta2sit", "ta2sit", "fi ta2sit", "في تقسيط", "في تمويل", "instalmnt", "instalmant", "installmnt",
     "installment", "installments", "instalment", "instalments", "finance",
     "financing", "loan", "loans", "bank loan", "monthly", "monthly payment",
     "monthly payments", "payment plan", "payment facilities", "facilities",
@@ -348,10 +373,14 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "try it", "can i try", "try the", "essai", "un essai", "essayer", "test de conduite", "faire un essai",
   ],
   WARRANTY: [
+    // Word traps (2026-09-18).
+    "covered", "coverage", "how long is it covered", "how long covered", "is it covered",
     "warranty", "warranties", "guarantee", "guaranty", "garantie",
     "kafele", "kafeleh", "kafala", "كفالة", "ضمان", "warrnty", "waranty", "warrenty", "warantee", "warrantee", "garanty",
   ],
   AVAILABILITY: [
+    // Word traps (2026-09-18).
+    "any units", "any unit", "units available", "have one", "do you have one", "can i get one", "get one today", "ready stock", "fi stock", "fi menna", "avilable", "availble", "availabe", "avaliable",
     "available", "availability", "in stock", "stock", "instock",
     "delivery time", "delivery date", "when can i get", "waiting time", "disponible",
     "mawjoud", "mawjoude", "mawjoudin", "متوفر", "متوفرة", "موجود", "موجودة",
@@ -363,7 +392,9 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "آخر سعر",
   ],
   TRADE_IN: [
-    "trade in", "tradein", "trade", "exchange", "swap", "part exchange",
+    // Word traps (2026-09-18).
+    "trade my", "trade my car", "trade in my", "buy my", "buy my car", "buy my old car", "purchase my", "purchase my car", "you buy cars", "do you buy", "will you buy", "sell you my", "sell my", "bade badel", "badel siyarte", "bade badel siyarte", "btishtro", "btishtro siyarat", "bteshtro siyarat", "بتشتروا", "بتشتروا سيارات", "بدي بدل", "بدي بدل سيارتي",
+    "trade in", "tradein", weak("trade"), weak("exchange"), "swap", "part exchange", "exchange my car", "exchange my",
     "my old car", "badal", "بدل", "مبادلة", "تبديل",
     // Workbook E wordings (2026-09-18).
     "exchange my car", "take my old car", "بتاخدو سيارتي", "بتاخدو",
@@ -374,6 +405,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "بدي بيع سيارتي", "بيع سيارتي", "بتشترو سيارات", "تقييم سيارتي", "bade bi3 siyarte", "btishtro siyarat",
   ],
   SERVICE: [
+    // Word traps (2026-09-18).
+    "first service", "scheduled maintenance", "service interval", "service intervals", "servicing", "servicing interval", "bade service", "bde service", "service center location", "service centre location",
     "service", "servicing", "maintenance", "repair", "repairs", "workshop",
     "garage", "mechanic", "check up", "checkup", "inspection", "siyene",
     "صيانة", "تصليح", "كاراج", "ورشة",
@@ -385,7 +418,9 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "ما بعد البيع", "خدمة ما بعد البيع", "خدمة العملاء", "خدمة الزبائن", "الصيانة",
   ],
   PARTS: [
-    "parts", weak("part"), "spare parts", "spare part", "spares",
+    // Word traps (2026-09-18).
+    "replacement part", "replacement parts", "parts availability", "exchange this part", "exchange the part", "exchange a part", "do you sell parts", "sell parts",
+    "parts", "spare parts", "spare part", "spares",
     "accessories", "accessory", "tyres", "tires", "قطع", "قطع غيار",
     "اكسسوارات",
   ],
@@ -401,6 +436,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     weak("buying"), weak("purchase"), "مبيعات", "شراء سيارة",
   ],
   MODEL_LIST: [
+    // Word traps (2026-09-18).
+    "range of cars", "range of models", "range of vehicles", "model range", "product range", "your range", "full range", "whole range", "wide range", "do you sell mhero", "do you sell voyah",
     "what cars", "which cars", "what models", "which models", "your models",
     "all models", "all cars", "all your cars", "lineup", "line up", "models available",
     "available models", "cars available", "available cars", "what do you have",
@@ -436,6 +473,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "photographs", "صور", "صورة", "صوره", "sowar", "soura",
   ],
   HUMAN_HANDOFF: [
+    // Word traps (2026-09-18).
+    "بدي حدا يحكيني", "حدا يحكيني", "salesperson", "salesman", "sales person", "sales rep", "representative", "an agent", "a manager", "talk to someone", "speak to someone",
     "human", "a human", "real person", "a person", "someone", "somebody",
     "salesperson", "sales person", "sales rep", "representative", "agent",
     "operator", "talk to someone", "speak to someone", "speak to a person",
@@ -446,6 +485,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "parler à quelqu un", "parler a quelqu un", "un conseiller", "quelqu un", "real human", "a real person", "live agent",
   ],
   CALLBACK: [
+    // Word traps (2026-09-18).
+    "can someone call", "someone call", "give me a ring", "fik tetsel fine", "fik tetsel fiye", "tetsel fine", "tetslo fine", "fikon tetteslo fine", "ممكن تتصلوا فيي",
     "call me", "call me back", "callback", "call back", "give me a call",
     "someone call me", "can someone call me", "contact me", "get back to me",
     "reach me", "ring me", "phone me", "اتصل فيي", "اتصلو فيي", "اتصلي فيي",
@@ -456,6 +497,7 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "shipping", "ship it", "توصيل", "بتوصلو", "بتوصل", "توصلولي", "twasso",
   ],
   PAYMENT_CURRENCY: [
+    "exchange rate", "currency exchange", "rate of exchange",
     "lbp", "lira", "liras", "lebanese pounds", "lebanese pound", "lebanese lira",
     "in dollars", "usd only", "dollars only", "fresh dollars", "fresh usd",
     "cash or", "by card", "credit card", "bank transfer", "cheque", "check payment",
@@ -468,6 +510,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
   ],
   // Specifications the workbook does not cover: named honestly, never guessed.
   OTHER_SPEC: [
+    // Word traps (2026-09-18).
+    "child seat", "child seats", "baby seat", "isofix", "seat memory", "memory seats", "seat size", "keyless", "keyless entry", "digital key", "phone key", "mobile app", "an app", "have an app", "the app", "ota", "ota updates", "over the air", "software features", "rear screen", "dashboard screen", "battery temperature", "battery protection", "battery cooling", "12v battery", "12 v battery", "traction battery", "power delivery", "torque delivery", "biggest screen", "biggest wheels", "charging port", "vin",
     "top speed", "max speed", "maximum speed", "0 100", "0-100", "acceleration",
     "how fast", "sunroof", "panoramic roof", "moonroof", "seat material",
     "leather", "leather seats", "wheel size", "wheels size", "size of the wheels", "wheel sizes",
@@ -498,32 +542,64 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
   ],
   /* ── Answers to the bot's own question (resolved against the pending question, engine.ts) ── */
   YES: [
+    // Word traps (2026-09-18).
+    weak("please"), "yes sure", "ok send it", "do it", weak("fine"), "sounds good", "sounds great", "go for it", "great send it", "yes send it",
     weak("yes"), "yes please", "yes pls", "yeah", "yea", "yep", "yup", "sure", "of course", "please do", "go ahead", "why not",
     "send it", "send them", "send it please", "show me", "show it", "i do", "i would", "definitely", "absolutely",
     "ايه", "اي", "نعم", "اكيد", "أكيد", "طبعا", "eh", "ee", "aywa", "akid", "tab3an", "yalla", "oui", "d accord", "bien sur", "bien sûr",
   ],
   NO: [
+    // Word traps (2026-09-18).
+    weak("don t"), weak("dont"), "don t send it", "dont send it", "do not send it", "no don t", "already have it", "i already have it", "i have it already", "not needed", "no i m good", "i m good", "im good", "later", "مش هلق", "ba3den", "pas maintenant",
     weak("no"), "no thanks", "no thank you", "nope", "nah", "not now", "maybe later", "not really", "no need",
     "لا", "لا شكرا", "لأ", "la2", "non", "non merci",
   ],
   /* ── Customer control: negatives and preferences, kept for the conversation ── */
+  ACCOUNTS: [
+    // Word traps (2026-09-18).
+    "finance department", "accounts department", "accounting department", "accounts", "accountant", "bank account", "iban", "payment completed", "payment done", "i paid", "i already paid", "already paid", "i have paid", "paid monthly", "my installment", "my installments", "my instalment", "outstanding installment", "outstanding instalment", "outstanding payment", "existing purchase", "my payment", "my payments", "receipt", "my invoice", "statement of account", "المحاسبة", "قسم المحاسبة", "حوالة", "دفعت",
+  ],
+  ORDER_STATUS: [
+    // Word traps (2026-09-18).
+    "hasn t been delivered", "has not been delivered", "not been delivered", "not delivered yet", "still not delivered", "my order", "my ordered car", "ordered car", "car i ordered", "delivery date of my", "when will my car", "when will my car come", "when will my car arrive", "where is my car", "my car arrive", "track my order", "order status", "وين سيارتي", "امتى بتوصل سيارتي",
+  ],
+  OTHER_COST: [
+    // Word traps (2026-09-18).
+    "insurance cost", "insurance price", "cost of insurance", "registration cost", "registration fee", "registration fees", "cost of registration", "customs fees", "plate fees", "delivery cost", "delivery fee", "delivery fees", "delivery charge", "cost of delivery",
+  ],
+  MEDIA_PROBLEM: [
+    // Word traps (2026-09-18).
+    "wrong brochure", "wrong file", "wrong video", "wrong pdf", "brochure is wrong", "video is wrong", "file is wrong", "file is corrupted", "brochure isn t opening", "brochure is not opening", "brochure won t open", "brochure doesn t open", "pdf won t open", "pdf isn t opening", "pdf doesn t open", "can t open the pdf", "can t open the brochure", "cant open the brochure", "can t open the file", "video won t play", "video doesn t play", "video isn t playing", "link won t open", "link doesn t open", "link doesn t work", "link is broken",
+  ],
+  DECLINE: [
+    // Word traps (2026-09-18).
+    "stop calling", "stop calling me", "don t call", "dont call", "do not call", "don t call me", "dont call me", "do not call me", "no calls", "no calls please", "ما تتصلوا", "ما تتصلوا فيي", "لا تتصلوا", "لا تتصل", "ma tetteslo", "ma tetsel", "ne m appelez pas",
+  ],
   NO_VIDEO: [
+    // Word traps (2026-09-18).
+    "don t send a video", "dont send a video", "do not send a video", "do not send the video", "do not send videos", "i already saw the video", "already saw the video", "saw the video already", "video not needed", "no need for a video", "no need for the video", "don t need the video", "dont need the video", "don t need a video", "ma bade video", "ma bde video", "ma baddi video", "لا تبعتلي فيديو", "لا تبعت فيديو", "pas de video",
     "no video", "no videos", "no video please", "dont send video", "don't send video", "dont send the video", "don't send the video",
     "dont send videos", "don't send videos", "without video", "without the video", "stop sending videos", "i dont want the video",
     "i don't want the video", "i dont want videos", "i don't want videos", "بلا فيديو", "بدون فيديو", "ما بدي فيديو", "bala video",
   ],
   NO_BROCHURE: [
+    // Word traps (2026-09-18).
+    "do not send the brochure", "do not send brochure", "already have the brochure", "i already have the brochure", "have the brochure already", "don t need the pdf", "dont need the pdf", "don t need the brochure", "dont need the brochure", "no need for the brochure", "brochure not needed", "ma bade brochure", "ma bde brochure", "ma baddi brochure", "ما بدي بروشور", "ما بدي كتالوج", "لا تبعتلي بروشور", "لا تبعتلي كتالوج", "لا تبعت بروشور", "pas de brochure",
     "no brochure", "no brochures", "no brochure please", "dont send the brochure", "don't send the brochure", "dont send brochure",
     "don't send brochure", "without the brochure", "without brochure", "i dont want the brochure", "i don't want the brochure",
     "i dont want a brochure", "i don't want a brochure", "no pdf", "no catalogue", "no catalog", "بلا كتالوج", "بدون كتالوج",
     "ما بدي كتالوج", "bala catalogue",
   ],
   NOT_INTERESTED: [
+    // Word traps (2026-09-18).
+    "مش مهتم", "مش مهتمة", "mesh mehtam", "msh mehtam",
     "not interested", "no longer interested", "not interested anymore", "im not interested", "i am not interested",
     "changed my mind", "i changed my mind", "never mind", "nevermind", "forget it", "مش مهتم", "غير مهتم", "مش مهتمة", "ما بدي",
     "mesh mehtam", "mish mehtam", "ma bade", "ma baddi", "pas intéressé", "pas interesse", "pas intéressée",
   ],
   OPT_OUT: [
+    // Word traps (2026-09-18).
+    "وقفوا", "وقفوا رسائل", "وقفوا الرسائل", "وقف الرسائل", "بلا رسائل", "wa2fo", "wa2fo el rasayel",
     weak("stop"), "stop messaging", "stop messaging me", "stop sending", "stop sending me", "stop texting", "stop texting me",
     "unsubscribe", "remove me", "remove my number", "delete my number", "do not contact", "dont contact me", "don't contact me",
     "dont message me", "don't message me", "leave me alone", "وقفو", "لا ترسلو", "ما تبعتولي", "شيلو رقمي", "arrêtez", "arretez",
@@ -534,6 +610,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
   ],
   /* ── High-intent and people ── */
   BUYING_INTENT: [
+    // Word traps (2026-09-18).
+    "secure one", "book the car", "order one for me", "بدي اشتري",
     "want to buy", "i want to buy", "wanna buy", "would like to buy", "like to buy", "looking to buy", "ready to buy", "ready to purchase",
     "i ll take it", "ill take it", "i will take it", "take it", "i want one", "i want it", "i want this car", "i want this one",
     "reserve", "reserve one", "reserve it", "reservation", "book one", "book it for me", "hold one", "hold it", "hold one for me", "hold it for me", "hold a", "hold the", "can you hold", "keep one for me", "keep it for me", "put my name down",
@@ -558,37 +636,49 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
   ],
   /* ── Owners and after-sales: never answered with sales material ── */
   OWNER_ISSUE: [
+    // Word traps (2026-09-18).
+    "isn t working", "is not working", "doesn t work", "is broken", "vibration", "vibrating", "vibrates", "damaged", "damage", "update failed", "failed update", "software bug", "bug", "won t update", "doesn t update", "lagging", "laggy", "restarted", "restarting", "keeps restarting", "cracked", "won t turn on", "doesn t turn on", "not turning on", "disconnected", "keeps disconnecting", "can t connect", "cant connect", "won t connect", "deployed", "engine light", "battery light", "light isn t working", "light is not working", "was hit", "hit me", "hit my car", "someone hit", "bumper", "minor accident", "i had an accident", "an accident", "accident", "key is lost", "key lost", "lost the key", "key not working", "key isn t working", "key battery", "second key", "tire pressure", "tyre pressure", "tire damaged", "tyre damaged", "screen went black", "went black", "won t open", "doesn t open", "can t log in", "cant log in", "account issue", "insurance claim", "took delivery", "we took delivery", weak("our car"), "roadside assistance", "roadside", "tow truck", "علقت", "الشاشة علقت", "معلقة", "ما عم تشتغل", "ما بتشتغل", "مش شغالة", "عندي مشكلة", "مشكلة بال", "3ale2", "m3al2a", "3al2it", "ma 3am teshtghil", "ma 3am yeshtghil", "ma 3am tishteghil", "ma btishtghil",
     "i own", "i own a", "i bought", "i bought a", "i have a voyah", "i have a mhero", "my voyah", "my mhero",
     // Ownership alone is not a problem: "trade in my car", "charge my car at home". WEAK — any real question wins.
     weak("my car"), weak("my vehicle"),
     "screen is frozen", "screen frozen", "frozen", "screen is black", "black screen", "stopped working", "not starting", "wont start", "won't start",
-    "doesnt start", "doesn't start", "does not start", "error", "error message", "warning light", "warning", "check engine", "noise", "leak", "leaking",
-    "stuck", "spare key", "lost my key", "lost key", "key fob", "new key", "software update", "update the software", "system update", "ota", "recall",
+    "doesnt start", "doesn't start", "does not start", "error", "error message", "warning light", "dashboard warning", "warning message", "warning sign", "check engine", "noise", "leak", "leaking",
+    "stuck", "spare key", "lost my key", "lost key", "key fob", "new key", "software update", "update the software", "system update", "recall",
     "breakdown", "broke down", "flat tire", "flat tyre", "puncture", "ac not cooling", "air conditioning", "technical issue", "technical problem",
-    "malfunction", "fault", "faulty", "had an accident", "after an accident", "after the accident", "accident repair", "body repair", "scratch", "dent", weak("سيارتي"), "عندي فوياه", "معطلة", "مفتاح", "تحديث",
+    "malfunction", "fault", "faulty", "accident repair", "body repair", "scratch", "dent", weak("سيارتي"), "عندي فوياه", "معطلة", "مفتاح", "تحديث",
     weak("siyarte"), "3otol", "m3attale", weak("ma voiture"), "en panne",
   ],
   WARRANTY_CLAIM: [
+    // Word traps (2026-09-18).
+    "مطالبة كفالة", "عندي مطالبة كفالة", "claim was rejected", "claim rejected",
     "warranty claim", "claim warranty", "claim the warranty", "under warranty", "warranty repair", "covered by warranty", "warranty issue",
     "warranty problem", "my warranty", "use my warranty", "use the warranty", "مطالبة كفالة", "على الكفالة", "تحت الكفالة", "sous garantie",
   ],
   /* ── Topics the workbook has no column for: named honestly, handed to the team, never a neighbouring fact ── */
   SAFETY: [
+    // Word traps (2026-09-18).
+    "البطارية امنة", "امنة", "آمنة",
     "safe", "safety", "is it safe", "fire", "fire risk", "catch fire", "catches fire", "explode", "explodes", "explosion", "blow", "blow up",
     "burn", "burns", "crash test", "crash", "ncap", "euro ncap", "safety rating", "airbag", "airbags", "how many airbags",
     "آمنة", "امنة", "امان", "أمان", "حريق", "انفجار", "aman", "amene", "sécurité", "securite",
   ],
   BATTERY_LIFE: [
+    // Word traps (2026-09-18).
+    "battery dies", "battery die", "when the battery dies", "when battery dies", "battery degrade", "does battery degrade", "does the battery degrade", "degrade", "degrades", "how long does the battery", "battery wear", "قديش عمر البطارية",
     "battery life", "battery lifespan", "lifespan", "life span", "battery last", "battery lasts", "how long does the battery last",
     "how long will the battery last", "battery health", "battery degradation", "degradation", "battery years", "years does the battery",
     "عمر البطارية", "3omr el battery", "3omr el batarye", "durée de vie",
   ],
   BATTERY_REPLACEMENT: [
+    // Word traps (2026-09-18).
+    "exchange the battery", "change the battery", "new battery",
     "battery replacement", "replace the battery", "replacing the battery", "replacement battery", "new battery", "battery replacement cost",
     "battery cost", "battery price", "cost of the battery", "price of the battery", "cost of a battery", "price of a battery",
     "سعر البطارية", "تغيير البطارية", "كلفة البطارية", "se3r el battery",
   ],
   CHARGER_INCLUDED: [
+    // Word traps (2026-09-18).
+    "الشاحن بيجي معها", "بيجي معها شاحن", "الشاحن مجاني", "free charger", "charger free",
     "give a charger", "charger included", "include a charger", "includes a charger", "comes with a charger", "come with a charger",
     "charger with the car", "with a charger", "wallbox included", "charging cable", "cable included", "is there a charger", "get a charger",
     "شاحن مع السيارة", "بيجي معها شاحن", "مع شاحن", "ma3a charger", "chargeur inclus",
@@ -599,6 +689,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "recharger à la maison", "a la maison",
   ],
   PUBLIC_CHARGING: [
+    // Word traps (2026-09-18).
+    "وين فيني اشحن", "وين بشحن", "فيني اشحن", "wen fine esh7an",
     "where can i charge", "where to charge", "where do i charge", "where can i charge it", "charging stations", "charging station",
     "public charging", "public chargers", "chargers in lebanon", "charging points", "charging network", "charge on the road",
     "وين بشحن", "وين بشحنها", "محطات شحن", "محطة شحن", "wen bish7an", "wen bsha7en", "bornes de recharge",
@@ -609,6 +701,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "كلفة الشحن", "سعر الشحن", "تكلفة الشحن", "kelfet el sha7en",
   ],
   BRAND_ORIGIN: [
+    // Word traps (2026-09-18).
+    "where is the car made", "where is it built", "where are they made", "where is it manufactured", "made where", "وين بتنصنع", "بتنصنع", "وين مصنوعة",
     "who makes", "who makes voyah", "who makes mhero", "who manufactures", "manufacturer", "made in", "where is it made", "where is voyah from",
     "where is mhero from", "where is it from", "where are they from", "which country", "what country", "country of origin", "is it chinese",
     "chinese", "china", "dongfeng", "what brand is", "صيني", "صينية", "مين بيصنع", "صناعة", "بلد المنشأ", "sine", "chinois", "chinoise",
@@ -619,6 +713,8 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
   ],
   // An acknowledgement only counts when nothing else was said: all weak.
   ACKNOWLEDGEMENT: [
+    // Word traps (2026-09-18).
+    weak("good service"), weak("great service"), weak("excellent service"), weak("nice service"), weak("service quality"), weak("service is fast"), weak("thanks for warning me"), weak("thanks for the warning"),
     weak("thanks"), weak("thank you"), weak("thankyou"), weak("thx"), weak("merci"),
     weak("shukran"), weak("choukran"), weak("thk u"), weak("thku"), weak("thnx"),
     weak("tnx"), weak("thanx"), weak("شكرا"), weak("ok"), weak("okay"), weak("okk"),
@@ -634,6 +730,16 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
  * counts for nothing.
  */
 const IGNORE: readonly string[] = [
+  // Word traps (2026-09-18): ordinary phrases whose words are somebody's trigger.
+  "extra charge", "additional charge", "no additional charge", "charge me", "charge me extra", "charge for", "free of cost",
+  "one person", "per person", "right person", "the right person", "a person who",
+  "what do you call", "do you call this", "it s called", "is called", "called", "missed call", "wrong number called",
+  "trade price", "international trade", "part of", "which part", "this part", "first part", "part payment", "second part",
+  "come back to you", "i ll come back", "get back", "i came", "came yesterday", "coming from", "comes tomorrow", "come to me", "will my car come",
+  "key feature", "key features", "key difference", "key differences", "key point", "key points", "key advantage", "key advantages",
+  "light colour", "light color", "lightweight", "light weight", "test drive review", "test drive video", "watched a test drive", "youtube test drive",
+  "range of services", "customer already", "electric seats", "electric seat", "electric doors", "electric door", "electric tailgate", "electric steering",
+  "electric charger", "electric windows", "electric mirrors", "electric trunk", "electric handbrake",
   "number of",
   "feel free",
   "for free",
@@ -816,9 +922,14 @@ export function findIntents(tokens: readonly string[]): IntentHit[] {
   // A weak word counts only when nothing stronger was asked — "how much hp" is a
   // horsepower question. A comparison, a model list or a greeting beside it is
   // not stronger: "how much is the Courage vs the Taishan" still asks the price.
-  const NOT_STRONGER: readonly Intent[] = ["COMPARE", "MODEL_LIST", "SALES", "GREETING", "ACKNOWLEDGEMENT", "MODEL_YEAR"];
+  // (A brand name is not a question either: "I have a BMW I want to exchange" is still a trade-in.)
+  const NOT_STRONGER: readonly Intent[] = ["COMPARE", "MODEL_LIST", "SALES", "GREETING", "ACKNOWLEDGEMENT", "MODEL_YEAR", "OTHER_BRAND"];
+  // …and beside an ACTION the price is still asked: "how much is the Taishan, and can I come tomorrow?" is two things.
+  const ACTIONS: readonly Intent[] = ["VISIT", "TEST_DRIVE", "CALLBACK", "BUYING_INTENT", "AVAILABILITY", "COLOUR", "COLOUR_VIDEO", "BROCHURE", "HUMAN_HANDOFF", "LOCATION", "OPENING_HOURS"];
   const kept = meaningful.filter(
-    (a) => !a.weak || !meaningful.some((b) => !b.weak && b.intent !== a.intent && !NOT_STRONGER.includes(b.intent))
+    (a) =>
+      !a.weak ||
+      !meaningful.some((b) => !b.weak && b.intent !== a.intent && !NOT_STRONGER.includes(b.intent) && !(a.intent === "PRICE" && ACTIONS.includes(b.intent)))
   );
 
   kept.sort((a, b) => a.start - b.start || b.end - a.end);
@@ -988,9 +1099,12 @@ function hasRun(tokens: readonly string[], phrase: string): boolean {
 }
 
 /** Which powertrain kinds the message names, in a fixed order. */
+const ELECTRIC_EQUIPMENT = new Set(["seats", "seat", "doors", "door", "tailgate", "steering", "motor", "motors", "charger", "windows", "window", "mirrors", "mirror", "trunk", "boot", "handbrake", "brake", "sunroof", "adjustment"]);
+
 export function readCategories(tokens: readonly string[]): CategoryFilter[] {
   const out: CategoryFilter[] = [];
-  if (EV_WORDS.some((w) => hasRun(tokens, w))) out.push("EV");
+  const equipment = tokens.some((t, i) => (t === "electric" || t === "electrique") && ELECTRIC_EQUIPMENT.has(tokens[i + 1] ?? ""));
+  if (!equipment && EV_WORDS.some((w) => hasRun(tokens, w))) out.push("EV");
   if (EREV_WORDS.some((w) => hasRun(tokens, w))) out.push("EREV");
   if (PHEV_WORDS.some((w) => hasRun(tokens, w))) out.push("PHEV");
   else if (HYBRID_WORDS.some((w) => hasRun(tokens, w))) out.push("HYBRID");
@@ -1022,7 +1136,7 @@ const NEED_WORDS: Readonly<Record<Need, readonly string[]>> = {
   FASTEST: ["fastest", "quickest", "most powerful", "strongest", "sportiest", "most hp", "most horsepower", "اسرع", "أسرع", "اقوى", "أقوى", "asra3", "a2wa", "le plus rapide", "la plus rapide", "plus puissant", "plus puissante"],
   LONGEST_RANGE: ["longest range", "most range", "best range", "highest range", "goes furthest", "goes farthest", "اطول مدى", "أطول مدى", "plus grande autonomie"],
   BIGGEST: ["biggest", "largest", "most spacious", "roomiest", "most space", "اكبر", "أكبر", "akbar", "le plus grand", "la plus grande"],
-  FAMILY: ["family car", "family", "for my family", "for the family", "kids", "children", "big family", "عائلة", "عائلية", "عيلة", "للعيلة", "3ayle", "3ayle kbire", "famille", "familiale"],
+  FAMILY: ["family car", "family cars", "family suv", "family option", "family vehicle", "for my family", "for the family", "for a family", "family of", "for my kids", "for the kids", "big family", "عائلة", "عائلية", "عيلة", "للعيلة", "3ayle", "3ayle kbire", "famille", "familiale"],
   SUV: ["suv", "suvs", "crossover", "4x4", "jeep style"],
   OFF_ROAD: ["for off road", "for offroad", "off roader", "offroader", "for the mountains", "mountains", "for the jabal", "jabal", "للجبل", "جبل", "tout terrain"],
   LUXURY: ["luxury", "luxurious", "most luxurious", "premium", "vip", "high end", "فخمة", "فخامة", "افخم", "أفخم", "luxe"],
@@ -1175,10 +1289,15 @@ function mileageAsTradeIn(hits: IntentHit[], tokens: readonly string[], raw: str
  * tapped a choice; a message typed in exactly that shape counts too (it is
  * no more powerful than typing the model's name).
  */
+/** "price range" → one token, so "price, range, seats and warranty" stays four separate questions. */
+function joinPairs(text: string): string {
+  return text.replace(/\bprice[ \t]+range\b/gi, "pricerange");
+}
+
 export function readMessage(text: string, payload?: string | null): MessageReading {
   const raw = typeof text === "string" ? text : "";
   // "0%" is an installments question (workbook E); "0% - 100%" and "0-100" are not.
-  const normalized = normalize(raw.replace(/(^|\s)0\s?%(?!\s*[-–]\s*\d)/g, "$1zero percent "));
+  const normalized = normalize(joinPairs(raw).replace(/(^|\s)0\s?%(?!\s*[-–]\s*\d)/g, "$1zero percent "));
   const tokens = normalized === "" ? [] : normalized.split(" ");
   const parsedPayload = parsePayload(payload) ?? parsePayload(raw);
   const hits = parsedPayload ? [] : mileageAsTradeIn(findIntents(tokens), tokens, raw);

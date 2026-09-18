@@ -135,7 +135,7 @@ describe("Phase 1 — an ordinary word is never a car", () => {
     ["Free 318", "FREE_318"],
     ["do you have the free in stock", "FREE_318"],
     ["voyah free", "FREE_318"],
-    ["free", "FREE_318"],
+    ["the free", "FREE_318"],
     ["Taishan", "TAISHAN"],
     ["passion", "PASSION"],
     ["the passion in black", "PASSION"],

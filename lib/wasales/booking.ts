@@ -170,6 +170,8 @@ const DAY_WORDS: Record<string, number> = {
   thursday: 4, thu: 4, thurs: 4, friday: 5, fri: 5, saturday: 6, sat: 6,
   الاحد: 0, الأحد: 0, الاثنين: 1, الإثنين: 1, الثلاثاء: 2, الثلاثا: 2, الاربعاء: 3, الأربعاء: 3,
   الخميس: 4, الجمعة: 5, الجمعه: 5, السبت: 6,
+  // Lebanese Arabizi (2026-09-18): "a7ad 3al 3", "sabt el sob7".
+  a7ad: 0, el7ad: 0, tanen: 1, tneen: 1, tnen: 1, talata: 2, tlata: 2, tleta: 2, arb3a: 3, orb3a: 3, erb3a: 3, khamis: 4, "5amis": 4, jem3a: 5, jom3a: 5, jum3a: 5, sabt: 6,
 };
 const MONTH_WORDS: Record<string, number> = {
   january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3, april: 4, apr: 4, may: 5, june: 6, jun: 6,
@@ -236,7 +238,7 @@ export function parseRequestedTime(text: string, nowIso: string): RequestedTime 
   // The time: "at 3", "3pm", "15:00", "4:30", "11am". A bare number is a time
   // only after "at" / "الساعة" or with am/pm, minutes or a 24-hour value.
   let minutes: number | null = null;
-  const tm = /(?:(at|الساعة|el se3a|sa3a)\s*)?(?:^|\s)(\d{1,2})(?::(\d{2}))?\s?(am|pm|a m|p m|صباحا|مساء|بعد الظهر)?(?=\s|$)/g;
+  const tm = /(?:(at|الساعة|el se3a|sa3a|3al|3a|عال)\s*)?(?:^|\s)(\d{1,2})(?::(\d{2}))?\s?(am|pm|a m|p m|صباحا|مساء|بعد الظهر)?(?=\s|$)/g;
   let m: RegExpExecArray | null;
   while ((m = tm.exec(t)) !== null) {
     const h = Number(m[2]);

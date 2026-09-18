@@ -992,6 +992,40 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
     "a courage"). A WEAK match is ASKED ("Did you mean the VOYAH Dream?", `CONFIRM_MODEL`): never a
     brochure, a video, colours or a model alert. Extend the neighbour rules in `entities.ts`; never
     add an exception sentence.
+  - **THE FOUR STATES, and the safety rule (Samer, 2026-09-18, "your model names are also normal words").**
+    Every candidate model name or command word is one of: EXPLICIT (the words say so → act) · CONTEXTUAL
+    (the conversation or the ad says so → act) · AMBIGUOUS (could be either → clarify, nothing else) ·
+    INCIDENTAL (an ordinary word → ignored as a trigger). `resolveModels` reports it as `mention.state`.
+    **An ambiguous or incidental match NEVER sends a brochure, a video or colours, and never opens a price
+    flow, an alert about a car, an appointment or a department hand-off.**
+    - FREE, DREAM, PASSION, COURAGE are HIGH-RISK tokens and need more evidence than TAISHAN, MHERO 1/2 or
+      FREE 318. FREE is the strictest: the bare word is ASKED ("Did you mean the VOYAH Free 318?"), only an
+      article / demonstrative / "car" points at it ("the Free", "سيارة Free" — "bade free" does not), car-talk
+      counts only AFTER it ("Free price", never "charging free"), and "Is … free?" is a predicate.
+    - TAISHAN and 318 are safe by default but have traps: "Mount Taishan", "Taishan restaurant"; "BMW 318",
+      "318 km", "$318", "invoice 318". A misspelling is tolerated by ONE letter ("taisan"), so "taiwan" is not a car.
+      "hero", "option 2", "the second one" are nothing unless the bot just offered a list. "L" alone is never the Passion L.
+    - **A trigger word is only a trigger when its OBJECT allows it** (`classify.ts` `attach`, which reads the
+      tokens): "how much" of a tyre / a key / insurance / registration / delivery is not the car's price;
+      "available" needs a car as its subject ("are you available?", "colours available?" are not stock);
+      "open" / "closed" / "where" said of a door, a link, the VIN, the battery are not the showroom; "battery"
+      is the capacity only when it says so; a test drive WATCHED or already TAKEN is not a request; "charge"
+      as a fee is not EV charging; "range of colours / cars / prices" is not the driving range — and
+      "price, range, seats and warranty" is FOUR questions (`joinPairs` joins "price range" only when nothing
+      but spaces is between the words).
+    - **Negation is read before any action.** "Don't send the Dream brochure", "I don't want to buy it", "don't
+      call me", "no test drive", "I don't need financing", "ما بدي فيديو", "ma bade eshtere": a verbal negator
+      reaches across its clause, a bare "no" / "not" only negates what stands right after it ("no, I want the
+      brochure" is still a request). A message that ONLY refuses does nothing — no file, no alert, no menu —
+      and the car named inside the refusal is not opened (`understanding.refusedOnly`).
+    - A FAULT beats a FEATURE: "CarPlay isn't working", "screen went black", "airbag warning light", "key is
+      lost", "I had an accident" are after-sales (76 877 278, staff flag, no sales alert); "does it have
+      CarPlay?", "screen size", "keyless entry", "OTA updates?" are pre-sales questions for the team.
+    - Accounts / a payment already made → Administration, never a financing lead. An existing order
+      ("my car hasn't been delivered") → a person, never the model menu. A file that will not open → a
+      person, never the same file again.
+    - The lists are in `tests/word_traps.test.ts`, Samer's word for word (160 tests). Close a new trap with a
+      RULE or a longer ordinary phrase in the lexicon — never with an exception for one sentence.
   - **The bot understands answers to its own questions.** yes / sure / send it / ok and no / no
     thanks resolve against `state.awaiting` and nothing else. State (context.ts) also keeps
     `lastAsked` ("and the Taishan?" asks the previous question of that car), `recentModels` ("which

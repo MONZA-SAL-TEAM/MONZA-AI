@@ -436,3 +436,27 @@ on /sales — they are ignored, never sent.
 
 **Alerts close themselves** only for stored chats (WhatsApp). Instagram and Facebook keep no copy of
 messages here (the 2026-09-10 rule), so a person still presses Done on those.
+
+## 2026-09-18: word traps — model names and command words are ordinary words too
+
+Samer's list ("FREE, DREAM, PASSION, COURAGE… should never be treated like MHERO 1 or FREE 318 unless the
+surrounding context proves the customer means the vehicle") is `tests/word_traps.test.ts`, word for word.
+
+| State | Meaning | Allowed |
+|---|---|---|
+| explicit | the words say it is the car / the intent | act |
+| contextual | the conversation or the ad makes it clear | act |
+| ambiguous | could be either | clarify — nothing else |
+| incidental | an ordinary word | ignored as a trigger |
+
+Where each rule lives:
+
+- **Which car** — `entities.ts`: the `ORDINARY` table is one entry per risky name (free, dream, passion,
+  courage, and the traps of taishan and 318) with its ordinary neighbours and its flags (`aloneIsAmbiguous`,
+  `strictPointing`, `predicate`, `article`, `elsewhere`, `safeByDefault`, `money`). To close a new trap,
+  add a neighbour or a flag there.
+- **Which question** — `intent.ts` (the longest phrase wins, and `IGNORE` phrases claim words that are
+  nobody's trigger: "extra charge", "per person", "key feature", "part of", "come back to you") and
+  `classify.ts` `attach` (what a trigger word is said OF, and negation).
+- **What happens** — `engine.ts`: a refusal-only message returns before any car is opened; ACCOUNTS,
+  ORDER_STATUS, MEDIA_PROBLEM, OTHER_COST and DECLINE each have one short, fixed outcome.
