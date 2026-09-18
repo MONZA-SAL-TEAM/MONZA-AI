@@ -945,7 +945,8 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   webhook passes customer messages that were NEW (`StoreResult.fresh`, so a
   Meta redelivery never answers twice) to `lib/wasales/autoreply.ts`, which
   answers only chats in `lib/wasales/autoreply-pilot.ts` (`wa-monza` +
-  `9613195955`, and since 2026-09-18 `96176877278`, Samer's second test phone) through
+  `9613195955`, and since 2026-09-18 Samer's other test phones `96176877278` and
+  `96170708383`) through
   the SAME send as a person's Send (`autoreplyThread`):
   window, send switch, key, handover, whole-plan check. Its first answer
   marks `started_at` just before the message, so earlier tests and replies
