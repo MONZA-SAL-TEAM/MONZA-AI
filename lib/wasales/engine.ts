@@ -1030,7 +1030,7 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
   }
 
   /* 1. The welcome's department menu, a powertrain menu, a test-drive slot. */
-  const administration = !payload && reading.tokens.length <= 3 && reading.tokens.some((t) => ["administration", "admin", "accounting", "الادارة", "الإدارة"].includes(t));
+  const administration = !payload && reading.tokens.length <= 3 && reading.tokens.some((t) => ["administration", "admin", "accounting", "الاداره", "اداره", "الادارة", "الإدارة"].includes(t));
   if (administration) {
     text("ADMIN_CONTACT");
     return finish();

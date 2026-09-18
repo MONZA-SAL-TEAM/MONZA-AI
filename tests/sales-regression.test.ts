@@ -162,6 +162,18 @@ const CASES: Case[] = [
   { category: "departments", name: "After-Sales goes to the service WhatsApp", messages: ["hi", { payload: "DEPT:AFTER_SALES" }], say: [SERVICE, /WhatsApp/] },
   { category: "departments", name: "Administration is a phone call", messages: ["hi", { payload: "DEPT:ADMIN" }], say: [/please call 01 488 333 or 01 488 666/], notSay: [/WhatsApp/] },
   { category: "departments", name: "a typed 5 is Administration", messages: ["hi", "5"], say: [/01 488 333/] },
+  // WhatsApp delivers a tapped list row as its WORDS ("After-Sales"), never its id. These are the real taps.
+  { category: "departments", name: "tapping After-Sales gives the after-sales WhatsApp, never 'which model?'", messages: ["hi", "After-Sales"], say: [SERVICE, /WhatsApp/], notSay: [/Which model/i, SALES] },
+  { category: "departments", name: "tapping Customer Service", messages: ["hi", "Customer Service"], say: [SERVICE, /WhatsApp/], notSay: [/Which model/i] },
+  { category: "departments", name: "tapping Service & Maintenance", messages: ["hi", "Service & Maintenance"], say: [SERVICE, /WhatsApp/], notSay: [/Which model/i] },
+  { category: "departments", name: "tapping Administration", messages: ["hi", "Administration"], say: [/please call 01 488 333 or 01 488 666/], notSay: [/Which model/i] },
+  { category: "departments", name: "tapping Sales asks which model", messages: ["hi", "Sales"], say: [/Which model/i], notSay: [SERVICE] },
+  { category: "departments", name: "after sales asked in the middle of a sales chat", messages: ["courage", "i need after sales"], say: [SERVICE], notSay: [/Which model/i] },
+  { category: "departments", name: "Arabic: tapping ما بعد البيع", messages: ["مرحبا", "ما بعد البيع"], say: [SERVICE], notSay: [/أي موديل/] },
+  { category: "departments", name: "Arabic: tapping خدمة العملاء", messages: ["مرحبا", "خدمة العملاء"], say: [SERVICE], notSay: [/أي موديل/] },
+  { category: "departments", name: "Arabic: tapping الصيانة", messages: ["مرحبا", "الصيانة"], say: [SERVICE], notSay: [/أي موديل/] },
+  { category: "departments", name: "Arabic: tapping الإدارة", messages: ["مرحبا", "الإدارة"], say: [/01 488 333/], notSay: [/أي موديل/] },
+  { category: "departments", name: "Arabic: tapping المبيعات asks which model", messages: ["مرحبا", "المبيعات"], say: [/أي موديل/], notSay: [SERVICE] },
   { category: "acknowledgement", name: "ok after an answer never reopens the menu", messages: ["courage hp", "ok thanks"], quietOk: true },
   { category: "acknowledgement", name: "ok after hello", messages: ["hi", "ok"], quietOk: true },
 

@@ -330,6 +330,12 @@ const LEXICON: Readonly<Record<Exclude<Intent, "UNKNOWN">, readonly Entry[]>> = 
     "service", "servicing", "maintenance", "repair", "repairs", "workshop",
     "garage", "mechanic", "check up", "checkup", "inspection", "siyene",
     "صيانة", "تصليح", "كاراج", "ورشة",
+    // The welcome's department rows (workbook D). WhatsApp delivers a tapped row as its WORDS, never
+    // its id — and "After-Sales" holds the word "sales" (2026-09-18: tapping After-Sales was answered
+    // "which model are you interested in?"). The longer phrase wins over "sales".
+    "after sales", "aftersales", "after sale", "aftersale", "after sales service", "customer service",
+    "customer care", "service maintenance", "service and maintenance",
+    "ما بعد البيع", "خدمة ما بعد البيع", "خدمة العملاء", "خدمة الزبائن", "الصيانة",
   ],
   PARTS: [
     "parts", weak("part"), "spare parts", "spare part", "spares",
