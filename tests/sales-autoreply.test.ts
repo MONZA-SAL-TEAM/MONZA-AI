@@ -25,10 +25,34 @@ import type { WaCar } from "@/lib/wasales/matcher";
 describe("who the pilot may answer", () => {
   const samer = { accountId: "wa-monza", channel: "whatsapp", peerExternalId: "9613195955" };
 
+  /** The four numbers Samer named on 2026-09-18, and nothing else. */
+  const PILOT_NUMBERS = ["9613195955", "96181659640", "96178986096", "96176877278"];
+
   test("only listed chats: an account AND its customer", () => {
-    assert.deepEqual(AUTOREPLY_PILOT.chats.map((c) => `${c.accountId}:${c.peer}`), ["wa-monza:9613195955"]);
+    assert.deepEqual(
+      AUTOREPLY_PILOT.chats.map((c) => `${c.accountId}:${c.peer}`),
+      PILOT_NUMBERS.map((n) => `wa-monza:${n}`)
+    );
     assert.equal(isPilotChat(samer), true);
     assert.equal(isPilotChat({ ...samer, peerExternalId: "+961 3 195 955" }), true);
+  });
+
+  test("every number Samer named is answered, however it is written", () => {
+    for (const n of PILOT_NUMBERS) {
+      assert.equal(isPilotChat({ ...samer, peerExternalId: n }), true, n);
+      // WhatsApp hands us bare digits, but a stored "+961 81 659 640" is the
+      // same chat: isPilotChat strips everything that is not a digit.
+      const spaced = `+${n.slice(0, 3)} ${n.slice(3, 5)} ${n.slice(5, 8)} ${n.slice(8)}`;
+      assert.equal(isPilotChat({ ...samer, peerExternalId: spaced }), true, spaced);
+    }
+  });
+
+  test("a number one digit away from a pilot number is NOT answered", () => {
+    // The guard that matters when the list stops being one number: these are
+    // real Lebanese numbers from the same ranges, and none of them is listed.
+    for (const near of ["96181659641", "9617898609", "961769877278", "96176877279"]) {
+      assert.equal(isPilotChat({ ...samer, peerExternalId: near }), false, near);
+    }
   });
 
   test("any other customer, account or channel is never answered", () => {
@@ -51,7 +75,7 @@ describe("who the pilot may answer", () => {
   test("the list cannot be changed at run time", () => {
     assert.ok(Object.isFrozen(AUTOREPLY_PILOT));
     assert.ok(Object.isFrozen(AUTOREPLY_PILOT.chats));
-    assert.ok(Object.isFrozen(AUTOREPLY_PILOT.chats[0]));
+    for (const c of AUTOREPLY_PILOT.chats) assert.ok(Object.isFrozen(c));
   });
 
   test("SALES_AUTOREPLY_MODE=off stops it; anything else leaves it to the list", () => {

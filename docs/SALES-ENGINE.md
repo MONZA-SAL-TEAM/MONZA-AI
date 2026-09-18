@@ -286,6 +286,18 @@ test phone (+961 3 195 955, WhatsApp id `9613195955`) writing to the business
 WhatsApp (`wa-monza`, +961 70 708 585). It is the ONE exception to CLAUDE.md
 rule 24; every other chat keeps the suggestion card.
 
+**Widened 2026-09-18** (Samer: "I want only the following numbers to be able to
+talk to the chat bot"), to test the responses at volume. Four Lebanese numbers
+on `wa-monza`: `9613195955`, `96181659640`, `96178986096`, `96176877278`.
+Nothing else is answered, and this is still a test, not a launch.
+
+**Two of the four already have real threads on the business line.** The pilot
+sets `startedAt` to just before the message that wakes it, so everything said
+earlier is outside the chat it answers — a human reply sent before the bot ever
+ran therefore does NOT hand the chat over, and those numbers are answered on
+their next message. Handover only begins once a person types AFTER the bot has
+started, and then it is permanent for that chat.
+
 - **Who:** `lib/wasales/autoreply-pilot.ts` — accounts and customers listed in
   code, frozen. Nobody else is ever answered automatically.
 - **When:** the webhook stores a message; only a NEW customer message

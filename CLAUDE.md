@@ -883,16 +883,22 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
 - **Autoreply PILOT (Samer, 2026-09-16) — the one exception to rule 24.** The
   webhook passes customer messages that were NEW (`StoreResult.fresh`, so a
   Meta redelivery never answers twice) to `lib/wasales/autoreply.ts`, which
-  answers only chats in `lib/wasales/autoreply-pilot.ts` (`wa-monza` +
-  `9613195955`) through the SAME send as a person's Send (`autoreplyThread`):
+  answers only chats in `lib/wasales/autoreply-pilot.ts` — on `wa-monza`, the
+  FOUR numbers Samer named (`9613195955`, `96181659640`, `96178986096`,
+  `96176877278`; widened 2026-09-18 for response testing, still not a launch)
+  — through the SAME send as a person's Send (`autoreplyThread`):
   window, send switch, key, handover, whole-plan check. Its first answer
   marks `started_at` just before the message, so earlier tests and replies
-  are not part of the chat. Recorded as author `automation`,
+  are not part of the chat — which also means **a chat with real history is
+  answered anyway**: a human reply sent BEFORE the bot ever ran does not hand
+  it over. Two of the four numbers have such history. Recorded as author `automation`,
   `automation_id` `sales-autoreply:…`. A reply a person types in that chat
   stops it (handover). Off: `SALES_AUTOREPLY_MODE=off`.
 - **Memory:** `database/migrations/012_sales_suggestion_state.sql` — engine
-  state and our own sent ids per chat, never words. NOT applied until Samer
-  says so: suggestions still show without it, but cannot be sent.
+  state and our own sent ids per chat, never words. **APPLIED** — read live
+  2026-09-18: `sales_suggestion_state` exists in `fpsgsgldepgcowyivoow` and
+  holds a row. Without it `autoreplyThread` stops with "memory not set up
+  (migration 012)" and suggestions show but cannot be sent.
 
 ## General
 
