@@ -186,3 +186,11 @@ export function closedByStaffReply(alert: { kind: AlertKind; tags?: readonly Ale
   const replied = Date.parse(lastStaffReplyAt);
   return Number.isFinite(raised) && Number.isFinite(replied) && replied > raised;
 }
+
+/** What the inbox's closed "clients need a salesperson" bar says: how many are urgent, so nobody has to open it to know. */
+export function alertsHeadline(alerts: readonly { urgency?: string | null }[]): { hot: number; overdue: number } {
+  return {
+    hot: alerts.filter((a) => a.urgency === "hot").length,
+    overdue: alerts.filter((a) => a.urgency === "overdue").length,
+  };
+}

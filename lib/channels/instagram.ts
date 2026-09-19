@@ -25,6 +25,7 @@
  * a normal outcome — most deliveries are not new customer messages.
  */
 
+import { explainSendRefusal } from "@/lib/channels/send-errors";
 import type {
   ChannelAccount,
   ChannelAdapter,
@@ -281,11 +282,10 @@ async function sendVia(
       return { ok: true, externalMessageId: id ?? `ig-unknown-${Date.now()}` };
     }
 
-    const detail = str(payload?.error?.message) ?? `HTTP ${res.status}`;
-    // 5xx and 429 are worth retrying; a 4xx is a refusal that will refuse
-    // again — most often the 24-hour window having closed.
-    const retryable = res.status >= 500 || res.status === 429;
-    return { ok: false, error: detail, retryable };
+    // Why, in words — with Meta's code kept: the window, the permission, the key and an unreachable
+    // customer need opposite fixes, and the raw sentence alone does not say which.
+    const refusal = explainSendRefusal(payload, res.status, "instagram");
+    return { ok: false, error: refusal.message, retryable: refusal.retryable, kind: refusal.kind, codes: refusal.codes };
   } catch (e) {
     // A network failure is genuinely unknown: the message may or may not have
     // gone. Retryable, and the caller must key on our own idempotency id.

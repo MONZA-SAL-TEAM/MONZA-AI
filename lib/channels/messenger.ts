@@ -31,6 +31,7 @@
  * written once is a rule that binds all three transports.
  */
 
+import { explainSendRefusal } from "@/lib/channels/send-errors";
 import type {
   ChannelAccount,
   ChannelAdapter,
@@ -236,9 +237,8 @@ export async function sendMessenger(
       return { ok: true, externalMessageId: id ?? `fb-unknown-${Date.now()}` };
     }
 
-    const detail = str(payload?.error?.message) ?? `HTTP ${res.status}`;
-    const retryable = res.status >= 500 || res.status === 429;
-    return { ok: false, error: detail, retryable };
+    const refusal = explainSendRefusal(payload, res.status, "facebook");
+    return { ok: false, error: refusal.message, retryable: refusal.retryable, kind: refusal.kind, codes: refusal.codes };
   } catch (e) {
     return {
       ok: false,

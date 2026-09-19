@@ -131,14 +131,19 @@
 .sa-strip {
   margin: 8px 12px 4px;
   border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
-  border-radius: 12px;
+  border-radius: 14px;
   background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+  overflow: hidden;
+  transition: box-shadow .2s ease, border-color .2s ease;
 }
+.sa-strip[data-open="true"] { box-shadow: var(--shadow); border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
+/* The bar: one tap opens and shuts the list. Closed, it still says how many are urgent. */
 .sa-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
+  min-height: 44px;
   padding: 8px 12px;
   border: 0;
   background: none;
@@ -148,7 +153,29 @@
   color: var(--ink);
   cursor: pointer;
   text-align: left;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .14s ease;
 }
+.sa-toggle:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.sa-toggle { flex-wrap: wrap; row-gap: 6px; }
+.sa-title { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* What is urgent sits on its own line under the title, so neither is ever cut short in a narrow column. */
+.sa-chips { display: flex; flex-wrap: wrap; gap: 4px; order: 9; flex-basis: 100%; }
+.sa-chips:empty { display: none; }
+.sa-hint { flex: none; font-size: var(--t-xs); font-weight: 600; color: var(--accent); }
+.sa-chevron { flex: none; color: var(--accent); transition: transform .22s cubic-bezier(.2,.7,.2,1); }
+.sa-strip[data-open="true"] .sa-chevron { transform: rotate(180deg); }
+/* Glides open and shut (0fr → 1fr), and scrolls by itself so it never pushes the conversations off the screen. */
+.sa-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows .24s cubic-bezier(.2,.7,.2,1);
+}
+.sa-strip[data-open="true"] .sa-panel { grid-template-rows: 1fr; }
+.sa-panel > .sa-list { min-height: 0; overflow: hidden; }
+.sa-strip[data-open="true"] .sa-panel > .sa-list { max-height: min(46vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
+@media (max-width: 520px) { .sa-hint { display: none; } }
+@media (prefers-reduced-motion: reduce) { .sa-panel, .sa-chevron { transition: none; } }
 .sa-count {
   min-width: 22px;
   padding: 0 6px;
@@ -159,7 +186,10 @@
   text-align: center;
   line-height: 20px;
 }
-.sa-list { list-style: none; margin: 0; padding: 0 8px 8px; display: flex; flex-direction: column; gap: 6px; }
+.sa-list { list-style: none; margin: 0; padding: 0 8px; display: flex; flex-direction: column; gap: 6px; }
+.sa-list > li { flex: none; }  /* a scrolling column must not squash its rows */
+.sa-list > li:last-child { margin-bottom: 8px; }
+.sa-main > .sa-urgent, .sa-main > .sa-tag { align-self: flex-start; }
 .sa-item {
   display: flex;
   flex-wrap: wrap;

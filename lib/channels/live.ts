@@ -1563,9 +1563,10 @@ export async function sendOnThread(
         : instagramAdapter.send;
   if (!attachment) {
     const result = await send({ accountId: t.account.id, toExternalId: t.peer.id, text }, t.token);
-    return result.ok
-      ? { kind: "sent" }
-      : { kind: "refused", status: 502, problem: `Meta did not accept it: ${result.error}` };
+    if (result.ok) return { kind: "sent" };
+    // Codes only in the log — never the words, never the customer.
+    console.warn(`[channels/send] ${t.account.id} refused: ${result.kind ?? "unknown"} (${result.codes ?? "no code"}) via ${t.via ?? "facebook-login"}`);
+    return { kind: "refused", status: 502, problem: result.error };
   }
 
   // A file: only one uploaded for THIS conversation, checked again against the
@@ -1598,7 +1599,8 @@ export async function sendOnThread(
   );
   if (!sent.ok) {
     await removeMedia([attachment.path]);
-    return { kind: "refused", status: 502, problem: `Meta did not accept the file: ${sent.error}` };
+    console.warn(`[channels/send] ${t.account.id} refused a file: ${sent.kind ?? "unknown"} (${sent.codes ?? "no code"})`);
+    return { kind: "refused", status: 502, problem: `The file was not sent. ${sent.error}` };
   }
 
   // Kept 12 months like WhatsApp (Samer, 2026-09-15; migration 011). It WENT:

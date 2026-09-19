@@ -197,7 +197,15 @@ export function outboundMessagePart(m: OutboundMessage): Record<string, unknown>
 
 export type SendResult =
   | { ok: true; externalMessageId: string }
-  | { ok: false; error: string; retryable: boolean };
+  | {
+      ok: false;
+      /** In words staff can act on (send-errors.ts) — never the customer's text, never a key. */
+      error: string;
+      retryable: boolean;
+      /** Why, as a class, and Meta's own codes: the only thing that separates causes needing opposite fixes. */
+      kind?: string;
+      codes?: string;
+    };
 
 /* ── The adapter ─────────────────────────────────────────────────────────── */
 

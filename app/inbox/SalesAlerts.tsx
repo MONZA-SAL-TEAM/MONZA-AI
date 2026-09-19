@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { alertsHeadline } from "@/lib/wasales/alerts";
 import "./suggestion.css";
 
 export interface SalesAlertItem {
@@ -41,6 +42,9 @@ function ago(iso: string): string {
   return hours < 24 ? `${hours} h ago` : `${Math.round(hours / 24)} d ago`;
 }
 
+/** Open or closed is this person's choice on this device, and stays that way (Samer, 2026-09-19). */
+const OPEN_KEY = "monza-ai:sales-alerts-open";
+
 /** One line a salesperson reads: what, which car, who. */
 function summary(a: SalesAlertItem): string {
   return [a.label, a.cars.join(", "), a.customerName ?? (a.customerPhone ? `+${a.customerPhone}` : null)]
@@ -57,8 +61,32 @@ export default function SalesAlerts({
   onChange: (open: ReadonlyMap<string, string>) => void;
 }) {
   const [alerts, setAlerts] = useState<SalesAlertItem[]>([]);
-  const [open, setOpen] = useState(true);
+  // Closed by default: twenty alerts must never bury the conversations under them.
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      setOpen(localStorage.getItem(OPEN_KEY) === "1");
+    } catch {
+      /* private mode: closed */
+    }
+  }, []);
+  // Shut, the list is still in the page (so it can glide): keep keyboards and screen readers out of it.
+  const panel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (panel.current) panel.current.inert = !open;
+  }, [open, alerts.length]);
+  const toggle = useCallback(() => {
+    setOpen((v) => {
+      try {
+        localStorage.setItem(OPEN_KEY, v ? "0" : "1");
+      } catch {
+        /* not remembered, still works */
+      }
+      return !v;
+    });
+  }, []);
   const [popup, setPopup] = useState<SalesAlertItem | null>(null);
   const seen = useRef<Set<string> | null>(null);
   const onChangeRef = useRef(onChange);
@@ -164,12 +192,26 @@ export default function SalesAlerts({
         </div>
       )}
       {alerts.length > 0 && (
-        <div className="sa-strip" role="region" aria-label="Clients to call">
-          <button type="button" className="sa-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <div className="sa-strip" role="region" aria-label="Clients to call" data-open={open}>
+          <button type="button" className="sa-toggle" aria-expanded={open} aria-controls="sa-panel" onClick={toggle}>
             <span className="sa-count">{alerts.length}</span>
-            {alerts.length === 1 ? "client needs a salesperson" : "clients need a salesperson"}
+            <span className="sa-title">{alerts.length === 1 ? "needs a salesperson" : "need a salesperson"}</span>
+            {(() => {
+              const { hot, overdue } = alertsHeadline(alerts);
+              return (
+                <span className="sa-chips">
+                  {overdue > 0 && <span className="sa-urgent" data-urgency="overdue">{overdue} waiting</span>}
+                  {hot > 0 && <span className="sa-urgent" data-urgency="hot">{hot} ready to buy</span>}
+                </span>
+              );
+            })()}
+            <span className="sa-hint">{open ? "Hide" : "Show"}</span>
+            <svg className="sa-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M6 9l6 6 6-6" />
+            </svg>
           </button>
-          {open && (
+          {/* Always in the page so it can glide open and shut; hidden from keyboards and screen readers while shut. */}
+          <div className="sa-panel" id="sa-panel" aria-hidden={!open} ref={panel}>
             <ul className="sa-list">
               {alerts.map((a) => (
                 <li key={a.id} className="sa-item" data-kind={a.kind}>
@@ -205,7 +247,7 @@ export default function SalesAlerts({
                 </li>
               ))}
             </ul>
-          )}
+          </div>
         </div>
       )}
     </>
