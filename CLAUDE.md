@@ -1075,6 +1075,31 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   state and our own sent ids per chat, never words. NOT applied until Samer
   says so: suggestions still show without it, but cannot be sent.
 
+## Installable as an app (2026-09-19)
+
+Samer: "make this Monza AI so we can install it as an app from the website". MONZA AI is a PWA:
+`lib/pwa.ts` (the manifest's content, the install steps per device, the worker's policy — pure and
+tested in `tests/pwa.test.ts`), `app/manifest.ts` (→ `/manifest.webmanifest`), `public/icons/*`
+(drawn from the side rail's own "M" mark by `python scripts/make-app-icons.py`), `public/sw.js`,
+`public/offline.html`, and `components/InstallApp.tsx` ("Install app" at the foot of the side rail).
+
+- **Installing adds no access.** It is the same site in its own window: same sign-in, same gate. The
+  app opens on `/inbox`, and every shortcut points at a protected screen (a test asserts it).
+- **The service worker NEVER caches MONZA AI's data** — no page, no API answer, no chat, no customer,
+  no file. It answers exactly one thing: a page navigation that failed for lack of network gets
+  `/offline.html`. A cached inbox on a lost or shared phone would be a copy of customers'
+  conversations that signing out could not reach. `tests/pwa.test.ts` reads `sw.js` and fails if it
+  ever gains a `cache.put`, a second `addAll`, or a `match` of anything but the offline page. Do not
+  add "offline support" or "faster loads" by caching here.
+- Chrome, Edge and Android give a one-tap prompt (`beforeinstallprompt`); iPhone/iPad install from
+  Safari (Share → Add to Home Screen) and Safari on a Mac from File → Add to Dock, so the button opens
+  the steps for that device. Firefox on a computer cannot install. Inside the installed app the button
+  is hidden.
+- Register the worker on `document.readyState === "complete"` OR on `load`: the component mounts after
+  hydration, when `load` has usually already fired (waiting for it registered nothing — found in the
+  browser, 2026-09-19).
+- No push notifications yet: that needs a push service and keys, and is a separate decision.
+
 ## General
 
 - `npm run verify` = typecheck + tests + build. Run it before pushing.

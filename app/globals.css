@@ -279,6 +279,41 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); outline
   border-top: 1px solid var(--line-soft);
 }
 
+/* "Install app" (components/InstallApp.tsx): hidden inside the installed app itself. */
+.install-btn {
+  appearance: none; cursor: pointer;
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  min-height: 44px; padding: 10px; margin-bottom: 8px;
+  border: 1px dashed var(--line); border-radius: 12px;
+  background: transparent; color: var(--ink-2);
+  font: inherit; font-size: var(--t-sm); font-weight: 600; text-align: left;
+  transition: background .14s ease, color .14s ease, border-color .14s ease;
+}
+.install-btn svg { flex: none; color: var(--accent); }
+.install-btn:hover:not(:disabled) { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+.install-btn:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+.install-btn:disabled { opacity: .5; cursor: progress; }
+.install-scrim {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: rgba(23,32,46,.45);
+}
+.install-dialog {
+  width: 100%; max-width: 400px; outline: none;
+  display: flex; flex-direction: column; gap: 10px;
+  background: var(--panel); color: var(--ink);
+  border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow-lift);
+}
+.install-icon { border-radius: 14px; }
+.install-title { font-family: var(--font-display), system-ui, sans-serif; font-size: var(--t-lg); margin: 4px 0 0; }
+.install-lede { margin: 0; color: var(--ink-2); font-size: var(--t-sm); }
+.install-steps { margin: 4px 0 8px; padding-left: 20px; display: grid; gap: 8px; font-size: var(--t-md); }
+@media (display-mode: standalone) {
+  /* The installed window: room for the phone's notch and home bar. */
+  .app-top { padding-top: max(10px, env(safe-area-inset-top)); }
+  .app-main { padding-bottom: env(safe-area-inset-bottom); }
+}
+
 /* Phone: the rail becomes a slide-over behind a compact top bar. */
 .app-top { display: none; }
 .side-toggle {

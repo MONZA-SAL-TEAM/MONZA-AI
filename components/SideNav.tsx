@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import InstallApp from "@/components/InstallApp";
 import { usePathname } from "next/navigation";
 import { NAV } from "@/lib/nav";
 
@@ -201,6 +202,7 @@ export default function SideNav() {
           ))}
         </nav>
 
+        <InstallApp />
         <div className="side-foot">Monza SAL — internal</div>
       </aside>
     </>
