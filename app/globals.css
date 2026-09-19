@@ -308,10 +308,35 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); outline
 .install-title { font-family: var(--font-display), system-ui, sans-serif; font-size: var(--t-lg); margin: 4px 0 0; }
 .install-lede { margin: 0; color: var(--ink-2); font-size: var(--t-sm); }
 .install-steps { margin: 4px 0 8px; padding-left: 20px; display: grid; gap: 8px; font-size: var(--t-md); }
-@media (display-mode: standalone) {
-  /* The installed window: room for the phone's notch and home bar. */
-  .app-top { padding-top: max(10px, env(safe-area-inset-top)); }
+/* The phone's real height: 100vh counts the browser's bars, and the last row hides behind them. */
+@supports (height: 100dvh) {
+  .app-shell { height: 100dvh; }
+}
+/* iPhone zooms the whole page into any field whose text is under 16px — the clearest "this is a website" tell. */
+@media (pointer: coarse) {
+  input, textarea, select { font-size: 16px; }
+}
+
+/*
+ * INSIDE THE INSTALLED APP (Samer, 2026-09-19: "I want to use it as an app, not a web"). The window has no
+ * address bar by itself (the manifest's display: standalone). These take away what still feels like a page:
+ * the rubber-band pull and pull-to-refresh, the grey tap flash, text selection on menus and buttons, the
+ * long-press "save image / open link" sheet on controls — and they keep clear of the notch and the home bar.
+ * Conversations, customer details and anything typed can still be selected and copied.
+ */
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  html, body { overscroll-behavior: none; }
+  body { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  .side, .app-top, .side-link, .install-btn, .btn, button, [role="button"], [role="tab"], summary, label {
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: manipulation;
+  }
+  a, img { -webkit-touch-callout: none; }
+  img { -webkit-user-drag: none; }
+  .app-top { padding-top: max(10px, env(safe-area-inset-top)); padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
   .app-main { padding-bottom: env(safe-area-inset-bottom); }
+  .side { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
 }
 
 /* Phone: the rail becomes a slide-over behind a compact top bar. */

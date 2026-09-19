@@ -36,13 +36,20 @@ export const metadata: Metadata = {
   },
   // iPhone and iPad: "Add to Home Screen" opens it full-screen, with this name under the icon.
   appleWebApp: { capable: true, title: APP_NAME, statusBarStyle: "default" },
+  // Phone numbers in chats are handled by the inbox itself; iOS must not turn every number into a blue link.
+  formatDetection: { telephone: false, date: false, address: false, email: false },
   other: { "mobile-web-app-capable": "yes", "msapplication-TileColor": THEME_COLOR, "application-description": APP_DESCRIPTION },
   // A staff tool: never in a search engine.
   robots: { index: false, follow: false },
 };
 
 export const viewport: Viewport = {
-  themeColor: THEME_COLOR,
+  // The phone's status bar takes the app's own background, by day and by night, so the window reads as
+  // one surface — not a coloured browser strip above a page.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#FFFFFF" },
+    { media: "(prefers-color-scheme: dark)", color: "#121926" },
+  ],
   width: "device-width",
   initialScale: 1,
   // The notch and the home bar of an installed phone app.

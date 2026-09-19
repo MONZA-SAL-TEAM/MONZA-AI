@@ -63,7 +63,8 @@ describe("the manifest", () => {
     assert.match(layout, /manifest: "\/manifest\.webmanifest"/);
     assert.match(layout, /apple-touch-icon\.png/);
     assert.match(layout, /appleWebApp/);
-    assert.match(layout, /themeColor: THEME_COLOR/);
+    assert.match(layout, /themeColor: \[/);
+    assert.match(layout, /capable: true/);
     assert.match(read("app/manifest.ts"), /appManifest\(\)/);
   });
 
@@ -116,6 +117,31 @@ describe("the service worker never keeps Monza's data", () => {
     const c = read("components/InstallApp.tsx");
     assert.match(c, /serviceWorker\.register\("\/sw\.js", \{ scope: "\/" \}\)\.catch\(/);
     assert.match(read("components/SideNav.tsx"), /<InstallApp \/>/);
+  });
+});
+
+describe("inside the installed app it behaves like an app, not a page", () => {
+  const css = read("app/globals.css");
+  test("no address bar is the manifest's job: a standalone window, never 'browser' or 'minimal-ui' first", () => {
+    const m = appManifest();
+    assert.equal(m.display, "standalone");
+    assert.equal(m.display_override[0], "standalone");
+  });
+  test("no page tells: no rubber-band, no tap flash, no zoom into fields, the phone's real height, safe areas", () => {
+    const standalone = css.slice(css.indexOf("@media (display-mode: standalone), (display-mode: fullscreen)"));
+    assert.match(standalone, /overscroll-behavior: none/);
+    assert.match(standalone, /-webkit-tap-highlight-color: transparent/);
+    assert.match(standalone, /-webkit-touch-callout: none/);
+    assert.match(standalone, /env\(safe-area-inset-top\)/);
+    assert.match(standalone, /env\(safe-area-inset-bottom\)/);
+    assert.match(css, /@media \(pointer: coarse\) \{\s*input, textarea, select \{ font-size: 16px; \}/);
+    assert.match(css, /height: 100dvh/);
+    assert.match(read("app/layout.tsx"), /viewportFit: "cover"/);
+  });
+  test("what staff need to copy stays selectable: selection is only switched off on controls", () => {
+    const rule = css.match(/([^{}]*)\{[^{}]*user-select: none;/g) ?? [];
+    assert.ok(rule.length >= 1);
+    for (const r of rule) assert.doesNotMatch(r.split("{")[0], /(^|[\s,])(body|html|\*|main|p|\.app-main)(\s|,|$)/, r.split("{")[0]);
   });
 });
 
