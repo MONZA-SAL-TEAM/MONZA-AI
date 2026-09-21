@@ -1,5 +1,6 @@
 "use client";
 
+import { InstallCard } from "@/components/InstallApp";
 import {
   CRM_ANON_KEY as CRM_ANON_PUBLIC,
   CRM_URL as CRM_URL_PUBLIC,
@@ -185,6 +186,7 @@ export default function LoginClient() {
               </a>
             </div>
           )}
+          <InstallCard />
         </div>
       </div>
     </main>

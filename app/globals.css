@@ -293,6 +293,44 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); outline
 .install-btn:hover:not(:disabled) { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
 .install-btn:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
 .install-btn:disabled { opacity: .5; cursor: progress; }
+/* "Get the app" across the top — phones and tablets only, and never inside the installed app. */
+.install-banner { display: none; }
+@media (max-width: 900px) and (display-mode: browser) {
+  .install-banner {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px 8px 14px;
+    background: var(--accent-bg); color: var(--ink);
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  }
+}
+.install-banner-icon { border-radius: 9px; flex: none; }
+.install-banner-text { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.25; }
+.install-banner-text strong { font-size: var(--t-sm); }
+.install-banner-text span { font-size: var(--t-xs); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.install-banner-go {
+  appearance: none; border: 0; cursor: pointer; flex: none;
+  min-height: 36px; padding: 0 16px; border-radius: 999px;
+  font: inherit; font-size: var(--t-sm); font-weight: 700;
+  color: var(--accent-ink); background: var(--grad);
+}
+.install-banner-go:disabled { opacity: .6; }
+.install-banner-x {
+  appearance: none; border: 0; background: none; cursor: pointer; flex: none;
+  width: 36px; height: 36px; border-radius: 999px; color: var(--ink-3); font-size: 14px;
+}
+.install-banner-x:hover { background: var(--sunk); color: var(--ink); }
+.install-banner-go:focus-visible, .install-banner-x:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+
+/* Written out in full: the sign-in page and /install. */
+.install-card { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+.install-card-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; width: 100%; }
+.install-card-btn svg { color: var(--accent); }
+.install-card .install-steps { margin: 2px 0 0; font-size: var(--t-sm); }
+.install-card-note { margin: 0; font-size: var(--t-xs); color: var(--ink-3); }
+.install-card-done { margin: 0; color: var(--live); font-weight: 600; }
+.install-page { flex: 1; display: flex; align-items: flex-start; justify-content: center; padding: 32px 16px; overflow-y: auto; }
+.install-page-card { width: 100%; max-width: 480px; display: grid; gap: 10px; box-shadow: var(--shadow-lift); }
+
 .install-scrim {
   position: fixed; inset: 0; z-index: 200;
   display: flex; align-items: center; justify-content: center; padding: 20px;

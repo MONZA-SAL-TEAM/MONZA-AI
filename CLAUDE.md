@@ -1098,6 +1098,17 @@ tested in `tests/pwa.test.ts`), `app/manifest.ts` (→ `/manifest.webmanifest`),
 - Register the worker on `document.readyState === "complete"` OR on `load`: the component mounts after
   hydration, when `load` has usually already fired (waiting for it registered nothing — found in the
   browser, 2026-09-19).
+- **"It opens the browser" (Samer, 2026-09-21, twice).** The site WAS installable; the icon on his phone was
+  a BOOKMARK — made with the browser's own "Add to Home screen → Create shortcut", or before the push —
+  and a bookmark always opens a browser tab and can never be converted. The first Install button sat at
+  the foot of the phone's hidden menu, so nobody found it. Now: `InstallBanner` ("Get the app", across
+  the top on phones and tablets, browser only, closable for `BANNER_SNOOZE_DAYS`), `InstallCard` on the
+  sign-in page, and the public page `/install`. The app's `start_url` carries `source=app`, so a page
+  opened with that mark in a BROWSER tab was launched from a bookmark (`isShortcutLaunch`): the product
+  says so at once and shows how to remove it and install properly. Instagram's / Facebook's / TikTok's
+  mini-browsers cannot install (`in-app-browser`): it says to open Safari or Chrome. When somebody
+  reports this again, FIRST check the live `/manifest.webmanifest` answers 200, then ask them to delete
+  the icon and press "Get the app" — do not go looking for a code fault.
 - No push notifications yet: that needs a push service and keys, and is a separate decision.
 
 ## General

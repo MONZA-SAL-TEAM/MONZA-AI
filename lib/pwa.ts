@@ -94,6 +94,8 @@ export function appManifest(): AppManifest {
 export type InstallPath =
   /** Already running as the installed app: nothing to offer. */
   | "installed"
+  /** Opened inside Instagram, Facebook, TikTok…: those mini-browsers cannot install anything. */
+  | "in-app-browser"
   /** The browser handed us its install prompt (Chrome, Edge, Samsung Internet, Android): one tap. */
   | "prompt"
   /** iPhone / iPad: no prompt exists; it is Share → Add to Home Screen, and only in Safari. */
@@ -120,6 +122,7 @@ export function installPath(f: InstallFacts): InstallPath {
   if (f.standalone) return "installed";
   if (f.hasPrompt) return "prompt";
   const ua = f.userAgent;
+  if (/Instagram|FBAN|FBAV|FB_IAB|Line\/|MicroMessenger|TikTok|musical_ly|Snapchat|LinkedInApp/.test(ua)) return "in-app-browser";
   const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && f.maxTouchPoints > 1);
   if (ios) return /CriOS|FxiOS|EdgiOS|OPiOS/.test(ua) ? "ios-other-browser" : "ios-safari";
   const chromium = /Chrome|Chromium|Edg\//.test(ua);
@@ -135,8 +138,10 @@ export function installSteps(path: InstallPath): string[] {
       return ["Monza AI is installed — you are using the app now."];
     case "prompt":
       return ["Press Install. Monza AI gets its own icon and opens in its own window."];
+    case "in-app-browser":
+      return ["This is a mini-browser inside another app — it cannot install anything.", "Open monza-ai.vercel.app in Safari (iPhone) or Chrome (Android), then press “Get the app” there."];
     case "ios-safari":
-      return ["Tap the Share button (the square with the arrow).", "Scroll down and tap “Add to Home Screen”.", "Tap Add. Monza AI appears on your home screen."];
+      return ["Tap the Share button (the square with the arrow).", "Scroll down and tap “Add to Home Screen”. If you see “Open as Web App”, keep it switched ON.", "Tap Add. Open Monza AI from the new icon — it opens as an app, with no address bar."];
     case "ios-other-browser":
       return ["On iPhone and iPad, apps install from Safari.", "Open monza-ai.vercel.app in Safari, then tap Share → “Add to Home Screen”."];
     case "mac-safari":
@@ -144,8 +149,33 @@ export function installSteps(path: InstallPath): string[] {
     case "unsupported":
       return ["Firefox on a computer cannot install web apps.", "Open Monza AI in Chrome or Edge and press Install there."];
     case "menu":
-      return ["Open the browser’s menu (⋮ or …).", "Choose “Install Monza AI” (or “Apps → Install this site as an app”).", "If it is not there, the app is already installed on this device."];
+      return ["Open the browser’s menu (⋮ or …).", "Choose “Install app” or “Add to Home screen” → INSTALL — never “Create shortcut”: a shortcut opens the browser.", "If neither is there, the app is already installed on this device."];
   }
+}
+
+/**
+ * THE ICON THAT OPENS THE BROWSER (Samer, 2026-09-21: "when I open it, it opens the browser"). An icon made
+ * with the browser's "Create shortcut", or made before the site was installable, is only a bookmark: it
+ * opens a browser tab, address bar and all, and it never turns into the app. The real app's icon opens
+ * `start_url`, which carries `source=app` — so a page opened WITH that mark but NOT in an app window was
+ * launched from such a bookmark, and the product can say so and show the fix.
+ */
+export function isShortcutLaunch(search: string, standalone: boolean): boolean {
+  if (standalone) return false;
+  const source = new URLSearchParams(search).get("source");
+  return source === "app" || source === "app-shortcut";
+}
+
+/** How to replace a bookmark icon with the real app, before the device's own install steps. */
+export const REPLACE_SHORTCUT_STEPS: readonly string[] = [
+  "That icon is only a browser bookmark, so it will always open the browser. It cannot be converted.",
+  "Press and hold it on your home screen and remove it.",
+];
+
+/** "Get the app" is offered again this long after somebody closes it. */
+export const BANNER_SNOOZE_DAYS = 7;
+export function bannerSnoozed(dismissedAtMs: number | null, nowMs: number): boolean {
+  return dismissedAtMs !== null && Number.isFinite(dismissedAtMs) && nowMs - dismissedAtMs < BANNER_SNOOZE_DAYS * 86_400_000;
 }
 
 /* ── What the service worker may touch ───────────────────────────────────── */

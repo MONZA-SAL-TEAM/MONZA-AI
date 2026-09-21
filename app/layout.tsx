@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { Sora, Manrope } from "next/font/google";
 import SideNav from "@/components/SideNav";
+import { InstallBanner } from "@/components/InstallApp";
 import { APP_DESCRIPTION, APP_NAME, THEME_COLOR } from "@/lib/pwa";
 import "./globals.css";
 
@@ -61,6 +62,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" className={`${sora.variable} ${manrope.variable}`}>
       <body className="app-shell">
         <SideNav />
+        {/* Phones and tablets in the browser: "Get the app", where nobody can miss it. Never inside the app. */}
+        <InstallBanner />
         <main className="app-main">{children}</main>
       </body>
     </html>

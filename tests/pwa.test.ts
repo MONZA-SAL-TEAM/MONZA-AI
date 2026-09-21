@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { appManifest, installPath, installSteps, workerHandles, START_URL, THEME_COLOR } from "@/lib/pwa";
+import { appManifest, bannerSnoozed, installPath, installSteps, isShortcutLaunch, workerHandles, BANNER_SNOOZE_DAYS, REPLACE_SHORTCUT_STEPS, START_URL, THEME_COLOR } from "@/lib/pwa";
 import { decideGate, isProtectedPath } from "@/lib/gate";
 
 const ROOT = process.cwd();
@@ -174,12 +174,57 @@ describe("the install button says the right thing on each device", () => {
   });
 
   test("every path has short, plain steps", () => {
-    for (const p of ["installed", "prompt", "ios-safari", "ios-other-browser", "mac-safari", "unsupported", "menu"] as const) {
+    for (const p of ["installed", "prompt", "in-app-browser", "ios-safari", "ios-other-browser", "mac-safari", "unsupported", "menu"] as const) {
       const steps = installSteps(p);
       assert.ok(steps.length >= 1 && steps.length <= 3, p);
-      for (const s of steps) assert.ok(s.length <= 110, `${p}: ${s}`);
+      for (const s of steps) assert.ok(s.length <= 170, `${p}: ${s}`);
     }
+    // The two ways people end up with an icon that opens the browser are named in the steps themselves.
+    assert.match(installSteps("menu").join(" "), /never “Create shortcut”/);
+    assert.match(installSteps("ios-safari").join(" "), /Open as Web App/);
     assert.match(installSteps("ios-safari").join(" "), /Add to Home Screen/);
     assert.match(installSteps("mac-safari").join(" "), /Add to Dock/);
+  });
+});
+
+describe("the icon that opens the browser (Samer, 2026-09-21)", () => {
+  test("a page opened with the app's start mark, but in a browser tab, was launched from a mere bookmark", () => {
+    const start = appManifest().start_url.split("?")[1];
+    assert.equal(isShortcutLaunch(`?${start}`, false), true);
+    assert.equal(isShortcutLaunch("?source=app-shortcut", false), true);
+    assert.equal(isShortcutLaunch(`?${start}`, true), false, "inside the real app there is nothing to fix");
+    assert.equal(isShortcutLaunch("", false), false, "an ordinary visit in a browser is not a broken icon");
+    assert.equal(isShortcutLaunch("?open=abc", false), false);
+    assert.ok(REPLACE_SHORTCUT_STEPS.join(" ").includes("remove it"));
+  });
+
+  test("Instagram's, Facebook's and TikTok's mini-browsers cannot install: say so, and where to go", () => {
+    const at = (userAgent: string) => installPath({ userAgent, standalone: false, hasPrompt: false, maxTouchPoints: 5 });
+    assert.equal(at("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 340.0.0.0"), "in-app-browser");
+    assert.equal(at("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/128.0 Mobile Safari/537.36 [FB_IAB/FB4A;FBAV/470.0.0.0;]"), "in-app-browser");
+    assert.match(installSteps("in-app-browser").join(" "), /Safari.*Chrome/);
+  });
+
+  test("'Get the app' is where nobody can miss it: a phone banner, the sign-in page, /install — never inside the app", () => {
+    const css = read("app/globals.css");
+    assert.match(read("app/layout.tsx"), /<InstallBanner \/>/);
+    assert.match(read("app/login/LoginClient.tsx"), /<InstallCard \/>/);
+    assert.match(read("app/install/page.tsx"), /<InstallCard full \/>/);
+    // The banner exists only in a BROWSER tab on a small screen; the installed window never shows it.
+    assert.match(css, /\.install-banner \{ display: none; \}/);
+    assert.match(css, /@media \(max-width: 900px\) and \(display-mode: browser\) \{\s*\.install-banner \{/);
+    // /install is public: somebody must be able to read how to install before they have the app.
+    assert.equal(isProtectedPath("/install"), false);
+    assert.equal(decideGate({ pathname: "/install", search: "", token: undefined, crmConfigured: true }).action, "pass");
+    const c = read("components/InstallApp.tsx");
+    assert.match(c, /isShortcutLaunch\(window\.location\.search, isStandalone\(\)\)/);
+  });
+
+  test("closing the banner is respected for a week, then it is offered again", () => {
+    const now = Date.parse("2026-09-21T09:00:00Z");
+    assert.equal(bannerSnoozed(null, now), false);
+    assert.equal(bannerSnoozed(now - 2 * 86_400_000, now), true);
+    assert.equal(bannerSnoozed(now - (BANNER_SNOOZE_DAYS + 1) * 86_400_000, now), false);
+    assert.equal(bannerSnoozed(Number.NaN, now), false);
   });
 });
