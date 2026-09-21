@@ -31,6 +31,7 @@ import type { ChannelAccount, InboundEvent } from "@/lib/channels/types";
 import { applyWhatsAppStatuses, listAccounts, recordDelivery, storeInbound } from "@/lib/channels/store";
 import { captureMedia } from "@/lib/channels/wa-media-store";
 import { runAutoreply } from "@/lib/wasales/autoreply";
+import { notifyNewMessages } from "@/lib/push/server";
 import {
   accountsForApp,
   parseMetaAppSecrets,
@@ -54,6 +55,9 @@ const ADAPTERS = [instagramAdapter, messengerAdapter, whatsappAdapter];
  * the thread and the daily job (lib/channels/wa-media-store.ts).
  */
 const MEDIA_BUDGET_MS = 8_000;
+
+/** How long waking staff phones may take, inside maxDuration. */
+const PUSH_BUDGET_MS = 3_000;
 
 /** How long the sales autoreply pilot may spend answering, inside maxDuration. */
 const AUTOREPLY_BUDGET_MS = 12_000;
@@ -175,6 +179,16 @@ export async function POST(request: Request): Promise<Response> {
   // THE SALES AUTOREPLY PILOT (Samer, 2026-09-16) — the one named exception to
   // CLAUDE.md rule 24. Only for messages that are NEW here, and only in the
   // chats lib/wasales/autoreply-pilot.ts lists; every other chat is untouched.
+  // NOTIFICATIONS WHEN THE APP IS CLOSED (2026-09-21): every device that asked is woken — who wrote and
+  // where, never what. Best effort, inside its own small budget: it can never fail or delay a delivery.
+  if (result.fresh.length > 0) {
+    try {
+      await notifyNewMessages(result.fresh, PUSH_BUDGET_MS);
+    } catch (e) {
+      console.error("[channels/meta] push failed:", e);
+    }
+  }
+
   if (result.fresh.length > 0) {
     try {
       const a = await runAutoreply(result.fresh, AUTOREPLY_BUDGET_MS);

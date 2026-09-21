@@ -720,7 +720,9 @@ and tested in `lib/inbox/sync.ts`.
 - **Unread is per person, in their browser**, from a baseline set on the first
   visit (otherwise history arrives as 2,000 unread). Alerts: an in-page toast,
   plus a browser notification while the tab is in the background if allowed.
-  Nothing rings when the inbox is closed — there is no push service.
+  With the app CLOSED a device rings only if its notifications are switched on —
+  see "Notifications when the app is closed" below (the in-tab one is then skipped,
+  so nothing rings twice).
 
 ## WhatsApp in the inbox (2026-09-15)
 
@@ -1109,7 +1111,46 @@ tested in `tests/pwa.test.ts`), `app/manifest.ts` (→ `/manifest.webmanifest`),
   mini-browsers cannot install (`in-app-browser`): it says to open Safari or Chrome. When somebody
   reports this again, FIRST check the live `/manifest.webmanifest` answers 200, then ask them to delete
   the icon and press "Get the app" — do not go looking for a code fault.
-- No push notifications yet: that needs a push service and keys, and is a separate decision.
+- Push notifications: the next section.
+
+## Notifications when the app is closed (2026-09-21)
+
+Samer: "I'm not receiving notifications outside the app." A closed app has no page to run, so the
+device's own push service (Apple, Google, Mozilla, Microsoft) has to wake it: Web Push, in `lib/push/`
+— `webpush.ts` (the request and the rules, pure, no dependency: node:crypto signs the VAPID token),
+`server.ts` (the two tables of migration 019, APPLIED 2026-09-21), `device.ts` (the page's half, pure),
+`components/PushToggle.tsx` (the switch: foot of the side rail, the inbox's bell, and a one-line nudge
+in the inbox), `/api/push/{key,subscribe,latest,test}`, and the second half of `public/sw.js`.
+
+- **The push carries NOTHING.** No payload: the worker wakes, asks `/api/push/latest` for one line and
+  shows it. So no customer's name travels through Apple or Google, and there is no payload encryption
+  to get wrong. The line says WHO and WHERE ("New WhatsApp message · Rami · MONZA") — **never what the
+  customer wrote**, never money. Do not add message text to a notification: a lock screen is public.
+- **Who may ask for that line:** a signed-in staff member, or a device whose push address a signed-in
+  staff member confirmed in the last 30 days (`confirmed_at`, refreshed on every signed-in visit). The
+  sign-in cookie lasts ONE HOUR and a phone in a pocket cannot renew it — without the device rule every
+  notification after the first hour would read "New activity". Anybody else gets the generic line.
+- **A subscription's address is untrusted input and the server POSTs to it** — `isPushEndpoint` allows
+  only the four push services' hosts (https, no port, no credentials). Never loosen it to "any https".
+- **Unconfigured refuses.** Keys: `WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY` (secret),
+  `WEB_PUSH_SUBJECT` (mailto:), made by `node scripts/make-push-keys.mjs <email>` in Samer's OWN
+  terminal and pasted into Vercel — never chat, never the repository (rule 13). A NEW pair silences
+  every device until each presses "Turn on notifications" again: keep the pair unless it leaked.
+- **Best effort, always** (rule 16): the webhook calls `notifyNewMessages` in its own try/catch, inside
+  `PUSH_BUDGET_MS`, BEFORE the bot answers. One notification per chat per delivery (max 3). A NEW sales
+  alert rings on its own only when it is hot or overdue — an ordinary one is already covered by "a
+  customer wrote". A dead address (404/410) or a key mismatch (400/401/403) deletes the subscription.
+- **A notification is ALWAYS shown when the worker is woken** — Safari and Chrome withdraw the
+  permission from an app that wakes silently. Every failure path ends in the generic line.
+- **Per device, by a tap.** Browsers refuse to ask without one. **iPhone / iPad: only inside the
+  INSTALLED app (iOS 16.4+)** — in a Safari tab `PushManager` does not exist, and the switch says
+  "install first" (`needs-install`). Android and computers: the browser or the installed app.
+- Everybody who switched it on is notified of every new customer message on every brand — there is no
+  per-brand or per-person filter yet. Instagram and Facebook ring only when their webhooks deliver
+  (WhatsApp always does); their tap opens the inbox, WhatsApp's opens the chat.
+- When somebody says "it does not ring": (1) `/api/push/key` must answer `"setup":"ready"`; (2) the
+  switch must read "Notifications on" ON THAT DEVICE, then "Send a test"; (3) the phone's own settings
+  (Focus / Do Not Disturb, battery saver killing Chrome, notifications off for the app) — only then code.
 
 ## General
 

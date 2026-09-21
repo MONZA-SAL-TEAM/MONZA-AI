@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import InstallApp from "@/components/InstallApp";
+import PushToggle from "@/components/PushToggle";
 import { usePathname } from "next/navigation";
 import { NAV } from "@/lib/nav";
 
@@ -202,6 +203,7 @@ export default function SideNav() {
           ))}
         </nav>
 
+        <PushToggle />
         <InstallApp />
         <div className="side-foot">Monza SAL — internal</div>
       </aside>

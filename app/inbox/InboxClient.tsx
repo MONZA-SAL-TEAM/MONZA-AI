@@ -75,6 +75,8 @@ import {
   type ShowFilter,
   type ViewFilter,
 } from "@/lib/inbox/sync";
+import { PushDialog, PushNudge, usePush } from "@/components/PushToggle";
+import { PUSH_ON_FLAG } from "@/lib/push/device";
 import "./inbox.css";
 
 interface Props {
@@ -444,6 +446,14 @@ export default function InboxClient(props: Props) {
   const alertsRef = useRef<AlertsState>("unsupported");
   alertsRef.current = alerts;
   const [toast, setToast] = useState<Conversation | null>(null);
+  // Notifications when the app is closed (components/PushToggle).
+  const push = usePush();
+  const [pushOpen, setPushOpen] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    const p = Notification.permission;
+    setAlerts(p === "granted" ? "granted" : p === "denied" ? "denied" : "default");
+  }, [push.path]);
   // Chats the sales bot handed to a person (app/inbox/SalesAlerts): thread id → why.
   const [needsPerson, setNeedsPerson] = useState<ReadonlyMap<string, string>>(new Map());
 
@@ -476,6 +486,13 @@ export default function InboxClient(props: Props) {
     if (!first) return;
     setToast(first);
     if (alertsRef.current !== "granted" || document.visibilityState === "visible") return;
+    // This device is woken by the push service (components/PushToggle): that notification already says
+    // it, and works with the app closed too. Raising our own as well would ring twice.
+    try {
+      if (localStorage.getItem(PUSH_ON_FLAG)) return;
+    } catch {
+      /* no storage: notify as before */
+    }
     for (const c of news.slice(0, 3)) {
       try {
         const brand = brandLabel(brandOf(c, accountsRef.current));
@@ -1153,27 +1170,44 @@ export default function InboxClient(props: Props) {
                   <Icon d={I.check} />
                 </button>
               )}
-              {live && alerts !== "unsupported" && (
+              {live && push.path && push.path !== "unsupported" ? (
                 <button
                   type="button"
                   className="ibx-icon-btn"
-                  data-on={alerts === "granted"}
-                  title={
-                    alerts === "granted"
-                      ? "Alerts are on while the inbox is open"
-                      : alerts === "denied"
-                        ? "Alerts are blocked in this browser's settings"
-                        : "Turn on alerts for new messages"
-                  }
-                  aria-label="New-message alerts"
-                  disabled={alerts !== "default"}
-                  onClick={() => void enableAlerts()}
+                  data-on={push.path === "on"}
+                  title={push.path === "on" ? "Notifications are on — this device rings even when Monza AI is closed" : "Notifications: make this device ring when Monza AI is closed"}
+                  aria-label="Notifications"
+                  onClick={() => setPushOpen(true)}
                 >
-                  <Icon d={alerts === "denied" ? I.bellOff : I.bell} />
+                  <Icon d={push.path === "blocked" ? I.bellOff : I.bell} />
                 </button>
+              ) : (
+                live &&
+                alerts !== "unsupported" && (
+                  <button
+                    type="button"
+                    className="ibx-icon-btn"
+                    data-on={alerts === "granted"}
+                    title={
+                      alerts === "granted"
+                        ? "Alerts are on while the inbox is open"
+                        : alerts === "denied"
+                          ? "Alerts are blocked in this browser's settings"
+                          : "Turn on alerts for new messages"
+                    }
+                    aria-label="New-message alerts"
+                    disabled={alerts !== "default"}
+                    onClick={() => void enableAlerts()}
+                  >
+                    <Icon d={alerts === "denied" ? I.bellOff : I.bell} />
+                  </button>
+                )
               )}
             </div>
           </div>
+
+          {live && <PushNudge push={push} onOpen={() => setPushOpen(true)} />}
+          {pushOpen && <PushDialog push={push} onClose={() => setPushOpen(false)} />}
 
           {statusOpen && live && (
             <div className="ibx-status" role="region" aria-label="Sync details">

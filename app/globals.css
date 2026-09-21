@@ -293,6 +293,37 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); outline
 .install-btn:hover:not(:disabled) { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
 .install-btn:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
 .install-btn:disabled { opacity: .5; cursor: progress; }
+/* "Notifications" (components/PushToggle.tsx) — same button as Install, solid once it is on. */
+.push-btn[data-on="true"] { border-style: solid; color: var(--ink); }
+.push-btn[data-on="true"] svg { color: var(--live); }
+.push-badge {
+  display: inline-grid; place-items: center; width: 56px; height: 56px; border-radius: 16px;
+  background: var(--sunk); color: var(--ink-2);
+}
+.push-badge svg { width: 26px; height: 26px; }
+.push-badge[data-on="true"] { background: var(--accent-bg); color: var(--accent); }
+.push-note { margin: 0; font-size: var(--t-xs); color: var(--ink-3); }
+.push-message { margin: 0; font-size: var(--t-sm); font-weight: 600; color: var(--ink); }
+.push-actions { display: grid; gap: 8px; margin-top: 6px; }
+.push-actions .btn { min-height: 44px; justify-content: center; text-align: center; text-decoration: none; }
+.push-nudge {
+  display: flex; align-items: center; gap: 10px; margin: 8px 12px 0; padding: 8px 8px 8px 12px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--accent-bg); color: var(--ink);
+  font-size: var(--t-sm);
+}
+.push-nudge svg { flex: none; color: var(--accent); }
+.push-nudge-text { flex: 1; min-width: 0; line-height: 1.3; }
+.push-nudge-go {
+  appearance: none; cursor: pointer; flex: none; min-height: 36px; padding: 0 14px; border: 0; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink); font: inherit; font-size: var(--t-sm); font-weight: 700;
+}
+.push-nudge-x {
+  appearance: none; cursor: pointer; flex: none; width: 36px; height: 36px; border: 0; border-radius: 999px;
+  background: transparent; color: var(--ink-2); font-size: 20px; line-height: 1;
+}
+.push-nudge-x:hover { background: var(--sunk); color: var(--ink); }
+.push-nudge-go:focus-visible, .push-nudge-x:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+
 /* "Get the app" across the top — phones and tablets only, and never inside the installed app. */
 .install-banner { display: none; }
 @media (max-width: 900px) and (display-mode: browser) {

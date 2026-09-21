@@ -102,7 +102,10 @@ describe("the service worker never keeps Monza's data", () => {
     assert.deepEqual(matches, ['.match("/offline.html")']);
     // The fetch handler mirrors the tested policy, and never names the API.
     assert.match(code, /request\.method === "GET" && request\.mode === "navigate"/);
-    assert.doesNotMatch(code, /\/api\//);
+    // The ONE API address it knows is the notification's line (tests/push.test.ts): asked with
+    // `cache: "no-store"`, shown, never kept. Any other API address here is a fault.
+    assert.deepEqual(code.match(/\/api\/[\w/-]*/g), ["/api/push/latest"]);
+    assert.equal((code.match(/\bfetch\(/g) ?? []).length, 2); // the page navigation, and that one question
     // An older worker's caches are removed.
     assert.match(code, /caches\.delete/);
   });

@@ -21,6 +21,7 @@ import { sendWhatsAppTemplate } from "@/lib/channels/whatsapp";
 import { slotLabel } from "@/lib/wasales/booking";
 import { MONZA_KNOWLEDGE, modelByCode, type ModelCode } from "@/lib/wasales/knowledge";
 import type { AlertKind, AlertUrgency } from "@/lib/wasales/actions";
+import { alertNote, notifyAll } from "@/lib/push/server";
 import { closedByStaffReply, mergeIntoOpen, sortKinds, urgencyOf, type OpenAlertRow } from "@/lib/wasales/alerts";
 
 export interface ChatRef {
@@ -346,6 +347,9 @@ export async function recordAlert(
   if (error || !data) {
     console.error(`[sales/alert] could not record (${error?.code ?? "?"})`);
     return false;
+  }
+  if (urgency === "hot" || urgency === "overdue") {
+    void notifyAll(alertNote({ threadId: chat.threadId, label: KIND_LABEL[a.kind], cars: a.models.map((m) => modelByCode(MONZA_KNOWLEDGE, m)?.displayName ?? m), who: name ?? (phone ? `+${phone}` : null), urgency }), 3_000).catch(() => 0);
   }
   const notified = await notifySalesPhone(alertSummary({ ...a, name, phone }));
   if (notified) {
