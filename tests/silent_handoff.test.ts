@@ -169,6 +169,10 @@ describe("what the bot no longer says — silent, and a person is told", () => {
     assert.equal(second.plan.filter((p) => p.kind === "file").length, 0);
   });
 
+  test("a comparison is not made — Sales compares (row 20)", () => {
+    silent(["compare the courage and the free 318"], /QUESTION|NEEDS_PERSON/);
+  });
+
   test("a colour with no video", () => {
     const d = last(["courage", "do you have it in green?"]);
     assert.ok(!texts(d.plan).some((x) => x.startsWith("Sorry")));
@@ -185,6 +189,7 @@ describe("what the bot no longer says — silent, and a person is told", () => {
 describe("the rule itself", () => {
   test("the hand-off sentence, the phone number, the confirm question and an empty category are silenced", () => {
     assert.equal(isSilenced({ type: "SEND_CONTACT_FALLBACK", reasons: [] }), true);
+    assert.equal(isSilenced({ type: "SEND_COMPARISON", models: ["COURAGE", "FREE_318"], rows: [] }), true);
     assert.equal(isSilenced({ type: "SEND_GLOBAL_INFO", key: "CONTACT_NUMBER", value: "x", source: "" }), true);
     assert.equal(isSilenced({ type: "SEND_GLOBAL_INFO", key: "LOCATION", value: "x", source: "" }), false);
     assert.equal(isSilenced({ type: "SHOW_MODEL_CHOICES", models: ["DREAM"], greet: false, narrowed: false, prompt: "confirm" }), true);

@@ -7,7 +7,7 @@
  * The bot stays silent on those, and the chat is flagged for Sales (the inbox bar and the phone
  * notification), so a person answers in their own words.
  *
- * He marked the 66 sentences in the workbook export (Monza-AI-Sales-Bot-Messages.xlsx, rows
+ * He marked the 67 sentences (66 on the first pass, the comparison on the second) in the workbook export (Monza-AI-Sales-Bot-Messages.xlsx, rows
  * highlighted yellow); this file is that list. It reverses the 2026-09-18 "never silent" rule for
  * those sentences only: a question the bot CAN answer from the workbook is still answered.
  *
@@ -118,6 +118,8 @@ export function isSilenced(a: EngineAction): boolean {
     case "SEND_CONTACT_FALLBACK":
     case "COLOUR_NOT_AVAILABLE":
     case "SHOW_TEST_DRIVE_SLOTS":
+    // The side-by-side comparison (row 20, added 2026-10-06): Sales compares, in their own words.
+    case "SEND_COMPARISON":
       return true;
     case "SEND_GLOBAL_INFO":
       // The address and the hours are given; the phone number is not (row 72).
