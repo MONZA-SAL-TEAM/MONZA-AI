@@ -26,7 +26,7 @@ import { listLibraryFiles } from "@/lib/wasales/library-server";
 import { colourNameFrom } from "@/lib/wasales/media-paths";
 import { MONZA_KNOWLEDGE, salesBrandOf, type SalesChannel } from "@/lib/wasales/knowledge";
 import { salesContextTtlHours } from "@/lib/wasales/context";
-import { isCustomerFacing } from "@/lib/wasales/actions";
+import { isCustomerFacing, type EngineAction } from "@/lib/wasales/actions";
 import { actionLabel, type OutboundPart } from "@/lib/wasales/templates";
 import type { EngineDeps } from "@/lib/wasales/engine";
 import type { WaCar } from "@/lib/wasales/matcher";
@@ -460,6 +460,21 @@ export async function resumeSuggestions(threadId: unknown): Promise<Reply> {
 }
 
 /** A "Needs a person" alert for the inbox — the engine's reason only, never the customer's words. */
+/** The decision's ALERT_SALES and FLAG_FOR_STAFF actions, recorded without a send. True when at least one was. */
+async function recordDecisionAlerts(threadId: string, c: Loaded, actions: readonly EngineAction[]): Promise<boolean> {
+  const peer = c.channel === "whatsapp" ? await threadPeerId(threadId) : null;
+  const chat: ChatRef = { accountId: c.account.id, brand: c.account.brand, conversationRef: c.ref, threadId, customerPhone: peer ? peer.replace(/\D/g, "") || null : null };
+  let any = false;
+  for (const a of actions) {
+    if (a.type === "ALERT_SALES") {
+      any = (await recordAlert(chat, { kind: a.kind, tags: a.tags, urgency: a.urgency, models: a.models, name: a.name, phone: a.phone, slot: a.slot, reason: a.reason ?? null })) || any;
+    } else if (a.type === "FLAG_FOR_STAFF") {
+      any = (await recordAlert(chat, { kind: "NEEDS_PERSON", models: [], name: null, phone: null, slot: null, reason: a.reason })) || any;
+    }
+  }
+  return any;
+}
+
 async function alertPerson(threadId: string, c: Loaded, reason: string): Promise<void> {
   const peer = c.channel === "whatsapp" ? await threadPeerId(threadId) : null;
   const chat: ChatRef = {
@@ -536,9 +551,11 @@ export async function autoreplyThread(
     if (s.kind !== "suggestion") return { rounds: round, sent, stopped: s.kind };
     const view = viewOf(s, true, c.notes);
     if (view.outcome !== "ACTIONS") {
-      // The bot has nothing it may say: mark the chat for a person (Samer, 2026-09-17).
-      if (view.outcome === "NO_AUTOMATIC_ACTION" && needsPerson(s.turn.decision.reasons)) {
-        await alertPerson(threadId, c, s.turn.decision.reasons.join(" "));
+      // The bot has nothing it may say: the engine's own alerts are recorded (silent hand-off, 2026-10-06:
+      // "asked the price", "wants a test drive"), else a plain mark for a person (Samer, 2026-09-17).
+      if (view.outcome === "NO_AUTOMATIC_ACTION") {
+        const recorded = await recordDecisionAlerts(threadId, c, s.turn.decision.actions);
+        if (!recorded && needsPerson(s.turn.decision.reasons)) await alertPerson(threadId, c, s.turn.decision.reasons.join(" "));
       }
       return { rounds: round, sent, stopped: `no action (${view.outcome})` };
     }

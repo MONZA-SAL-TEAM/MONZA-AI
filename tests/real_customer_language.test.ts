@@ -14,6 +14,7 @@
  *   - the conversation state that makes the NEXT message understood
  */
 
+import { TALKATIVE } from "@/tests/_talkative";
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
@@ -30,7 +31,7 @@ import { vocabularyWords } from "@/lib/wasales/intent";
 import { closedByStaffReply, consolidateAlerts, mergeIntoOpen } from "@/lib/wasales/alerts";
 import { triageInbound } from "@/lib/wasales/triage";
 
-const DEPS = { knowledge: MONZA_KNOWLEDGE, catalog, media, ttlHours: 72 };
+const DEPS = { knowledge: TALKATIVE, catalog, media, ttlHours: 72 };
 /** Thursday 17 September 2026, 12:00 in Beirut: the showroom is open. */
 const THURSDAY_NOON = "2026-09-17T09:00:00.000Z";
 const SUNDAY_NOON = "2026-09-20T09:00:00.000Z";

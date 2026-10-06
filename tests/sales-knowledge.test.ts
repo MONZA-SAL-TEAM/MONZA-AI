@@ -112,7 +112,7 @@ describe("the knowledge that ships", () => {
       ].join("\n")
     );
     assert.equal(K.showroom.handoff, "Our Sales Team will assist you further right here with all the details you need.");
-    assert.deepEqual(K.decisions, { botBooksTestDrives: false, askLeadName: false }, "workbook C, 2026-09-18");
+    assert.deepEqual(K.decisions, { botBooksTestDrives: false, askLeadName: false, silentHandoff: true }, "workbook C, 2026-09-18; silent hand-off, 2026-10-06");
     assert.equal(K.showroom.serviceContact, "For Service, Maintenance, or Spare Parts, please contact 76 877 278.");
   });
 

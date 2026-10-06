@@ -65,6 +65,7 @@ import { familyMentioned, normalize, pickAmong, type WaCar } from "@/lib/wasales
 import { resolveModels } from "@/lib/wasales/entities";
 import { classify } from "@/lib/wasales/classify";
 import { consolidateAlerts } from "@/lib/wasales/alerts";
+import { applySilence } from "@/lib/wasales/silence";
 import { normalizeLebanesePhone } from "@/lib/leads/phone";
 import { readColourAnswer, sendableColours, type WaColour } from "@/lib/wasales/colours";
 import { freshState, hasContext, isExpired, type SearchEngineState } from "@/lib/wasales/context";
@@ -727,7 +728,7 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
   const u = understand(reading, input, base, brand, deps);
   const next = cloneState(base);
   const channel: SalesChannel = input.channel ?? "whatsapp";
-  const { botBooksTestDrives: botBooks, askLeadName } = decisionsOf(k);
+  const { botBooksTestDrives: botBooks, askLeadName, silentHandoff } = decisionsOf(k);
 
   const out: EngineAction[] = [];
   const reasons: string[] = [];
@@ -1231,8 +1232,17 @@ export function decide(input: EngineInput, state: SearchEngineState, deps: Engin
     if (isAfterHours(nowIso) && !saidHours && out.some((a) => a.type === "ALERT_SALES") && out.some(isCustomerFacing)) {
       text("AFTER_HOURS_NOTE");
     }
+    // SILENT HAND-OFF (Samer, 2026-10-06): the sentences he removed are not sent; a person is told instead.
+    let spoken: EngineAction[] = out;
+    if (silentHandoff) {
+      const s = applySilence(out, next.awaiting);
+      spoken = s.actions;
+      if (s.alertReason) spoken.push({ type: "ALERT_SALES", kind: "NEEDS_PERSON", models: [...next.selectedModels], name: null, phone: null, slot: null, reason: s.alertReason });
+      if (s.resetAwaiting) next.awaiting = "NONE";
+      if (s.dropped.length > 0) reasons.push(`Not said (silent hand-off): ${unique(s.dropped).join(", ")} — a person answers.`);
+    }
     // ONE actionable alert per inbound message, carrying every reason (alerts.ts).
-    const actions = finalizeActions(consolidateAlerts(out));
+    const actions = finalizeActions(consolidateAlerts(spoken));
     // What was asked, kept so "and the Taishan?" can ask it again of another car.
     const askedNow = unique(substantive.filter((i) => CARRIED_OVER.includes(i)));
     if (askedNow.length > 0) next.lastAsked = askedNow.slice(0, 8);

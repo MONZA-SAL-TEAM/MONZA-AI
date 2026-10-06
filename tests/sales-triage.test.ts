@@ -4,6 +4,7 @@
  * marked for a person; nothing is sent.
  */
 
+import { TALKATIVE } from "@/tests/_talkative";
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
@@ -13,7 +14,7 @@ import { folderMedia, loadCatalog } from "@/lib/wasales/catalog";
 import { MONZA_KNOWLEDGE } from "@/lib/wasales/knowledge";
 import type { FreshInbound } from "@/lib/channels/store";
 
-const DEPS = { knowledge: MONZA_KNOWLEDGE, catalog: loadCatalog(), media: folderMedia, ttlHours: 72 };
+const DEPS = { knowledge: TALKATIVE, catalog: loadCatalog(), media: folderMedia, ttlHours: 72 };
 const NOW = "2026-09-17T09:00:00.000Z";
 const triage = (text: string, hasMedia = false, brand = "monza") => triageInbound({ text, hasMedia, brand, now: NOW }, DEPS);
 

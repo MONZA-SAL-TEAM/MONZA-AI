@@ -130,9 +130,19 @@ export interface SalesDecisions {
   readonly botBooksTestDrives: boolean;
   /** true: installments and test drives start by asking the customer's name. */
   readonly askLeadName: boolean;
+  /**
+   * true (Samer, 2026-10-06): the bot answers only with information and stays SILENT on everything
+   * else — prices, offers, stock, test drives, visits, a person, call-backs, the service and
+   * administration numbers, thank-yous, "not interested", "stop", "wrong number". Those chats are
+   * flagged for Sales instead. The list is lib/wasales/silence.ts.
+   */
+  readonly silentHandoff: boolean;
 }
 
-export const WORKBOOK_DECISIONS: SalesDecisions = Object.freeze({ botBooksTestDrives: false, askLeadName: false });
+export const WORKBOOK_DECISIONS: SalesDecisions = Object.freeze({ botBooksTestDrives: false, askLeadName: false, silentHandoff: true });
+
+/** The 2026-09-18 behaviour — every answer spoken, nothing silent — kept so the older rules stay tested. */
+export const TALKATIVE_DECISIONS: SalesDecisions = Object.freeze({ botBooksTestDrives: false, askLeadName: false, silentHandoff: false });
 
 export function decisionsOf(k: SalesKnowledge): SalesDecisions {
   return k.decisions ?? WORKBOOK_DECISIONS;

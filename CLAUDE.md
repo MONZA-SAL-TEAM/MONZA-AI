@@ -979,6 +979,25 @@ blocks live use: `docs/SALES-ENGINE.md`. Enforced in code and tested:
   and is answered by Sales only (`asksAboutPassionS`): the hand-off sentence and
   an alert, never the Passion's material. `tests/sales-regression.test.ts` is the mandatory set: every reply
   classified, no figure outside the approved knowledge, no internal label.
+- **SILENT HAND-OFF (Samer, 2026-10-06) — supersedes "never silent" for 66 sentences.** He highlighted
+  66 of the bot's 101 sentences in the workbook export (`Monza-AI-Sales-Bot-Messages.xlsx`) and chose
+  "stay silent, alert Sales". The bot now answers ONLY with information: the welcome and its menus, the
+  car facts, the type menus, brochures, colours and videos, installments (FINANCING_INFO + the same-chat
+  sentence), trade-in information, the address and the hours. Everything else — the price / offer /
+  stock / payment hand-offs, "I'll take it", delivery, used cars, test drives and visits, closed-on-Sunday,
+  "a person will reply", call-backs, the service and administration numbers, the phone number, thank-you,
+  "no problem", "not interested", "stop", "wrong number", photo received, kept waiting, the "did you mean
+  the Dream?" question, "no video in that colour", "not confirmed yet" rows, the hand-off sentence itself —
+  is NOT sent. The chat gets ONE alert (the engine's own kind: PRICE, TEST_DRIVE, BUYING…; NEEDS_PERSON when
+  nothing else named it) and a person answers in their own words. Thank-you / no-thanks drop with no alert.
+  - The list is `lib/wasales/silence.ts` (`SILENCED_TEXT`, `isSilenced`, `applySilence`), applied ONCE at
+    the end of `decide()` under `decisions.silentHandoff` (`WORKBOOK_DECISIONS`, true). A dropped question
+    resets `awaiting`, so a later "yes" answers nothing. The autoreply records the decision's alerts even
+    when nothing is sent (`recordDecisionAlerts`).
+  - `tests/silent_handoff.test.ts` runs the PRODUCTION knowledge. The older suites run `tests/_talkative.ts`
+    (`TALKATIVE_DECISIONS`, silentHandoff false) so the engine's rules stay proven; a test asserts every
+    TextKey is either silenced or in `SPOKEN_TEXT`. Add a new sentence to one of the two sets.
+  - To speak one of them again: remove it from `SILENCED_TEXT` (Samer's decision, never a side effect).
 - **Never silent (Samer, 2026-09-18: "it always should be reading, to be ready to answer
   questions it knows how to answer").** Words the rules cannot read get the workbook's hand-off
   sentence and a `NEEDS_PERSON` alert (`sayUnknown`), said once — not repeated on the very next

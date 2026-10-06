@@ -14,6 +14,7 @@ import { decide, type EngineDecision, type EngineInput } from "@/lib/wasales/eng
 import { freshState, parseState, type SearchEngineState } from "@/lib/wasales/context";
 import {
   MONZA_KNOWLEDGE,
+  TALKATIVE_DECISIONS,
   NO_MEDIA,
   brandSells,
   lookupFact,
@@ -98,13 +99,14 @@ const FACTS: Partial<Record<ModelCode, Partial<Record<FactKey, ApprovedFact>>>> 
 
 const K: SalesKnowledge = {
   ...MONZA_KNOWLEDGE,
+  decisions: TALKATIVE_DECISIONS,
   // Fixture colours keep their fixture names: the workbook's official names are tested over the real data.
   models: MONZA_KNOWLEDGE.models.map((m) => ({ ...m, colourNames: [], facts: FACTS[m.code] ?? {} })),
   global: { ...MONZA_KNOWLEDGE.global, LOCATION: ok("TEST-LOCATION") },
 };
 
 /** The decisions of 2026-09-17, kept and tested: the bot books the slot itself and takes a name first. */
-const K_BOOKS: SalesKnowledge = { ...K, decisions: { botBooksTestDrives: true, askLeadName: true } };
+const K_BOOKS: SalesKnowledge = { ...K, decisions: { botBooksTestDrives: true, askLeadName: true, silentHandoff: false } };
 
 type Msg = string | Partial<EngineInput>;
 

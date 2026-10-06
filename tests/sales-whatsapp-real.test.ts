@@ -4,6 +4,7 @@
  * customer's wording, with names left out.
  */
 
+import { TALKATIVE } from "@/tests/_talkative";
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
@@ -14,7 +15,7 @@ import { folderMedia, loadCatalog } from "@/lib/wasales/catalog";
 import { actionLabel } from "@/lib/wasales/templates";
 import type { EngineInput } from "@/lib/wasales/engine";
 
-const DEPS = { knowledge: MONZA_KNOWLEDGE, catalog: loadCatalog(), media: folderMedia, ttlHours: 72 };
+const DEPS = { knowledge: TALKATIVE, catalog: loadCatalog(), media: folderMedia, ttlHours: 72 };
 const SEND = {
   channel: "whatsapp" as const,
   autoSendEnabled: true,

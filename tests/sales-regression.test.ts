@@ -16,6 +16,7 @@
  * per-case tests say which one.
  */
 
+import { TALKATIVE } from "@/tests/_talkative";
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
@@ -30,7 +31,7 @@ import { liveMedia } from "@/tests/_live-library";
 import type { OutboundPart } from "@/lib/wasales/templates";
 import type { SalesChannel } from "@/lib/wasales/knowledge";
 
-const DEPS = { knowledge: MONZA_KNOWLEDGE, catalog: loadCatalog(), media: liveMedia, ttlHours: 72 };
+const DEPS = { knowledge: TALKATIVE, catalog: loadCatalog(), media: liveMedia, ttlHours: 72 };
 /** Thursday 17 September 2026, 12:00 in Beirut: the showroom is open. */
 const NOW = "2026-09-17T09:00:00.000Z";
 const SEND = { autoSendEnabled: true, replyWindowOpen: true, humanLock: false, liveSending: true, attachmentsSupported: true } as const;

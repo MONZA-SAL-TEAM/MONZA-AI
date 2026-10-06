@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { previewSendContext, runConversation, runTurn } from "@/lib/wasales/flow";
 import { decide, type EngineInput } from "@/lib/wasales/engine";
 import { freshState } from "@/lib/wasales/context";
-import { MONZA_KNOWLEDGE, type SalesKnowledge } from "@/lib/wasales/knowledge";
+import { TALKATIVE_DECISIONS, MONZA_KNOWLEDGE, type SalesKnowledge } from "@/lib/wasales/knowledge";
 import { folderMedia, loadCatalog } from "@/lib/wasales/catalog";
 import { planLines } from "@/lib/wasales/templates";
 
@@ -19,6 +19,7 @@ const CATALOG = loadCatalog();
 /** The real catalogue and files, with obviously fake approved facts. */
 const K: SalesKnowledge = {
   ...MONZA_KNOWLEDGE,
+  decisions: TALKATIVE_DECISIONS,
   models: MONZA_KNOWLEDGE.models.map((m) =>
     m.code === "COURAGE"
       ? {

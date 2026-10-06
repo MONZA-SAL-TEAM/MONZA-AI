@@ -10,6 +10,7 @@
  * Plus the explicit "Hand to a person", which holds the bot out until "Suggest again".
  */
 
+import { TALKATIVE } from "@/tests/_talkative";
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
@@ -20,7 +21,7 @@ import { actionLabel } from "@/lib/wasales/templates";
 import { freshState } from "@/lib/wasales/context";
 import type { InboxMessage } from "@/lib/inbox/types";
 
-const DEPS = { knowledge: MONZA_KNOWLEDGE, catalog: loadCatalog(), media: folderMedia, ttlHours: 72 };
+const DEPS = { knowledge: TALKATIVE, catalog: loadCatalog(), media: folderMedia, ttlHours: 72 };
 const T0 = Date.parse("2026-09-17T07:00:00.000Z");
 const HOUR = 3_600_000;
 

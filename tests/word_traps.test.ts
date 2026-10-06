@@ -19,6 +19,7 @@
  * stating a rule will pass one line here and fail its neighbour.
  */
 
+import { TALKATIVE } from "@/tests/_talkative";
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
@@ -33,7 +34,7 @@ import { readMessage, readCategories, readNeeds, type Intent } from "@/lib/wasal
 import { resolveModels } from "@/lib/wasales/entities";
 import { vocabularyWords } from "@/lib/wasales/intent";
 
-const DEPS = { knowledge: MONZA_KNOWLEDGE, catalog, media, ttlHours: 72 };
+const DEPS = { knowledge: TALKATIVE, catalog, media, ttlHours: 72 };
 const NOW = "2026-09-17T09:00:00.000Z"; // Thursday noon in Beirut
 const SEND = { autoSendEnabled: true, replyWindowOpen: true, humanLock: false, liveSending: true, attachmentsSupported: true, linkOversize: true } as const;
 

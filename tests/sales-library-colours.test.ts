@@ -7,6 +7,7 @@
  *    once it has a video, and "green" finds it.
  */
 
+import { TALKATIVE } from "@/tests/_talkative";
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
@@ -26,7 +27,7 @@ function say(files: readonly LibraryFile[], messages: string[]) {
     );
     return { ...car, colours: [...car.colours, ...extra.map((id) => libraryColour(id, id.split("-").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ")))] };
   });
-  const deps = { knowledge: MONZA_KNOWLEDGE, catalog, media: libraryMedia(files), ttlHours: 72 };
+  const deps = { knowledge: TALKATIVE, catalog, media: libraryMedia(files), ttlHours: 72 };
   const inputs = messages.map((text, i) => ({ text, brand: "monza", channel: "whatsapp" as const, conversationIsNew: i === 0, now: new Date(Date.parse("2026-09-17T09:00:00.000Z") + i * 60_000).toISOString() }));
   const { turns } = runConversation(inputs, deps, SEND);
   return turns[turns.length - 1].plan.flatMap((p) => (p.kind === "text" ? [p.text, ...p.choices.map((c) => c.title)] : [`[file ${p.name}]`])).join("\n");

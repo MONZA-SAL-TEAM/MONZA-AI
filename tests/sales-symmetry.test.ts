@@ -14,6 +14,7 @@
  * library holds: a car with several colour videos, with one, or with none.
  */
 
+import { TALKATIVE } from "@/tests/_talkative";
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
@@ -24,7 +25,7 @@ import { loadCatalog } from "@/lib/wasales/catalog";
 import { liveMedia } from "@/tests/_live-library";
 import { actionLabel } from "@/lib/wasales/templates";
 
-const DEPS = { knowledge: MONZA_KNOWLEDGE, catalog: loadCatalog(), media: liveMedia, ttlHours: 72 };
+const DEPS = { knowledge: TALKATIVE, catalog: loadCatalog(), media: liveMedia, ttlHours: 72 };
 const SEND = { channel: "whatsapp", autoSendEnabled: true, replyWindowOpen: true, humanLock: false, liveSending: true, attachmentsSupported: true } as const;
 const CARS = MONZA_KNOWLEDGE.models;
 

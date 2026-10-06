@@ -4,6 +4,7 @@
  * The sending itself is the suggestion send, tested in sales-executor.test.ts.
  */
 
+import { TALKATIVE } from "@/tests/_talkative";
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
@@ -107,7 +108,7 @@ describe("where a chat begins for the pilot", () => {
     oneLiner: "",
   });
   const catalog = [car("voyah-courage", "Voyah Courage", ["courage"], ["black", "grey"]), car("mhero-2", "Mhero 2", ["mhero 2"], ["black"])];
-  const deps = { knowledge: MONZA_KNOWLEDGE, catalog, media: libraryMedia([]), ttlHours: 72 };
+  const deps = { knowledge: TALKATIVE, catalog, media: libraryMedia([]), ttlHours: 72 };
   const T0 = Date.parse("2026-09-16T09:00:00.000Z");
   const m = (id: string, direction: "in" | "out", text: string, minutes: number, extra: Partial<InboxMessage> = {}): InboxMessage => ({
     id,

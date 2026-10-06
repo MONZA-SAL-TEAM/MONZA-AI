@@ -4,6 +4,7 @@
  * remembers — with a person always pressing Send (Samer, 2026-09-15).
  */
 
+import { TALKATIVE } from "@/tests/_talkative";
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
@@ -63,7 +64,7 @@ function files(brochureBytes = 2_000_000): LibraryFile[] {
 }
 
 function deps(brochureBytes?: number): EngineDeps {
-  return { knowledge: MONZA_KNOWLEDGE, catalog: CATALOG, media: libraryMedia(files(brochureBytes)), ttlHours: 72 };
+  return { knowledge: TALKATIVE, catalog: CATALOG, media: libraryMedia(files(brochureBytes)), ttlHours: 72 };
 }
 
 const T0 = Date.parse("2026-09-15T09:00:00.000Z");
