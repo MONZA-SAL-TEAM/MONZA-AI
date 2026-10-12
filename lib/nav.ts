@@ -50,6 +50,12 @@ export const NAV: NavGroup[] = [
           "Who you are talking to, and the context you need while you talk to them.",
       },
       {
+        href: "/insights",
+        label: "Insights",
+        icon: "insights",
+        blurb: "What the conversations say about the cars and the clients.",
+      },
+      {
         href: "/automations",
         label: "Automations",
         icon: "automations",

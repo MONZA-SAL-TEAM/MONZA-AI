@@ -59,6 +59,7 @@ import {
 } from "@/lib/channels/whatsapp";
 import type { StoredAttachment } from "@/lib/channels/wa-media";
 import { noteInboundLead } from "@/lib/leads/store";
+import { recordSignal } from "@/lib/wasales/signal-server";
 
 export interface StoredAccount {
   id: string;
@@ -334,6 +335,19 @@ export async function storeInbound(events: readonly InboundEvent[]): Promise<Sto
       // numeric they look. Only a channel that genuinely carries one may pass
       // it, and passing an IG id here would auto-link strangers to each other.
       phone: account.channel === "whatsapp" ? event.fromExternalId : null,
+    });
+
+    // INSIGHTS (Samer, 2026-10-12): what the sales engine understood from these words — the car, the
+    // question, the colour, the stage — is recorded as labels (lib/wasales/signal.ts). The words are
+    // dropped here, as above; Instagram and Facebook words are still never stored. Best effort.
+    await recordSignal(sb, event.text, {
+      accountId: account.id,
+      brand: account.brand,
+      channel: account.channel,
+      conversationId,
+      externalMessageId: event.externalMessageId,
+      at: event.at,
+      hasMedia: event.attachments.length > 0,
     });
   }
 

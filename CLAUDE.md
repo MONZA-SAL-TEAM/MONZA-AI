@@ -676,6 +676,34 @@ per-car counts, "Open the chat" (`/inbox?open=<thread>`) and a CSV of the list a
   local preview without keys).
 - CSV cells that begin with = + - @ are defused: a customer chooses their own display name.
 
+## Insights: the cars and the clients (`/insights`, 2026-10-12)
+
+Samer: "I need the system to track the data and save the data for insights about the models and
+about our clients." Until then the engine read every message and forgot it.
+
+- **`sales_signals` (migration 020, APPLIED 2026-10-12): one row per inbound customer message, on
+  every channel — the engine's LABELS, never the words.** Which car (`models`, `weak_models`), which
+  question (`intents`), which colour (the workbook's official name), the language, whether a file
+  came, the alert Sales got (`alert_kind`, `alert_tags`), what the bot would answer with (`offered`)
+  and what it held back (`silenced`). Instagram and Facebook words are still never stored: the signal
+  is read in memory at the webhook (`lib/channels/store.ts`, right after `noteInboundLead`) and only
+  the labels land. Idempotent on `(account_id, external_message_id)`. RLS on, no policies.
+- `lib/wasales/signal.ts` is pure (`signalFromDecision`, `stageOf`, `TOPIC_LABEL`); the writer is
+  `signal-server.ts` (`recordSignal`, best effort — never fails a delivery; `rebuildSignals` reads the
+  stored WhatsApp history through the engine, `POST /api/insights/rebuild`, staff only, idempotent).
+  The reading is FRESH per message (no conversation memory), the same on every channel.
+- `/insights` (`lib/insights/insights.ts` pure, `insights-server.ts` the read): totals, messages and
+  people per week, questions, stages, channels, languages; per car — people (counted ONCE however many
+  messages), price / test drive / installments / availability / wants-to-buy, colours asked for,
+  questions, people per week; per client — name and number (a lead's, else the chat's; an Instagram id
+  is never a phone), cars, the furthest STAGE (buying > test drive > pricing > interested > asking >
+  wrote — a reading of the questions, never set by anyone), topics, colours, language, first and last
+  message, the open alert, "Open the chat". Filters: period, brand, channel, car; search; CSV (defused).
+- A stage never goes backwards and a "want to buy" is the customer's own words (`BUYING_INTENT`).
+  Nothing here is a CRM field; the CRM is not read.
+- Seen while building: "how much is the courage in pearl black? بدي اعرف" loses PRICE to GENERAL_INFO
+  (the Arabic "I want to know" wins in classify). Not fixed; the alert is still LEAD.
+
 ## The customer assistant (`/care`)
 
 The only public screen. Rules that keep it safe, all enforced in `lib/care/`
