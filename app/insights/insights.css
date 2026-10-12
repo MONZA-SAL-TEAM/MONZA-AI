@@ -100,3 +100,8 @@
 .ins-health-dot[data-tone="good"] { background: var(--live); }
 .ins-health-dot[data-tone="bad"] { background: var(--urgent); }
 .ins-pipe-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+
+/* Customers & leads (2026-10-12) */
+.ins-people { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: var(--t-sm); }
+.ins-people a { font-weight: 600; color: var(--ink); }
+.ins-table td.ins-wrap { white-space: normal; min-width: 220px; color: var(--ink-2); }

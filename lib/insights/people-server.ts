@@ -159,8 +159,19 @@ export async function readLab(q: InsightQuery, now = Date.now()): Promise<LabRea
     const matched = out.map(factsOf).filter((p) => matchesQuery(p, q, now));
     const refreshedAt = out.map((r) => r.updated_at).sort().at(-1) ?? null;
 
-    // Names and numbers, from MONZA AI's own leads and chats, at read time.
-    const shown = matched.slice(0, 2000);
+    const people = await attachNames(matched.slice(0, 2000));
+    return { state: "ok", people, total: matched.length, refreshedAt };
+  } catch (e) {
+    console.error("[insights/lab] reading failed:", e instanceof Error ? e.message : JSON.stringify(e));
+    return { state: "unavailable" };
+  }
+}
+
+/** Names and numbers for people, from MONZA AI's own leads and chats, at read time (never stored with the labels). */
+export async function attachNames(shown: readonly PersonFacts[]): Promise<LabPerson[]> {
+  const sb = channelDb();
+  if (!sb) return shown.map((p) => ({ ...p, name: "Customer", phone: null }));
+  {
     const leadIds = [...new Set(shown.map((p) => p.leadId).filter((x): x is string => Boolean(x)))];
     const convIds = [...new Set(shown.flatMap((p) => p.conversationIds))];
     const [leads, convs, accounts] = await Promise.all([
@@ -179,9 +190,6 @@ export async function readLab(q: InsightQuery, now = Date.now()): Promise<LabRea
       const phone = digits(lead?.phone) ?? (wa ? digits(wa.peer_external_id) : null);
       return { ...p, name: lead?.display_name?.trim() || conv?.peer_display?.trim() || (phone ? `+${phone}` : "Customer"), phone };
     });
-    return { state: "ok", people, total: matched.length, refreshedAt };
-  } catch (e) {
-    console.error("[insights/lab] reading failed:", e instanceof Error ? e.message : JSON.stringify(e));
-    return { state: "unavailable" };
+    return people;
   }
 }

@@ -85,3 +85,63 @@ export function stockByModel(rows: readonly StockRow[]): Map<ModelCode, CarStock
   for (const s of out.values()) s.colours.sort((a, b) => b.n - a.n || a.key.localeCompare(b.key));
   return out;
 }
+
+/* ── Sales outcomes, from the CRM's sales orders (read as the viewer) ───────────────────────── */
+
+/**
+ * What the CRM RECORDS happened — never what a customer said. "Wants a test drive" is a message; a
+ * quotation sent, a reservation, a payment, a delivery or a cancellation is an order event here.
+ * Samer, 2026-10-12: "Sales data is only called confirmed when verified".
+ */
+export type CrmOutcome = "won" | "reserved" | "quoted" | "open" | "lost";
+
+export const OUTCOME_LABEL: Readonly<Record<CrmOutcome | "unknown", string>> = {
+  won: "Bought (paid or delivered)",
+  reserved: "Reserved / confirmed",
+  quoted: "Quotation sent",
+  open: "Order opened",
+  lost: "Order cancelled",
+  unknown: "No CRM order",
+};
+
+export interface CrmOrderRow {
+  customerId: string;
+  status: string | null;
+  quoteSentAt: string | null;
+  saleDate: string | null;
+  createdAt: string | null;
+  deliveredAt: string | null;
+  model: string | null;
+  exterior: string | null;
+  interior: string | null;
+}
+
+/** One order's outcome. */
+export function orderOutcome(o: Pick<CrmOrderRow, "status" | "quoteSentAt" | "deliveredAt">): CrmOutcome {
+  const s = (o.status ?? "").toLowerCase();
+  if (s === "paid" || s === "delivered" || o.deliveredAt) return "won";
+  if (s === "cancelled") return "lost";
+  if (s === "reserved" || s === "confirmed") return "reserved";
+  if (o.quoteSentAt) return "quoted";
+  return "open";
+}
+
+const RANK: Readonly<Record<CrmOutcome, number>> = { won: 5, reserved: 4, quoted: 3, open: 2, lost: 1 };
+
+/** A customer's furthest outcome across their orders (a won order beats an older cancelled one). */
+export function furthestOutcome(orders: readonly Pick<CrmOrderRow, "status" | "quoteSentAt" | "deliveredAt">[]): CrmOutcome | null {
+  let best: CrmOutcome | null = null;
+  for (const o of orders) {
+    const r = orderOutcome(o);
+    if (!best || RANK[r] > RANK[best]) best = r;
+  }
+  return best;
+}
+
+export interface PersonCrm {
+  outcome: CrmOutcome;
+  firstOrderAt: string | null;
+  quoteSentAt: string | null;
+  wonAt: string | null;
+  models: ModelCode[];
+}

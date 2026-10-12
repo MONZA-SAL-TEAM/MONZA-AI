@@ -51,6 +51,8 @@ export interface ObservationRow {
   amount_kind?: string | null;
   months?: number | null;
   external_message_id?: string | null;
+  /** Which rule produced it (evidence; "category.only" = no model named). */
+  rule?: string | null;
 }
 
 export interface InsightRows {

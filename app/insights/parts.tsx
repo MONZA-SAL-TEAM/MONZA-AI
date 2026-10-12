@@ -9,8 +9,10 @@ import { labHref } from "@/lib/insights/query";
 
 const SECTIONS: ReadonlyArray<[string, string]> = [
   ["/insights", "Overview"],
+  ["/insights/customers", "Customers & leads"],
   ["/insights/models", "Models"],
   ["/insights/colours", "Colours"],
+  ["/insights/language", "Vehicle language"],
   ["/insights/conversations", "Conversations"],
   ["/insights/channels", "Channels"],
   ["/insights/team", "Team"],

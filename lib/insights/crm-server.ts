@@ -9,7 +9,7 @@
 import { crmEnv, makeUserClient, rel } from "@/lib/connectors/crm";
 import type { StaffIdentity } from "@/lib/connectors/types";
 import { isAutoLinkable, normalizeLebanesePhone } from "@/lib/leads/phone";
-import { crmModelCode, STOCK_INBOUND, STOCK_NOW, type CrmPurchase, type CrmResult, type StockRow } from "@/lib/insights/crm";
+import { crmModelCode, furthestOutcome, STOCK_INBOUND, STOCK_NOW, type CrmOrderRow, type CrmPurchase, type CrmResult, type PersonCrm, type StockRow } from "@/lib/insights/crm";
 
 const connected = (identity: StaffIdentity) => crmEnv() !== null && identity.crmAccessToken !== "demo";
 const why = (e: unknown) => (e instanceof Error ? e.message : JSON.stringify(e));
@@ -82,6 +82,53 @@ export async function readCrmStock(identity: StaffIdentity): Promise<CrmResult<S
     return { state: "ok", data: out };
   } catch (e) {
     console.error("[insights] the CRM stock read failed:", why(e));
+    return { state: "unavailable" };
+  }
+}
+
+/**
+ * Every CRM sales order with its customer's MOBILE numbers, as the viewer, keyed by the normalized
+ * mobile (961…). Never a name, never a landline, never a price. The CRM's row-level security decides
+ * what comes back; a refusal reads "unavailable", never "no sales".
+ */
+export async function readCrmOutcomes(identity: StaffIdentity): Promise<CrmResult<Record<string, PersonCrm>>> {
+  if (!connected(identity)) return { state: "not_connected" };
+  try {
+    const db = makeUserClient({ user: identity, conversationId: null, turnId: "insights-outcomes" });
+    const [{ data: customers, error: e1 }, { data: orders, error: e2 }] = await Promise.all([
+      db.from("customers").select("id, phone_primary, phone_secondary").is("deleted_at", null).limit(20000),
+      db
+        .from("sales_orders")
+        .select("customer_id, status, quote_sent_at, sale_date, created_at, delivered_at, cars!sales_orders_car_id_fkey ( model, exterior_color, interior_color )")
+        .is("deleted_at", null)
+        .limit(20000),
+    ]);
+    if (e1) throw e1;
+    if (e2) throw e2;
+    const phonesOf = new Map<string, string[]>();
+    for (const c of (customers ?? []) as Record<string, unknown>[]) {
+      const list = [c.phone_primary, c.phone_secondary].filter((p): p is string => typeof p === "string" && isAutoLinkable(p)).map((p) => normalizeLebanesePhone(p)!);
+      if (list.length) phonesOf.set(String(c.id), list);
+    }
+    const byCustomer = new Map<string, CrmOrderRow[]>();
+    for (const o of (orders ?? []) as Record<string, unknown>[]) {
+      const car = rel<Record<string, unknown>>(o.cars);
+      const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+      const row: CrmOrderRow = { customerId: String(o.customer_id), status: str(o.status), quoteSentAt: str(o.quote_sent_at), saleDate: str(o.sale_date), createdAt: str(o.created_at), deliveredAt: str(o.delivered_at), model: str(car?.model), exterior: str(car?.exterior_color), interior: str(car?.interior_color) };
+      (byCustomer.get(row.customerId) ?? byCustomer.set(row.customerId, []).get(row.customerId)!).push(row);
+    }
+    const out: Record<string, PersonCrm> = {};
+    for (const [customerId, list] of byCustomer) {
+      const outcome = furthestOutcome(list);
+      if (!outcome) continue;
+      const dates = (k: keyof CrmOrderRow) => list.map((o) => o[k]).filter((x): x is string => typeof x === "string").sort();
+      const won = list.filter((o) => o.status === "paid" || o.status === "delivered" || o.deliveredAt).map((o) => o.deliveredAt ?? o.saleDate ?? o.createdAt).filter((x): x is string => Boolean(x)).sort();
+      const person: PersonCrm = { outcome, firstOrderAt: dates("createdAt")[0] ?? null, quoteSentAt: dates("quoteSentAt")[0] ?? null, wonAt: won[0] ?? null, models: [...new Set(list.map((o) => crmModelCode(o.model)).filter((m): m is NonNullable<typeof m> => Boolean(m)))] };
+      for (const phone of phonesOf.get(customerId) ?? []) out[phone] = person;
+    }
+    return { state: "ok", data: out };
+  } catch (e) {
+    console.error("[insights] the CRM read of sales outcomes failed:", why(e));
     return { state: "unavailable" };
   }
 }

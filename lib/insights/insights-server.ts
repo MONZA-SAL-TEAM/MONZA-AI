@@ -9,7 +9,7 @@ import { buildInsights, type InsightFilter, type InsightRows, type Insights, typ
 import type { PeopleExtras } from "@/lib/insights/people";
 
 const PAGE = 1000;
-export const OBSERVATION_COLUMNS = "conversation_id, at, kind, stance, model, binding, part, value, detail, amount_min, amount_max, currency, amount_kind, months, external_message_id";
+export const OBSERVATION_COLUMNS = "conversation_id, at, kind, stance, model, binding, part, value, detail, amount_min, amount_max, currency, amount_kind, months, external_message_id, rule";
 const SIGNAL_COLUMNS = "account_id, brand, channel, conversation_id, at, language, intents, models, weak_models, colour, has_media, alert_kind, alert_tags, offered, silenced, ad_model, context_models";
 
 async function all<T>(read: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>, max = 200_000): Promise<T[]> {

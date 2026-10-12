@@ -32,6 +32,17 @@ export interface InsightQuery {
   firstTouch?: string;
   tradeIn?: boolean;
   waiting?: boolean;
+  /** Has a booked slot in the test-drive calendar. */
+  testDriveBooked?: boolean;
+  /** Came from this car's ad. */
+  adModel?: string;
+  /** Asked for this kind of car (suv, mpv, bev…). */
+  category?: string;
+  customerType?: string;
+  /** Asked about this car by context, or named it. */
+  anyModel?: string;
+  /** Named a car with this dictionary word: "MHERO_1:917". */
+  mention?: string;
   /** "none" = unowned, else a staff id. */
   owner?: string;
   /** Last message within this many days; 0 = any time. */
@@ -64,6 +75,11 @@ const FIELDS: ReadonlyArray<[keyof InsightQuery, RegExp]> = [
   ["brand", KEY],
   ["language", KEY],
   ["firstTouch", KEY],
+  ["adModel", CODE],
+  ["category", KEY],
+  ["customerType", KEY],
+  ["anyModel", CODE],
+  ["mention", /^[A-Z0-9_]{1,20}:[a-z0-9_]{1,40}$/],
 ];
 
 export function parseInsightQuery(sp: URLSearchParams | Record<string, string | string[] | undefined>): InsightQuery {
@@ -79,6 +95,7 @@ export function parseInsightQuery(sp: URLSearchParams | Record<string, string | 
   }
   if (get("tradeIn") === "1") q.tradeIn = true;
   if (get("waiting") === "1") q.waiting = true;
+  if (get("testDriveBooked") === "1") q.testDriveBooked = true;
   const owner = get("owner");
   if (owner && (owner === "none" || UUID.test(owner))) q.owner = owner;
   const days = Number(get("days"));
@@ -94,6 +111,7 @@ export function toSearch(q: InsightQuery): string {
   }
   if (q.tradeIn) p.set("tradeIn", "1");
   if (q.waiting) p.set("waiting", "1");
+  if (q.testDriveBooked) p.set("testDriveBooked", "1");
   if (q.owner) p.set("owner", q.owner);
   if (q.days) p.set("days", String(q.days));
   const s = p.toString();
@@ -128,6 +146,12 @@ export function matchesQuery(p: PersonFacts, q: InsightQuery, nowMs: number): bo
   if (q.firstTouch && p.firstTouch !== q.firstTouch) return false;
   if (q.tradeIn && !p.tradeIn) return false;
   if (q.waiting && !p.waiting) return false;
+  if (q.testDriveBooked && !(p.testDrivesBooked > 0)) return false;
+  if (q.adModel && p.adModel !== q.adModel) return false;
+  if (q.category && !p.categories.includes(q.category)) return false;
+  if (q.customerType && p.customerType !== q.customerType) return false;
+  if (q.anyModel && !p.models.includes(q.anyModel) && !p.contextModels.includes(q.anyModel)) return false;
+  if (q.mention && !p.mentions.includes(q.mention)) return false;
   if (q.owner === "none" && p.ownerId) return false;
   if (q.owner && q.owner !== "none" && p.ownerId !== q.owner) return false;
   if (q.days && nowMs - Date.parse(p.lastAt) > q.days * 86_400_000) return false;
