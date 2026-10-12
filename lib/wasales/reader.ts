@@ -21,7 +21,7 @@ import { observe, type Observation } from "@/lib/wasales/observe";
 import { signalFromDecision, type Signal, type SignalMeta } from "@/lib/wasales/signal";
 
 /** Bump when a reading rule changes: stored rows on an older version are read again. */
-export const READER_VERSION = 4;
+export const READER_VERSION = 5;
 
 export interface Turn {
   author: "customer" | "staff" | "automation";
@@ -93,7 +93,8 @@ export function readNext(turn: Turn, state: SearchEngineState, meta: SignalMeta,
   const signal = signalFromDecision(d, meta);
   if (!signal) return { result: null, state: next };
   const u = d.understanding;
-  const contextModels = u.models.length === 0 && u.model && (u.modelSource === "state" || u.modelSource === "ad" || u.modelSource === "referral") ? [u.model] : [];
+  const contextual = u.modelSource === "state" || u.modelSource === "ad" || u.modelSource === "referral";
+  const contextModels = contextual ? [...new Set([...u.models, ...(u.model ? [u.model] : [])])] : [];
   // The memory the observer may use is the memory the engine used: none, once the conversation has gone cold.
   const before = isExpired(state, turn.at, deps.ttlHours) ? freshState() : state;
   const observations = observe(turn.text, d, { knowledge: deps.knowledge, cars: engineCars(deps.knowledge, deps.catalog), before });

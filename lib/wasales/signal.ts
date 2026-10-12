@@ -56,7 +56,9 @@ export function signalFromDecision(d: EngineDecision, meta: SignalMeta): Signal 
   // the ad is context, kept apart by the reader (contextModels) — Samer, 2026-10-12: explicit and
   // contextual interest are different things.
   const explicit = u.modelSource === "text" || u.modelSource === "payload" || u.modelSource === "choice";
-  const models = u.models.length > 0 ? u.models : u.model && explicit ? [u.model] : [];
+  // Decided by the SOURCE, not by whether the list is empty: when the ad supplies the car, the engine
+  // lists it among the message's cars too (engine.ts, source "ad") — that is still not the customer naming it.
+  const models = !explicit ? [] : u.models.length > 0 ? u.models : u.model ? [u.model] : [];
   const alerts = d.actions.filter((a): a is Extract<EngineDecision["actions"][number], { type: "ALERT_SALES" }> => a.type === "ALERT_SALES");
   const alert = alerts[0] ?? null;
   const offered = unique(d.actions.filter((a) => a.type.startsWith("SEND_") || a.type.startsWith("SHOW_")).map((a) => a.type));

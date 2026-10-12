@@ -113,3 +113,19 @@
 .ins-lab-save .board-search { min-width: 180px; }
 .ins-compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
 .ins-saved { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+/* Executive overview (2026-10-12) */
+.ins-filter { display: flex; flex-direction: column; gap: 10px; }
+.ins-lab-field input[type="date"] { width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface, transparent); color: var(--ink); font: inherit; font-size: var(--t-sm); }
+.ins-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; margin: 12px 0; }
+.ins-kpi { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--surface, transparent); min-width: 0; }
+.ins-kpi-value { margin: 2px 0; font-size: 1.5rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.ins-kpi-value a { color: var(--ink); text-decoration: none; }
+.ins-kpi-value a:hover { text-decoration: underline; }
+.ins-kpi-foot { margin: 0; font-size: var(--t-xs); }
+.ins-delta { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ins-delta.is-up { color: var(--live); }
+.ins-delta.is-down { color: var(--urgent); }
+.ins-funnel { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.ins-funnel-step { border-left: 3px solid var(--accent); padding: 4px 8px; }
+.ins-funnel-step .ins-kpi-value { font-size: 1.2rem; }

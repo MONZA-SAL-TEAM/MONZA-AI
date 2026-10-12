@@ -35,6 +35,12 @@ describe("the ad the chat came from", () => {
     assert.deepEqual(r.results[1].signal.models, [], "the customer did not name it");
     assert.equal(kind("model", ["how much is it?"], "Voyah COURAGE").length, 0);
   });
+  test("the ad's own prefilled greeting is context, never a car the customer named (regression, 2026-10-12)", () => {
+    const r = read(["Hello! Can I get more info on this?", "price?"], "Voyah COURAGE");
+    for (const x of r.results) assert.deepEqual(x.signal.models, []);
+    assert.deepEqual(r.results[0].signal.contextModels, ["COURAGE"]);
+    assert.deepEqual(r.results[1].signal.contextModels, ["COURAGE"]);
+  });
   test("a brand ad names no car", () => {
     assert.equal(read(["how much?"], "The Voyah Experience").results[0].signal.adModel, null);
   });

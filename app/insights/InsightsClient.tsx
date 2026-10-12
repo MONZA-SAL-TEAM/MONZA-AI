@@ -70,7 +70,7 @@ function href(f: InsightFilter, patch: Partial<Pick<InsightFilter, "days" | "bra
   if (next.channel) q.set("channel", next.channel);
   if (next.model) q.set("model", next.model);
   const s = q.toString();
-  return s ? `/insights?${s}` : "/insights";
+  return s ? `/insights/clients?${s}` : "/insights/clients";
 }
 
 /* ── Charts: one hue, thin marks, labels in text ink, a tooltip on every mark ── */
@@ -445,12 +445,12 @@ export default function InsightsClient({ read, filter, stock, metaRuns }: { read
     <div className="board">
       <header className="board-head">
         <p className="eyebrow">Insights</p>
-        <h1 className="h1">Clients and cars</h1>
+        <h1 className="h1">All clients, all cars</h1>
         <p className="lede">
           What people ask about, which cars, which colours, and how far each client has come — counted from what the sales bot understood in every
           message. Never the words themselves: the chat is one click away.
         </p>
-        <InsightsNav current="/insights" />
+        <InsightsNav current="/insights/clients" />
       </header>
 
       {read.state === "no_table" && (
