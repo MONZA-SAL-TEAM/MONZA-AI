@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireRealStaff } from "@/lib/auth";
 import { rebuildSignals } from "@/lib/wasales/signal-server";
+import { INSIGHTS_CAPS } from "@/lib/insights/access";
 
 /**
  * "Rebuild from history": read the stored WhatsApp messages of the past year through the engine and
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const access = await requireRealStaff(request);
+  const access = await requireRealStaff(request, INSIGHTS_CAPS);
   if (!access.ok) return NextResponse.json({ ok: false, message: "Please sign in." }, { status: access.reason === "unauthenticated" ? 401 : 403 });
   const r = await rebuildSignals(365, 50_000);
   if (!r) return NextResponse.json({ ok: false, message: "The database is not reachable here." }, { status: 503 });

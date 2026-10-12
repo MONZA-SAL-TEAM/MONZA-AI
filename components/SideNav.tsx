@@ -104,6 +104,21 @@ export default function SideNav() {
   // The inbox's unread count, as last seen in this browser. Updated live while
   // the inbox is open, and from the saved value on every other screen.
   const [unread, setUnread] = useState(0);
+  // What this person may open (Insights is for the owner and managers). Hidden until known.
+  const [allowed, setAllowed] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/me/capabilities", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b: { insights?: boolean } | null) => {
+        if (alive && b) setAllowed({ insights: b.insights === true });
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     const read = () => {
@@ -178,7 +193,7 @@ export default function SideNav() {
           {NAV.map((group) => (
             <div className="side-group" key={group.label}>
               <div className="side-group-label">{group.label}</div>
-              {group.items.map((item) => {
+              {group.items.filter((item) => !item.requires || allowed[item.requires]).map((item) => {
                 const active = item.exact
                   ? pathname === item.href
                   : pathname.startsWith(item.href);

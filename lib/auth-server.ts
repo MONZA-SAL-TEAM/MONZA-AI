@@ -19,6 +19,8 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireStaff, isDemoIdentity } from "@/lib/auth";
+import { channelDb } from "@/lib/channels/store";
+import { canSeeInsights } from "@/lib/insights/access";
 import type { StaffIdentity } from "@/lib/connectors/types";
 
 const COOKIE_NAME = "monza-ai-token";
@@ -53,6 +55,17 @@ export async function requireStaffForPage(next: string): Promise<StaffIdentity> 
     redirect(`/login?next=${encodeURIComponent(next)}`);
   }
   return user;
+}
+
+/**
+ * Guard an Insights page (owner, manage_team, view_reports — lib/insights/access.ts). Signed out →
+ * sign-in; signed in without the role → `{ allowed: false }`, and the page renders the refusal instead
+ * of any data. Called by EVERY page under /insights: a layout check alone does not re-run when moving
+ * between sibling pages in the browser.
+ */
+export async function requireInsightsAccess(next: string): Promise<{ allowed: true; user: StaffIdentity } | { allowed: false }> {
+  const user = await requireStaffForPage(next);
+  return canSeeInsights(user, channelDb() !== null) ? { allowed: true, user } : { allowed: false };
 }
 
 /** True when this render is the credential-free demo. */

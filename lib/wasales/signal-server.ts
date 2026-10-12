@@ -17,6 +17,12 @@ import { freshState } from "@/lib/wasales/context";
 import { decide, type EngineDeps } from "@/lib/wasales/engine";
 import { MONZA_KNOWLEDGE, salesBrandOf } from "@/lib/wasales/knowledge";
 import { signalFromDecision, type Signal, type SignalMeta } from "@/lib/wasales/signal";
+import { isPilotChat } from "@/lib/wasales/autoreply-pilot";
+
+/** Samer's test phones writing to try the bot: never counted as clients. */
+function isTestChat(meta: SignalMeta): boolean {
+  return Boolean(meta.peerExternalId) && isPilotChat({ accountId: meta.accountId, channel: meta.channel, peerExternalId: meta.peerExternalId ?? "" });
+}
 
 function deps(): EngineDeps {
   return { knowledge: MONZA_KNOWLEDGE, catalog: loadCatalog(), media: folderMedia, ttlHours: 72 };
@@ -54,6 +60,7 @@ function rowOf(s: Signal) {
 /** Record one inbound message's labels. Never throws. */
 export async function recordSignal(sb: SupabaseClient, text: string, meta: SignalMeta): Promise<boolean> {
   try {
+    if (isTestChat(meta)) return false;
     const s = readSignal(text, meta);
     if (!s) return false;
     const { error } = await sb.from("sales_signals").upsert(rowOf(s), { onConflict: "account_id,external_message_id" });
@@ -84,6 +91,13 @@ export async function rebuildSignals(days = 365, budgetMs = 50_000): Promise<Reb
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
   const deadline = Date.now() + budgetMs;
   const PAGE = 500;
+  // The pilot test phones' conversations, left out of the rebuild.
+  const { data: convs } = await sb.from("channel_conversations").select("id, account_id, peer_external_id");
+  const testConversations = new Set(
+    (Array.isArray(convs) ? (convs as { id: string; account_id: string; peer_external_id: string }[]) : [])
+      .filter((c) => isPilotChat({ accountId: c.account_id, channel: "whatsapp", peerExternalId: c.peer_external_id }))
+      .map((c) => c.id)
+  );
   let read = 0;
   let written = 0;
   let skipped = 0;
@@ -105,7 +119,7 @@ export async function rebuildSignals(days = 365, budgetMs = 50_000): Promise<Reb
       read++;
       const id = typeof r.external_message_id === "string" ? r.external_message_id : null;
       const at = typeof r.sent_at === "string" ? r.sent_at : null;
-      if (!id || !at || typeof r.account_id !== "string" || typeof r.brand !== "string" || typeof r.conversation_id !== "string") {
+      if (!id || !at || typeof r.account_id !== "string" || typeof r.brand !== "string" || typeof r.conversation_id !== "string" || testConversations.has(r.conversation_id)) {
         skipped++;
         continue;
       }

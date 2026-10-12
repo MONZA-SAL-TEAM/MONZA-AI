@@ -24,6 +24,8 @@ export interface NavItem {
   exact?: boolean;
   /** One line for a menu or a landing page. */
   blurb: string;
+  /** Shown only to staff allowed to open it (the page checks again). The key is a field of /api/me/capabilities. */
+  requires?: "insights";
 }
 
 export interface NavGroup {
@@ -53,6 +55,7 @@ export const NAV: NavGroup[] = [
         href: "/insights",
         label: "Insights",
         icon: "insights",
+        requires: "insights",
         blurb: "What the conversations say about the cars and the clients.",
       },
       {

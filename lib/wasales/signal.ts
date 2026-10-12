@@ -33,6 +33,8 @@ export interface Signal {
 
 export interface SignalMeta {
   accountId: string;
+  /** The customer's id on the channel (WhatsApp: their number) — used only to leave out the pilot test phones. */
+  peerExternalId?: string;
   brand: string;
   channel: string;
   conversationId: string;

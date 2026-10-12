@@ -342,6 +342,7 @@ export async function storeInbound(events: readonly InboundEvent[]): Promise<Sto
     // dropped here, as above; Instagram and Facebook words are still never stored. Best effort.
     await recordSignal(sb, event.text, {
       accountId: account.id,
+      peerExternalId: event.fromExternalId,
       brand: account.brand,
       channel: account.channel,
       conversationId,

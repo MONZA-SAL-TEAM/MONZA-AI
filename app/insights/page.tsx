@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { requireStaffForPage } from "@/lib/auth-server";
+import { requireInsightsAccess } from "@/lib/auth-server";
+import NotAllowed from "./NotAllowed";
 import { readInsights } from "@/lib/insights/insights-server";
 import InsightsClient from "./InsightsClient";
 
@@ -18,7 +19,8 @@ export const dynamic = "force-dynamic";
 const PERIODS = new Set([30, 90, 365, 0]);
 
 export default async function InsightsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  await requireStaffForPage("/insights");
+  const access = await requireInsightsAccess("/insights");
+  if (!access.allowed) return <NotAllowed />;
   const sp = await searchParams;
   const one = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string) : null);
   const daysRaw = Number(one("days") ?? 90);
