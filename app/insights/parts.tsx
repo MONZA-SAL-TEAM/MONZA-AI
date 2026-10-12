@@ -16,6 +16,7 @@ const SECTIONS: ReadonlyArray<[string, string]> = [
   ["/insights/team", "Team"],
   ["/insights/lab", "Research Lab"],
   ["/insights/quality", "Data quality"],
+  ["/insights/connections", "Connections & imports"],
 ];
 
 export function InsightsNav({ current }: { current: string }) {
