@@ -16,6 +16,8 @@ import { clientsCsv, WEEKS, type CarInsight, type ClientInsight, type Count, typ
 import type { InsightsRead } from "@/lib/insights/insights-server";
 import type { CarStock } from "@/lib/insights/crm";
 import type { MetaRunView } from "@/lib/insights/meta-backfill";
+import { labHref, type InsightQuery } from "@/lib/insights/query";
+import { InsightsNav } from "./parts";
 import "../board.css";
 import "./insights.css";
 
@@ -73,18 +75,31 @@ function href(f: InsightFilter, patch: Partial<Pick<InsightFilter, "days" | "bra
 
 /* ── Charts: one hue, thin marks, labels in text ink, a tooltip on every mark ── */
 
-function Bars({ items, title }: { items: readonly Count[]; title: string }) {
+/** Bars; with `lab`, each one opens the people it counts in the Research Lab. */
+function Bars({ items, title, lab }: { items: readonly Count[]; title: string; lab?: (key: string) => InsightQuery }) {
   const max = Math.max(1, ...items.map((i) => i.n));
   if (items.length === 0) return <p className="ins-empty">Nothing yet.</p>;
   return (
     <ul className="ins-bars" aria-label={title}>
       {items.map((i) => (
         <li key={i.key} title={`${i.label}: ${i.n}`}>
-          <span className="ins-bar-label">{i.label}</span>
+          {lab ? (
+            <Link className="ins-bar-label ins-bar-link" href={labHref(lab(i.key))}>
+              {i.label}
+            </Link>
+          ) : (
+            <span className="ins-bar-label">{i.label}</span>
+          )}
           <span className="ins-bar-track">
             <span className="ins-bar-fill" style={{ width: `${Math.max(2, (i.n / max) * 100)}%` }} />
           </span>
-          <span className="ins-bar-value">{i.n}</span>
+          {lab ? (
+            <Link className="ins-bar-value ins-bar-link" href={labHref(lab(i.key))}>
+              {i.n}
+            </Link>
+          ) : (
+            <span className="ins-bar-value">{i.n}</span>
+          )}
         </li>
       ))}
     </ul>
@@ -202,6 +217,12 @@ function CarCard({ car, f, stock }: { car: CarInsight; f: InsightFilter; stock: 
         <Link className="btn quiet" href={href(f, { model: selected ? null : car.code })}>
           {selected ? "Show everyone" : "Only this car's clients"}
         </Link>
+        <Link className="btn quiet" href={`/insights/models/${car.code}`}>
+          Car page
+        </Link>
+        <Link className="btn quiet" href={labHref({ model: car.code })}>
+          Its people
+        </Link>
       </div>
     </li>
   );
@@ -277,11 +298,11 @@ function ClientRow({ c }: { c: ClientInsight }) {
   );
 }
 
-function Told({ title, items, known }: { title: string; items: readonly Count[]; known: number }) {
+function Told({ title, items, known, field }: { title: string; items: readonly Count[]; known: number; field: keyof InsightQuery }) {
   return (
     <div className="ins-panel">
       <h2 className="ins-h2">{title}</h2>
-      {items.length === 0 ? <p className="ins-empty">Nobody has said yet.</p> : <Bars items={items.slice(0, 10)} title={title} />}
+      {items.length === 0 ? <p className="ins-empty">Nobody has said yet.</p> : <Bars items={items.slice(0, 10)} title={title} lab={(k) => ({ [field]: k }) as InsightQuery} />}
       {known > 0 && <p className="ins-known">people, of {known} who said</p>}
     </div>
   );
@@ -429,11 +450,7 @@ export default function InsightsClient({ read, filter, stock, metaRuns }: { read
           What people ask about, which cars, which colours, and how far each client has come — counted from what the sales bot understood in every
           message. Never the words themselves: the chat is one click away.
         </p>
-        <div className="ins-links">
-          <Link className="btn quiet" href="/insights/team">
-            How fast we answer
-          </Link>
-        </div>
+        <InsightsNav current="/insights" />
       </header>
 
       {read.state === "no_table" && (
@@ -483,15 +500,15 @@ export default function InsightsClient({ read, filter, stock, metaRuns }: { read
             </div>
             <div className="ins-panel">
               <h2 className="ins-h2">What they ask about</h2>
-              <Bars items={ins.topics.slice(0, 12)} title="Questions" />
+              <Bars items={ins.topics.slice(0, 12)} title="Questions" lab={(k) => ({ topic: k })} />
             </div>
             <div className="ins-panel">
               <h2 className="ins-h2">How far they got</h2>
-              <Bars items={ins.stages} title="Stages" />
+              <Bars items={ins.stages} title="Stages" lab={(k) => ({ stage: k })} />
               <h2 className="ins-h2">Where they write from</h2>
-              <Bars items={ins.channels} title="Channels" />
+              <Bars items={ins.channels} title="Channels" lab={(k) => ({ channel: k })} />
               <h2 className="ins-h2">In which language</h2>
-              <Bars items={ins.languages} title="Languages" />
+              <Bars items={ins.languages} title="Languages" lab={(k) => ({ language: k })} />
             </div>
           </section>
 
@@ -510,14 +527,14 @@ export default function InsightsClient({ read, filter, stock, metaRuns }: { read
             <p className="lede">From their own words: each person counted once, and each share is only over the people who said it — never everyone.</p>
           </section>
           <section className="ins-grid" aria-label="What clients tell us">
-            <Told title="Budget" items={ins.profile.budget} known={ins.profile.known.budget} />
-            <Told title="Buying when" items={ins.profile.timeline} known={ins.profile.known.timeline} />
-            <Told title="Where they live" items={ins.profile.city} known={ins.profile.known.city} />
-            <Told title="What it's for" items={ins.profile.purpose} known={ins.profile.known.purpose} />
-            <Told title="Other brands" items={ins.profile.competitors} known={ins.profile.known.competitor} />
-            <Told title="Concerns" items={ins.profile.concerns} known={ins.profile.known.concern} />
-            <Told title="Paying" items={ins.profile.financing} known={ins.profile.known.financing} />
-            <Told title="Looking for" items={ins.profile.needs} known={ins.profile.known.need} />
+            <Told title="Budget" items={ins.profile.budget} known={ins.profile.known.budget} field="budget" />
+            <Told title="Buying when" items={ins.profile.timeline} known={ins.profile.known.timeline} field="timeline" />
+            <Told title="Where they live" items={ins.profile.city} known={ins.profile.known.city} field="city" />
+            <Told title="What it's for" items={ins.profile.purpose} known={ins.profile.known.purpose} field="purpose" />
+            <Told title="Other brands" items={ins.profile.competitors} known={ins.profile.known.competitor} field="competitor" />
+            <Told title="Concerns" items={ins.profile.concerns} known={ins.profile.known.concern} field="concern" />
+            <Told title="Paying" items={ins.profile.financing} known={ins.profile.known.financing} field="financing" />
+            <Told title="Looking for" items={ins.profile.needs} known={ins.profile.known.need} field="need" />
           </section>
 
           <section className="section-head">

@@ -1,0 +1,133 @@
+/**
+ * One summary per PERSON, as labels — PURE. What the Research Lab filters (insight_people, migration 023)
+ * and what the analysis pages count. A person = a lead when the chat has one, else the chat itself (the
+ * same rule as /customers and /insights). Never a name, never a phone, never a word.
+ */
+
+import type { InsightRows, ObservationRow, SignalRow } from "@/lib/insights/insights";
+import { furthestStage, stageOf, type Stage } from "@/lib/wasales/signal";
+
+export interface PersonFacts {
+  key: string;
+  leadId: string | null;
+  conversationIds: string[];
+  channels: string[];
+  brands: string[];
+  firstAt: string;
+  lastAt: string;
+  messages: number;
+  activeDays: number;
+  stage: Stage;
+  language: string | null;
+  topics: string[];
+  models: string[];
+  primaryModel: string | null;
+  comparedModels: string[];
+  rejectedModels: string[];
+  /** "COURAGE:black" (or "ANY:black" when no car was tied). Wants and asks. */
+  coloursWanted: string[];
+  coloursRejected: string[];
+  interior: string[];
+  budgetBand: string | null;
+  budgetMin: number | null;
+  budgetMax: number | null;
+  budgetCurrency: string | null;
+  timeline: string | null;
+  city: string | null;
+  purpose: string[];
+  competitors: string[];
+  concerns: string[];
+  needs: string[];
+  financing: string[];
+  tradeIn: boolean;
+  firstTouch: string | null;
+  ownerId: string | null;
+  waiting: boolean;
+}
+
+export interface PeopleExtras {
+  /** conversation id → owner (channel_conversations.assigned_to). */
+  ownerByConv?: Readonly<Record<string, string>>;
+  /** lead id → the first touchpoint's kind ("ad", "post", "direct"…). */
+  firstTouchByLead?: Readonly<Record<string, string>>;
+}
+
+const uniq = <T>(xs: readonly T[]) => [...new Set(xs)];
+
+export function buildPersonFacts(rows: InsightRows, extras: PeopleExtras = {}, window?: { sinceMs: number; untilMs: number }): PersonFacts[] {
+  const leadByConv = new Map(rows.leadConversations.map((lc) => [lc.conversation_id, lc.lead_id]));
+  const keyOf = (conv: string) => {
+    const lead = leadByConv.get(conv);
+    return lead ? `lead:${lead}` : `chat:${conv}`;
+  };
+  const inWindow = (at: string) => {
+    if (!window) return true;
+    const t = Date.parse(at);
+    return Number.isFinite(t) && t >= window.sinceMs && t <= window.untilMs;
+  };
+  const openAlert = new Set(rows.alerts.filter((a) => a.status === "open").map((a) => a.conversation_ref));
+
+  const signalsBy = new Map<string, SignalRow[]>();
+  for (const s of rows.signals) if (inWindow(s.at)) (signalsBy.get(keyOf(s.conversation_id)) ?? signalsBy.set(keyOf(s.conversation_id), []).get(keyOf(s.conversation_id))!).push(s);
+  const factsBy = new Map<string, ObservationRow[]>();
+  for (const o of rows.observations ?? []) if (inWindow(o.at)) (factsBy.get(keyOf(o.conversation_id)) ?? factsBy.set(keyOf(o.conversation_id), []).get(keyOf(o.conversation_id))!).push(o);
+
+  const out: PersonFacts[] = [];
+  for (const [key, list] of signalsBy) {
+    const signals = [...list].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+    const facts = [...(factsBy.get(key) ?? [])].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+    const latest = (kind: string) => facts.find((o) => o.kind === kind) ?? null;
+    const values = (kind: string, keep: (o: ObservationRow) => boolean = () => true) => uniq(facts.filter((o) => o.kind === kind && keep(o)).map((o) => o.value));
+    const convs = uniq(signals.map((s) => s.conversation_id));
+
+    const named = new Map<string, number>();
+    for (const s of signals) for (const m of new Set(s.models)) named.set(m, (named.get(m) ?? 0) + 1);
+    const rejectedModels = uniq(facts.filter((o) => o.kind === "model" && o.stance === "rejects" && o.model).map((o) => o.model as string));
+    const ranked = [...named.entries()].filter(([m]) => !rejectedModels.includes(m)).sort((a, b) => b[1] - a[1]).map(([m]) => m);
+
+    const colour = (o: ObservationRow) => `${o.model ?? "ANY"}:${o.value}`;
+    const colourFacts = facts.filter((o) => o.kind === "colour" && o.value !== "any");
+    const budget = latest("budget");
+    const languages = new Map<string, number>();
+    for (const s of signals) languages.set(s.language, (languages.get(s.language) ?? 0) + 1);
+    const leadId = key.startsWith("lead:") ? key.slice(5) : null;
+
+    out.push({
+      key,
+      leadId,
+      conversationIds: convs,
+      channels: uniq(signals.map((s) => s.channel)),
+      brands: uniq(signals.map((s) => s.brand)),
+      firstAt: signals[0].at,
+      lastAt: signals[signals.length - 1].at,
+      messages: signals.length,
+      activeDays: new Set(signals.map((s) => s.at.slice(0, 10))).size,
+      stage: furthestStage(signals.map((s) => stageOf(s.intents, s.models))),
+      language: [...languages.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null,
+      topics: uniq(signals.flatMap((s) => s.intents)).filter((i) => i !== "UNKNOWN"),
+      models: uniq(signals.flatMap((s) => s.models)),
+      primaryModel: ranked[0] ?? null,
+      comparedModels: uniq(facts.filter((o) => o.kind === "model" && o.stance === "compared" && o.model).map((o) => o.model as string)),
+      rejectedModels,
+      coloursWanted: uniq(colourFacts.filter((o) => o.stance !== "rejects" && o.part !== "interior").map(colour)),
+      coloursRejected: uniq(colourFacts.filter((o) => o.stance === "rejects").map(colour)),
+      interior: uniq(colourFacts.filter((o) => o.stance !== "rejects" && o.part === "interior").map(colour)),
+      budgetBand: budget?.value ?? null,
+      budgetMin: budget?.amount_min ?? null,
+      budgetMax: budget?.amount_max ?? null,
+      budgetCurrency: budget?.currency ?? null,
+      timeline: latest("timeline")?.value ?? null,
+      city: latest("city")?.value ?? null,
+      purpose: values("purpose"),
+      competitors: values("competitor"),
+      concerns: values("concern"),
+      needs: values("need"),
+      financing: values("financing"),
+      tradeIn: facts.some((o) => o.kind === "trade_in"),
+      firstTouch: leadId ? (extras.firstTouchByLead?.[leadId] ?? null) : null,
+      ownerId: convs.map((c) => extras.ownerByConv?.[c]).find(Boolean) ?? null,
+      waiting: convs.some((c) => openAlert.has(c)),
+    });
+  }
+  return out.sort((a, b) => Date.parse(b.lastAt) - Date.parse(a.lastAt));
+}

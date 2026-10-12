@@ -764,6 +764,17 @@ about our clients." Until then the engine read every message and forgot it.
   attributed". Plus chats waiting on us, alerts open over 2 h, and per owner: leads, waiting, no follow-up in
   3 days. Pilot test phones are excluded. Replies typed inside Instagram / Business Suite are invisible (echoes
   are not subscribed, rule 46), so Instagram/Facebook times cover MONZA AI sends and the nightly history only.
+- **Analysis pages and the Research Lab (Phase 5, migration 023 APPLIED 2026-10-12).** Sections (shared
+  nav `app/insights/parts.tsx`): Overview · Models (`/insights/models`, `/models/[code]`) · Colours (demand
+  per car beside CRM stock; shares only over people who named a colour; "strict" counts only colours tied
+  in the customer's own words) · Conversations (questions, concerns, needs, by car, rising = ≥5 people in
+  30 days and more than the 30 before) · Channels · Team · Research Lab · Data quality. Pure builders in
+  `lib/insights/analysis.ts`; every count is a `LinkedCount` whose `q` opens exactly those people in the Lab.
+  **The Lab's question is a URL** (`lib/insights/query.ts`: `parseInsightQuery` drops anything outside the
+  closed vocabularies; `matchesQuery` is the one meaning, also used after the database's coarse filter).
+  The Lab reads `insight_people` (one row per person, labels only — NO name, NO phone; those are joined at
+  read time from leads / chats so they keep the 12-month rule), rebuilt by `refreshInsightPeople`
+  nightly, after a finished WhatsApp or Meta history read, and on "Rebuild the summaries now". CSV defused.
 - Labels are kept LONGER than the 12-month chat retention (Samer, 2026-10-12): they hold no words. Deleting
   a person still removes them (every table cascades from `channel_conversations`).
 - Plan for Phases 2–5 (profile facts, client profile + CRM car, IG/FB backfill + nightly, lead ownership,

@@ -4,6 +4,7 @@ import { requireInsightsAccess } from "@/lib/auth-server";
 import { readTeamReport } from "@/lib/insights/team-server";
 import type { ResponderStats } from "@/lib/insights/team";
 import NotAllowed from "../NotAllowed";
+import { InsightsNav } from "../parts";
 import "../../board.css";
 import "../insights.css";
 
@@ -63,6 +64,7 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
           or read in the nightly history.
         </p>
       </header>
+      <InsightsNav current="/insights/team" />
       <div className="board-tools">
         <div className="chips" role="group" aria-label="Period">
           {PERIODS.map((d) => (

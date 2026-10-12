@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireRealStaff } from "@/lib/auth";
 import { rebuildWhatsApp } from "@/lib/wasales/signal-server";
 import { INSIGHTS_CAPS } from "@/lib/insights/access";
+import { refreshInsightPeople } from "@/lib/insights/people-server";
 
 /**
  * "Read the WhatsApp history": replay the stored WhatsApp conversations through the insights reader and
@@ -18,6 +19,8 @@ export async function POST(request: Request): Promise<NextResponse> {
   const restart = new URL(request.url).searchParams.get("restart") === "1";
   const r = await rebuildWhatsApp(45_000, restart);
   if (!r) return NextResponse.json({ ok: false, message: "The database is not reachable here." }, { status: 503 });
+  // The history is read: the Research Lab's per-person summaries follow.
+  if (r.done) await refreshInsightPeople();
   return NextResponse.json(
     { ok: true, ...r, message: `Read ${r.conversations} conversations (${r.messages} messages): ${r.signals} customer messages and ${r.observations} facts recorded.` },
     { headers: { "Cache-Control": "no-store" } }
