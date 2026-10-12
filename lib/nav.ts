@@ -78,13 +78,6 @@ export const NAV: NavGroup[] = [
           "Who to remind, who to thank, and what was already sent. Not a ledger.",
       },
       {
-        href: "/vehicles",
-        label: "Vehicle updates",
-        icon: "vehicles",
-        blurb:
-          "Cars whose status means a customer should hear from you.",
-      },
-      {
         href: "/test-drives",
         label: "Test drives",
         icon: "testdrives",

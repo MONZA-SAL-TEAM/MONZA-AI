@@ -25,8 +25,9 @@ export interface ChatDestination {
 const DESTINATIONS: Record<RecommendedChat["key"], ChatDestination> = {
   crm: { href: "/customers", label: "Customers" },
   installments: { href: "/installments", label: "Installments" },
-  garage: { href: "/vehicles", label: "Vehicle updates" },
-  inventory: { href: "/vehicles", label: "Vehicle updates" },
+  // The Vehicle updates screen was removed (Samer, 2026-10-12): garage and stock questions stay in the chat.
+  garage: { href: null, label: "Ask the assistant" },
+  inventory: { href: null, label: "Ask the assistant" },
   // No screen, by design — see the note above.
   finance: { href: null, label: "Ask the assistant" },
 };

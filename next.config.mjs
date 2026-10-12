@@ -45,20 +45,26 @@ const nextConfig = {
         destination: "/installments",
         permanent: false,
       },
+      // The Vehicle updates screen was removed (Samer, 2026-10-12): old links go to the assistant.
+      {
+        source: "/vehicles",
+        destination: "/chat",
+        permanent: false,
+      },
       {
         source: "/departments/garage-vehicles",
-        destination: "/vehicles",
+        destination: "/chat",
         permanent: false,
       },
       // Older slugs that already redirected once, kept working.
       {
         source: "/departments/garage-service",
-        destination: "/vehicles",
+        destination: "/chat",
         permanent: false,
       },
       {
         source: "/departments/vehicles-parts",
-        destination: "/vehicles",
+        destination: "/chat",
         permanent: false,
       },
       /**
