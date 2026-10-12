@@ -78,6 +78,8 @@ export interface LeadsView {
   byChannel: Breakdown[];
   bySource: Breakdown[];
   medianDaysToOrder: number | null;
+  /** Why leads were lost, as people recorded it (026). */
+  lostReasons: { key: string; n: number }[];
   readyNow: PersonFacts[];
   neglected: PersonFacts[];
   crm: "ok" | "not_connected" | "unavailable";
@@ -190,6 +192,7 @@ export function leadsView(input: LeadsInput): LeadsView {
     byModel,
     byChannel,
     bySource,
+    lostReasons: [...people.reduce((m, p) => (p.lostReason ? m.set(p.lostReason, (m.get(p.lostReason) ?? 0) + 1) : m), new Map<string, number>())].map(([key, n]) => ({ key, n })).sort((a, b) => b.n - a.n),
     medianDaysToOrder: toOrder.length ? Math.round(toOrder[Math.floor((toOrder.length - 1) / 2)] * 10) / 10 : null,
     // Ready now: close to buying in their own words, no CRM order yet, newest first.
     readyNow: people.filter((p) => (p.stage === "buying" || p.stage === "test_drive") && !outcome(p)).slice(0, 25),

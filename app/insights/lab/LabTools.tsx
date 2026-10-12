@@ -7,7 +7,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { labCsv } from "@/lib/insights/lab";
+import { labCsv, labTable } from "@/lib/insights/lab";
+import { xlsxBytes } from "@/lib/insights/xlsx";
 import type { LabPerson } from "@/lib/insights/people-server";
 
 export default function LabTools({ people, query }: { people: LabPerson[]; query: string }) {
@@ -21,6 +22,17 @@ export default function LabTools({ people, query }: { people: LabPerson[]; query
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `monza-ai-research-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function downloadExcel() {
+    const t = labTable(people);
+    const bytes = xlsxBytes("Research Lab", t.header, t.rows);
+    const blob = new Blob([bytes.buffer as ArrayBuffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `monza-ai-research-${new Date().toISOString().slice(0, 10)}.xlsx`;
     a.click();
     URL.revokeObjectURL(a.href);
   }
@@ -44,6 +56,9 @@ export default function LabTools({ people, query }: { people: LabPerson[]; query
     <div className="rowcard-actions ins-lab-tools">
       <button type="button" className="btn" onClick={download} disabled={people.length === 0}>
         Download CSV ({people.length})
+      </button>
+      <button type="button" className="btn" onClick={downloadExcel} disabled={people.length === 0}>
+        Download Excel
       </button>
       <form
         className="ins-lab-save"

@@ -22,7 +22,7 @@ import { channelDb, ensureConversation } from "@/lib/channels/store";
 import { emptyFirstPage, shouldStop, turnsOf, unchanged } from "@/lib/insights/meta-backfill-rules";
 import { freshState } from "@/lib/wasales/context";
 import { readConversation } from "@/lib/wasales/reader";
-import { adHeadlineOf, deps, loadState, saveState, writeResults } from "@/lib/wasales/signal-server";
+import { adHeadlineOf, insightDeps, loadState, saveState, writeResults } from "@/lib/wasales/signal-server";
 
 export interface BackfillOutcome {
   accountId: string;
@@ -62,7 +62,7 @@ export async function runMetaBackfill(opts: { accountId: string; mode: "backfill
     await sb.from("insight_backfill_runs").upsert({ id: runId, account_id: account.id, state: "running", cursor, started_at: new Date().toISOString(), updated_at: new Date().toISOString(), finished_at: null, last_error_code: null }, { onConflict: "id" });
   }
 
-  const d = deps();
+  const d = await insightDeps();
   let firstPage = true;
   let usage: number | null = null;
   let reachedKnown = false;

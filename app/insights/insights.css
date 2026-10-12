@@ -129,3 +129,6 @@
 .ins-funnel { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
 .ins-funnel-step { border-left: 3px solid var(--accent); padding: 4px 8px; }
 .ins-funnel-step .ins-kpi-value { font-size: 1.2rem; }
+
+/* Profile decisions (2026-10-12) */
+.ins-same { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }

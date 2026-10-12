@@ -10,6 +10,7 @@ import { matchesQuery, type InsightQuery } from "@/lib/insights/query";
 import { carName, valueLabel } from "@/lib/insights/facts";
 import { STAGE_LABEL } from "@/lib/wasales/signal";
 import { OUTCOME_LABEL } from "@/lib/insights/crm";
+import { LOST_LABEL } from "@/lib/insights/outcomes";
 
 export interface Share {
   key: string;
@@ -48,6 +49,7 @@ export const GROUP_BY: ReadonlyArray<[string, string]> = [
   ["language", "Language"],
   ["customerType", "Customer type"],
   ["outcome", "CRM outcome"],
+  ["lostReason", "Lost because"],
 ];
 
 const LANGUAGE: Readonly<Record<string, string>> = { en: "English", ar: "Arabic", arabizi: "Arabizi", fr: "French", mixed: "Mixed", unknown: "Unknown" };
@@ -77,6 +79,7 @@ function groupValues(by: string, outcomeOf: ((p: PersonFacts) => string | null) 
     case "language": return (p) => [p.language ?? "unknown"];
     case "customerType": return (p) => [p.customerType];
     case "outcome": return outcomeOf ? (p) => [outcomeOf(p) ?? "unknown"] : null;
+    case "lostReason": return (p) => [p.lostReason ?? "—"];
     default: return null;
   }
 }
@@ -96,6 +99,7 @@ function groupLabel(by: string, k: string): string {
     case "language": return LANGUAGE[k] ?? k;
     case "customerType": return k === "new" ? "New" : k === "returning" ? "Returning" : k === "business" ? "Business / fleet" : k;
     case "outcome": return OUTCOME_LABEL[k as keyof typeof OUTCOME_LABEL] ?? k;
+    case "lostReason": return LOST_LABEL[k] ?? k;
     default: return k;
   }
 }

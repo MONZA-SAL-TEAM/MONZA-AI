@@ -22,6 +22,8 @@ export interface ProfileRows {
   observations: ObservationRow[];
   alerts: { conversation_ref: string; kind: string; status: string; created_at: string; closed_at?: string | null }[];
   touchpoints: { source_kind: string; source_ref: string | null; headline: string | null; occurred_at: string }[];
+  lostHistory?: { reason: string; by_name: string | null; at: string }[];
+  identityHistory?: { action: string; by_name: string | null; at: string }[];
 }
 
 export interface JourneyEntry {
@@ -40,7 +42,10 @@ export interface ClientProfile {
   phone: string | null;
   type: "customer" | "returning" | "new";
   typeLabel: string;
-  threads: { channel: string; brand: string; threadId: string | null; firstAt: string | null; lastAt: string | null }[];
+  threads: { conversationId: string; channel: string; brand: string; threadId: string | null; firstAt: string | null; lastAt: string | null }[];
+  /** Why a person recorded the lead as lost, newest first (026); "cleared" withdraws. */
+  lostHistory: { reason: string; by: string | null; at: string }[];
+  identityHistory: { action: string; by: string | null; at: string }[];
   firstAt: string | null;
   lastAt: string | null;
   messages: number;
@@ -102,7 +107,7 @@ export function buildClientProfile(key: string, rows: ProfileRows, crm: CrmResul
   };
   const threads = rows.conversations.map((c) => {
     const own = signals.filter((s) => s.conversation_id === c.id);
-    return { channel: channelOf(c.account_id), brand: c.brand, threadId: threadOf(c.id, c.account_id), firstAt: own[0]?.at ?? c.created_at, lastAt: own[own.length - 1]?.at ?? null };
+    return { conversationId: c.id, channel: channelOf(c.account_id), brand: c.brand, threadId: threadOf(c.id, c.account_id), firstAt: own[0]?.at ?? c.created_at, lastAt: own[own.length - 1]?.at ?? null };
   });
 
   // Who they are to Monza: a buyer (the CRM says so), back after a long silence, or new.
@@ -196,6 +201,8 @@ export function buildClientProfile(key: string, rows: ProfileRows, crm: CrmResul
     waiting,
     journey,
     crm,
+    lostHistory: (rows.lostHistory ?? []).map((r) => ({ reason: r.reason, by: r.by_name, at: r.at })).sort((a, b) => Date.parse(b.at) - Date.parse(a.at)),
+    identityHistory: (rows.identityHistory ?? []).map((r) => ({ action: r.action, by: r.by_name, at: r.at })).sort((a, b) => Date.parse(b.at) - Date.parse(a.at)),
   };
 }
 

@@ -180,6 +180,12 @@ export default async function LabPage({ searchParams }: { searchParams: Promise<
           <label className="ins-lab-check">
             <input type="checkbox" name="owner" value="none" defaultChecked={q.owner === "none"} /> Nobody owns the lead
           </label>
+          <label className="ins-lab-check">
+            <input type="checkbox" name="colourSwitched" value="1" defaultChecked={q.colourSwitched === true} /> Changed their colour
+          </label>
+          <label className="ins-lab-check">
+            <input type="checkbox" name="brochureThenQuiet" value="1" defaultChecked={q.brochureThenQuiet === true} /> Got a brochure, then went quiet (3+ days)
+          </label>
           {compareRaw && <input type="hidden" name="compare" value={compareRaw} />}
         </div>
         <div className="rowcard-actions">

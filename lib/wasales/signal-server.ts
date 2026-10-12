@@ -22,10 +22,20 @@ import type { Observation } from "@/lib/wasales/observe";
 import { READER_VERSION, readConversation, readNext, type ReadResult, type Turn } from "@/lib/wasales/reader";
 import type { SignalMeta } from "@/lib/wasales/signal";
 import { isPilotChat } from "@/lib/wasales/autoreply-pilot";
+import { readAliasDecisions, withAliasDecisions } from "@/lib/insights/aliases-server";
 
 /** Samer's test phones writing to try the bot: never counted as clients. */
 function isTestChat(meta: { accountId: string; channel: string; peerExternalId?: string }): boolean {
   return Boolean(meta.peerExternalId) && isPilotChat({ accountId: meta.accountId, channel: meta.channel, peerExternalId: meta.peerExternalId ?? "" });
+}
+
+/**
+ * The insights reader's deps: the catalogue with managers' alias decisions applied (026). Only the insights
+ * reader uses this — the live bot reads the catalogue as it is.
+ */
+export async function insightDeps(): Promise<EngineDeps> {
+  const base = deps();
+  return { ...base, catalog: withAliasDecisions(base.catalog, await readAliasDecisions()) };
 }
 
 export function deps(): EngineDeps {
@@ -155,7 +165,7 @@ export async function recordSignal(sb: SupabaseClient, text: string, meta: Signa
     const stored = await loadState(sb, meta.conversationId);
     const turn: Turn = { author: "customer", text, hasMedia: meta.hasMedia, at: meta.at, externalMessageId: meta.externalMessageId };
     const adHeadline = stored.state.adModel ? null : await adHeadlineOf(sb, meta.conversationId);
-    const { result, state } = readNext(turn, stored.state, { ...meta, adHeadline }, deps());
+    const { result, state } = readNext(turn, stored.state, { ...meta, adHeadline }, await insightDeps());
     if (!result) return false;
     const written = await writeResults(sb, [result], "webhook");
     // A message older than what was already read (a redelivery) is recorded, but the memory moves only forward.
@@ -187,7 +197,7 @@ export async function rebuildWhatsApp(budgetMs = 45_000, restart = false): Promi
   const sb = channelDb();
   if (!sb) return null;
   const deadline = Date.now() + budgetMs;
-  const d = deps();
+  const d = await insightDeps();
 
   const { data: accounts } = await sb.from("channel_accounts").select("id, brand").eq("channel", "whatsapp");
   const waAccounts = Array.isArray(accounts) ? (accounts as { id: string; brand: string }[]) : [];

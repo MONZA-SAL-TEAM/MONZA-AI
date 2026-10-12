@@ -49,6 +49,12 @@ export interface InsightQuery {
   mention?: string;
   /** What the CRM recorded: won, reserved, quoted, open, lost, none. */
   outcome?: string;
+  /** Why a person recorded the lead as lost. */
+  lostReason?: string;
+  /** Wanted one colour for a car, then later another. */
+  colourSwitched?: boolean;
+  /** Got a brochure from us and has not written since (3+ days). */
+  brochureThenQuiet?: boolean;
   /** "none" = unowned, else a staff id. */
   owner?: string;
   /** Last message within this many days; 0 = any time. */
@@ -87,6 +93,7 @@ export const QUERY_FIELDS: ReadonlyArray<[keyof InsightQuery, RegExp]> = [
   ["customerType", KEY],
   ["mention", /^[A-Z0-9_]{1,20}:[a-z0-9_]{1,40}$/],
   ["outcome", /^(won|reserved|quoted|open|lost|none)$/],
+  ["lostReason", KEY],
 ];
 
 /** A field's values: "a,b" → ["a","b"]; each must match, at most 12. */
@@ -109,6 +116,8 @@ export function parseInsightQuery(sp: URLSearchParams | Record<string, string | 
   }
   if (get("tradeIn") === "1") q.tradeIn = true;
   if (get("waiting") === "1") q.waiting = true;
+  if (get("colourSwitched") === "1") q.colourSwitched = true;
+  if (get("brochureThenQuiet") === "1") q.brochureThenQuiet = true;
   const booked = get("testDriveBooked");
   if (booked === "1") q.testDriveBooked = true;
   if (booked === "0") q.testDriveBooked = false;
@@ -127,6 +136,8 @@ export function toSearch(q: InsightQuery): string {
   }
   if (q.tradeIn) p.set("tradeIn", "1");
   if (q.waiting) p.set("waiting", "1");
+  if (q.colourSwitched) p.set("colourSwitched", "1");
+  if (q.brochureThenQuiet) p.set("brochureThenQuiet", "1");
   if (q.testDriveBooked !== undefined) p.set("testDriveBooked", q.testDriveBooked ? "1" : "0");
   if (q.owner) p.set("owner", q.owner);
   if (q.days) p.set("days", String(q.days));
@@ -178,6 +189,9 @@ export function matchesQuery(p: PersonFacts, q: InsightQuery, nowMs: number, out
   if (!has(any(q.customerType), (x) => p.customerType === x)) return false;
   if (!has(any(q.mention), (x) => p.mentions.includes(x))) return false;
   if (q.tradeIn && !p.tradeIn) return false;
+  if (q.colourSwitched && !p.colourSwitched) return false;
+  if (q.brochureThenQuiet && !p.brochureThenQuiet) return false;
+  if (!has(any(q.lostReason), (x) => p.lostReason === x)) return false;
   if (q.waiting && !p.waiting) return false;
   if (q.testDriveBooked === true && !(p.testDrivesBooked > 0)) return false;
   if (q.testDriveBooked === false && p.testDrivesBooked > 0) return false;

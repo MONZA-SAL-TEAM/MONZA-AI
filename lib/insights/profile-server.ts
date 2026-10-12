@@ -65,6 +65,12 @@ export async function readClientProfile(key: string, viewer: StaffIdentity): Pro
       alerts: (alerts.data ?? []) as ProfileRows["alerts"],
       touchpoints: touchpoints.error ? [] : ((touchpoints.data ?? []) as ProfileRows["touchpoints"]),
     };
+    const [lost, identity] = await Promise.all([
+      sb.from("insight_lead_outcomes").select("reason, by_name, at").eq("person_key", key).order("at", { ascending: false }).limit(20),
+      sb.from("insight_identity_events").select("action, by_name, at").in("conversation_id", convIds).order("at", { ascending: false }).limit(20),
+    ]);
+    rows.lostHistory = lost.error ? [] : ((lost.data ?? []) as ProfileRows["lostHistory"]);
+    rows.identityHistory = identity.error ? [] : ((identity.data ?? []) as ProfileRows["identityHistory"]);
     const waPhones = convRows.filter((c) => rows.accountChannel[c.account_id] === "whatsapp").map((c) => c.peer_external_id);
     const phones = [rows.lead?.phone ?? null, ...waPhones].filter((p): p is string => Boolean(p));
     const crm = await readCrmPurchases(viewer, phones);

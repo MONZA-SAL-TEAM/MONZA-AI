@@ -9,6 +9,7 @@ import { labHref } from "@/lib/insights/query";
 import { carName } from "@/lib/insights/facts";
 import { longDate } from "@/lib/format";
 import { STAGE_LABEL } from "@/lib/wasales/signal";
+import { LOST_LABEL } from "@/lib/insights/outcomes";
 import NotAllowed from "../NotAllowed";
 import { InsightsNav, PeriodChips, parseDays } from "../parts";
 import "../../board.css";
@@ -151,6 +152,28 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
         <div className="tile"><p className="tile-label">Know their colour</p><p className="tile-value">{v.knownColour}</p><p className="tile-foot">{pct(v.knownColour, v.people)}</p></div>
         <div className="tile"><p className="tile-label">Know when they buy</p><p className="tile-value">{v.knownTimeline}</p><p className="tile-foot">{pct(v.knownTimeline, v.people)}</p></div>
         <div className="tile"><p className="tile-label">Several cars / chats</p><p className="tile-value">{v.multipleModels}</p><p className="tile-foot">named 2+ cars · {v.multipleChats} wrote on 2+ chats</p></div>
+      </section>
+
+      <section className="ins-panel">
+        <h2 className="ins-h2">Why leads were lost</h2>
+        {v.lostReasons.length === 0 ? (
+          <p className="ins-empty">No lost lead recorded yet. Record one on a client&apos;s profile; a quiet lead is never assumed lost.</p>
+        ) : (
+          <ul className="ins-bars">
+            {v.lostReasons.map((r) => (
+              <li key={r.key}>
+                <Link className="ins-bar-label ins-bar-link" href={lab({ lostReason: r.key })}>
+                  {LOST_LABEL[r.key] ?? r.key}
+                </Link>
+                <span className="ins-bar-track">
+                  <span className="ins-bar-fill" style={{ width: `${Math.max(2, (r.n / Math.max(...v.lostReasons.map((x) => x.n))) * 100)}%` }} />
+                </span>
+                <span className="ins-bar-value">{r.n}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="ins-known">Recorded by a person from a fixed list (the CRM keeps no reason). Study: <Link href={lab({ brochureThenQuiet: true })}>got a brochure, then went quiet</Link> · <Link href={lab({ colourSwitched: true })}>changed their colour</Link>.</p>
       </section>
 
       <section className="ins-grid">

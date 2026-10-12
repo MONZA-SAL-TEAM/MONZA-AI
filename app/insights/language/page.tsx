@@ -7,6 +7,7 @@ import { labHref } from "@/lib/insights/query";
 import { aliasIndex } from "@/lib/wasales/aliases";
 import { loadCatalog } from "@/lib/wasales/catalog";
 import { engineCars } from "@/lib/wasales/engine";
+import { readAliasDecisions, withAliasDecisions } from "@/lib/insights/aliases-server";
 import { MONZA_KNOWLEDGE, modelByCatalogueId } from "@/lib/wasales/knowledge";
 import NotAllowed from "../NotAllowed";
 import { InsightsNav, PeriodChips, parseDays } from "../parts";
@@ -28,7 +29,7 @@ export default async function LanguagePage({ searchParams }: { searchParams: Pro
   if (!access.allowed) return <NotAllowed />;
   const days = parseDays((await searchParams).days);
   const read = await readAnalysis(days);
-  const cars = engineCars(MONZA_KNOWLEDGE, loadCatalog());
+  const cars = engineCars(MONZA_KNOWLEDGE, withAliasDecisions(loadCatalog(), await readAliasDecisions(true)));
   const v =
     read.state === "ok"
       ? vehicleLanguage(

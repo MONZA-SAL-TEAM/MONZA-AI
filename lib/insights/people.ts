@@ -56,6 +56,12 @@ export interface PersonFacts {
   /** Colours they accept as a second choice: "COURAGE:grey". */
   colourAlternatives: string[];
   testDrivesBooked: number;
+  /** Why the lead was lost, as a person recorded it (026) — never inferred. */
+  lostReason: string | null;
+  /** Wanted one exterior colour for a car, then later wanted a different one. */
+  colourSwitched: boolean;
+  /** We sent a brochure (a PDF), and the customer has not written since — for 3+ days. */
+  brochureThenQuiet: boolean;
   /** new · returning (back after 30+ days) · business (fleet / company). A CRM buyer is decided at read time. */
   customerType: "new" | "returning" | "business";
 }
@@ -67,6 +73,12 @@ export interface PeopleExtras {
   firstTouchByLead?: Readonly<Record<string, string>>;
   /** conversation id → test drives booked (014, status booked). */
   bookingsByConv?: Readonly<Record<string, number>>;
+  /** conversation id → when we last sent a brochure (a PDF) in it. */
+  brochureByConv?: Readonly<Record<string, string>>;
+  /** person key → the reason a person recorded for losing the lead (newest; "cleared" removed). */
+  lostReasonByPerson?: Readonly<Record<string, string>>;
+  /** "Now", for anything measured against today (brochure then quiet). */
+  nowMs?: number;
 }
 
 const uniq = <T>(xs: readonly T[]) => [...new Set(xs)];
@@ -154,8 +166,29 @@ export function buildPersonFacts(rows: InsightRows, extras: PeopleExtras = {}, w
       mentions: uniq(facts.filter((o) => o.kind === "mention" && o.model).map((o) => `${o.model}:${o.value}`)),
       colourAlternatives: uniq(colourFacts.filter((o) => o.stance === "alternative").map(colour)),
       testDrivesBooked: convs.reduce((n, c) => n + (extras.bookingsByConv?.[c] ?? 0), 0),
+      lostReason: extras.lostReasonByPerson?.[key] ?? null,
+      colourSwitched: colourSwitchedOf(colourFacts),
+      brochureThenQuiet: brochureThenQuietOf(convs.map((c) => extras.brochureByConv?.[c]).filter((x): x is string => Boolean(x)), signals[signals.length - 1].at, extras.nowMs ?? Date.now()),
       customerType: purposes.includes("fleet") || purposes.includes("business") ? "business" : returning ? "returning" : "new",
     });
   }
   return out.sort((a, b) => Date.parse(b.lastAt) - Date.parse(a.lastAt));
+}
+
+/** Wanted one exterior colour for a car, then later a different one (wishes only, oldest first). */
+export function colourSwitchedOf(colourFacts: readonly ObservationRow[]): boolean {
+  const byCar = new Map<string, string[]>();
+  for (const o of [...colourFacts].sort((a, b) => Date.parse(a.at) - Date.parse(b.at))) {
+    if (o.stance !== "wants" || o.part === "interior" || !o.model) continue;
+    (byCar.get(o.model) ?? byCar.set(o.model, []).get(o.model)!).push(o.value);
+  }
+  for (const list of byCar.values()) if (list.length > 1 && list[0] !== list[list.length - 1]) return true;
+  return false;
+}
+
+/** A brochure went out, nothing came back from the customer after it, and it has been 3+ days. */
+export function brochureThenQuietOf(brochuresAt: readonly string[], lastCustomerAt: string, nowMs: number): boolean {
+  const last = brochuresAt.map((d) => Date.parse(d)).filter(Number.isFinite).sort((a, b) => b - a)[0];
+  if (last === undefined) return false;
+  return Date.parse(lastCustomerAt) < last && nowMs - last >= 3 * 86_400_000;
 }

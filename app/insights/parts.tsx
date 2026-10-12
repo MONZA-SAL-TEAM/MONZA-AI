@@ -14,6 +14,8 @@ const SECTIONS: ReadonlyArray<[string, string]> = [
   ["/insights/models", "Models"],
   ["/insights/colours", "Colours"],
   ["/insights/language", "Vehicle language"],
+  ["/insights/catalogue", "Car catalogue"],
+  ["/insights/trends", "Market trends"],
   ["/insights/conversations", "Conversations"],
   ["/insights/channels", "Channels"],
   ["/insights/team", "Team"],
@@ -58,7 +60,7 @@ export function LinkedBars({ items, title, of, limit = 12 }: { items: readonly L
   );
 }
 
-export function Weekly({ values, title }: { values: readonly number[]; title: string }) {
+export function Weekly({ values, title, caption }: { values: readonly number[]; title: string; caption?: string }) {
   const max = Math.max(1, ...values);
   const W = 360;
   const H = 80;
@@ -77,7 +79,7 @@ export function Weekly({ values, title }: { values: readonly number[]; title: st
           );
         })}
       </svg>
-      <figcaption>{title}, per week, last {values.length} weeks</figcaption>
+      <figcaption>{caption ?? `${title}, per week, last ${values.length} weeks`}</figcaption>
     </figure>
   );
 }

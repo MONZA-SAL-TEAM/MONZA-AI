@@ -5,6 +5,8 @@ import { longDate } from "@/lib/format";
 import { readClientProfile } from "@/lib/insights/profile-server";
 import { channelLabel, type ClientProfile } from "@/lib/insights/profile";
 import NotAllowed from "../../NotAllowed";
+import { LostReason, SamePerson, Separate } from "./ProfileTools";
+import { LOST_LABEL } from "@/lib/insights/outcomes";
 import "../../../board.css";
 import "../../insights.css";
 
@@ -110,6 +112,46 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
         <div className="tile"><p className="tile-label">Messages</p><p className="tile-value">{p.messages}</p><p className="tile-foot">on {p.activeDays} {p.activeDays === 1 ? "day" : "days"}</p></div>
         <div className="tile"><p className="tile-label">First message</p><p className="tile-value ins-tile-date">{day(p.firstAt)}</p><p className="tile-foot">{p.firstTouch ? p.firstTouch.label : "How they found us: not tracked"}</p></div>
         <div className="tile"><p className="tile-label">Last message</p><p className="tile-value ins-tile-date">{day(p.lastAt)}</p><p className="tile-foot">{p.threads.map((t) => `${channelLabel(t.channel)} · ${BRAND_LABEL[t.brand] ?? t.brand}`).join(" / ")}</p></div>
+      </section>
+
+      <section className="ins-grid" aria-label="Decisions about this person">
+        <div className="ins-panel">
+          <h2 className="ins-h2">Their chats</h2>
+          <ul className="ins-people">
+            {p.threads.map((t) => (
+              <li key={t.conversationId}>
+                {channelLabel(t.channel)} · {BRAND_LABEL[t.brand] ?? t.brand} <span className="ins-known">{day(t.firstAt)} – {day(t.lastAt)}</span>{" "}
+                {t.threadId && <Link href={`/inbox?open=${encodeURIComponent(t.threadId)}`}>Open</Link>}{" "}
+                {p.threads.length > 1 && <Separate conversation={t.conversationId} />}
+              </li>
+            ))}
+          </ul>
+          <SamePerson person={p.key} />
+          {p.identityHistory.length > 0 && (
+            <p className="ins-known">
+              {p.identityHistory.map((h) => `${h.action === "merge" ? "Joined" : "Separated"} by ${h.by ?? "staff"} on ${day(h.at)}`).join(" · ")}
+            </p>
+          )}
+        </div>
+        <div className="ins-panel">
+          <h2 className="ins-h2">Lost?</h2>
+          {(() => {
+            const current = p.lostHistory[0] && p.lostHistory[0].reason !== "cleared" ? p.lostHistory[0].reason : null;
+            return (
+              <>
+                <p className="ins-client-line">
+                  {current ? <>Recorded as lost: <strong>{LOST_LABEL[current] ?? current}</strong></> : "Not recorded as lost. A quiet lead is never assumed lost."}
+                </p>
+                <LostReason person={p.key} current={current} />
+              </>
+            );
+          })()}
+          {p.lostHistory.length > 0 && (
+            <p className="ins-known">
+              {p.lostHistory.map((h) => `${h.reason === "cleared" ? "Cleared" : LOST_LABEL[h.reason] ?? h.reason} — ${h.by ?? "staff"}, ${day(h.at)}`).join(" · ")}
+            </p>
+          )}
+        </div>
       </section>
 
       <section className="ins-grid" aria-label="What they want">

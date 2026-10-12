@@ -57,6 +57,9 @@ function row(p: PersonFacts, at: string) {
     colour_alternatives: p.colourAlternatives,
     test_drives_booked: p.testDrivesBooked,
     customer_type: p.customerType,
+    lost_reason: p.lostReason,
+    colour_switched: p.colourSwitched,
+    brochure_then_quiet: p.brochureThenQuiet,
     reader_version: READER_VERSION,
     updated_at: at,
   };
@@ -108,6 +111,9 @@ function factsOf(r: Row): PersonFacts {
     colourAlternatives: r.colour_alternatives ?? [],
     testDrivesBooked: r.test_drives_booked ?? 0,
     customerType: (r.customer_type as PersonFacts["customerType"]) ?? "new",
+    lostReason: r.lost_reason ?? null,
+    colourSwitched: r.colour_switched ?? false,
+    brochureThenQuiet: r.brochure_then_quiet ?? false,
   };
 }
 

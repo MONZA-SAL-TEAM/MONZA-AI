@@ -9,6 +9,7 @@ import { COLOUR_FAMILIES } from "@/lib/wasales/observe-lexicon";
 import { MODEL_CODES } from "@/lib/wasales/knowledge";
 import { STAGE_LABEL, topicLabel } from "@/lib/wasales/signal";
 import type { PersonFacts } from "@/lib/insights/people";
+import { LOST_LABEL, LOST_REASONS } from "@/lib/insights/outcomes";
 
 export interface Choice {
   value: string;
@@ -67,6 +68,7 @@ export const LAB_CHOICES: Readonly<Record<string, readonly Choice[]>> = {
     { value: "fr", label: "French" },
     { value: "mixed", label: "Mixed" },
   ],
+  lostReason: LOST_REASONS.map(([value, label]) => ({ value, label })),
   testDriveBooked: [
     { value: "1", label: "Booked" },
     { value: "0", label: "Not booked" },
@@ -103,8 +105,44 @@ export const LAB_FIELDS: ReadonlyArray<[string, string, boolean?]> = [
   ["customerType", "Customer type", true],
   ["testDriveBooked", "Test drive"],
   ["outcome", "CRM outcome", true],
+  ["lostReason", "Lost because (recorded)", true],
   ["days", "Last message"],
 ];
+
+/** The people as a table (header + rows) — the one source of the CSV and the Excel file. */
+export function labTable(people: readonly (PersonFacts & { name: string; phone: string | null })[]): { header: string[]; rows: (string | number | null)[][] } {
+  const header = ["Name", "Phone", "Channels", "Stage", "Cars (named or by context)", "Main car", "Came from the ad for", "Colours wanted", "Colours refused", "Interior", "Budget", "Buying when", "City", "Purpose", "Other brands", "Concerns", "Paying", "Trade-in", "Test drives booked", "Lost because", "Messages", "First message", "Last message"];
+  const colour = (c: string) => {
+    const [m, f] = c.split(":");
+    return `${f}${m && m !== "ANY" ? ` (${carName(m)})` : ""}`;
+  };
+  const rows = people.map((p) => [
+    p.name,
+    p.phone ? `+${p.phone}` : null,
+    p.channels.join("; "),
+    STAGE_LABEL[p.stage] ?? p.stage,
+    [...new Set([...p.models, ...p.contextModels])].map(carName).join("; "),
+    p.primaryModel ? carName(p.primaryModel) : null,
+    p.adModel ? carName(p.adModel) : null,
+    p.coloursWanted.map(colour).join("; "),
+    p.coloursRejected.map(colour).join("; "),
+    p.interior.map(colour).join("; "),
+    p.budgetBand ? valueLabel("budget", p.budgetBand) : null,
+    p.timeline ? valueLabel("timeline", p.timeline) : null,
+    p.city ? valueLabel("city", p.city) : null,
+    p.purpose.map((x) => valueLabel("purpose", x)).join("; "),
+    p.competitors.map((x) => valueLabel("competitor", x)).join("; "),
+    p.concerns.map((x) => valueLabel("concern", x)).join("; "),
+    p.financing.map((x) => valueLabel("financing", x)).join("; "),
+    p.tradeIn ? "yes" : null,
+    p.testDrivesBooked,
+    p.lostReason ? (LOST_LABEL[p.lostReason] ?? p.lostReason) : null,
+    p.messages,
+    p.firstAt.slice(0, 10),
+    p.lastAt.slice(0, 10),
+  ]);
+  return { header, rows };
+}
 
 /** The people as CSV. Cells that begin with = + - @ are defused: a customer chooses their own name. */
 export function labCsv(people: readonly (PersonFacts & { name: string; phone: string | null })[]): string {
@@ -113,36 +151,6 @@ export function labCsv(people: readonly (PersonFacts & { name: string; phone: st
     const safe = /^[=+\-@]/.test(s) ? `'${s}` : s;
     return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
   };
-  const head = ["Name", "Phone", "Channels", "Stage", "Cars", "Main car", "Colours wanted", "Colours refused", "Interior", "Budget", "Buying when", "City", "Purpose", "Other brands", "Concerns", "Paying", "Trade-in", "Messages", "First message", "Last message"];
-  const colour = (c: string) => {
-    const [m, f] = c.split(":");
-    return `${f}${m && m !== "ANY" ? ` (${carName(m)})` : ""}`;
-  };
-  const lines = people.map((p) =>
-    [
-      p.name,
-      p.phone,
-      p.channels.join("; "),
-      STAGE_LABEL[p.stage] ?? p.stage,
-      p.models.map(carName).join("; "),
-      p.primaryModel ? carName(p.primaryModel) : "",
-      p.coloursWanted.map(colour).join("; "),
-      p.coloursRejected.map(colour).join("; "),
-      p.interior.map(colour).join("; "),
-      p.budgetBand ? valueLabel("budget", p.budgetBand) : "",
-      p.timeline ? valueLabel("timeline", p.timeline) : "",
-      p.city ? valueLabel("city", p.city) : "",
-      p.purpose.map((x) => valueLabel("purpose", x)).join("; "),
-      p.competitors.map((x) => valueLabel("competitor", x)).join("; "),
-      p.concerns.map((x) => valueLabel("concern", x)).join("; "),
-      p.financing.map((x) => valueLabel("financing", x)).join("; "),
-      p.tradeIn ? "yes" : "",
-      p.messages,
-      p.firstAt.slice(0, 10),
-      p.lastAt.slice(0, 10),
-    ]
-      .map(cell)
-      .join(",")
-  );
-  return [head.join(","), ...lines].join("\n");
+  const t = labTable(people);
+  return [t.header.join(","), ...t.rows.map((r) => r.map(cell).join(","))].join("\n");
 }

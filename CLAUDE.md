@@ -805,6 +805,24 @@ about our clients." Until then the engine read every message and forgot it.
   correct / remove uncertain facts → `insight_overrides`, applied wherever facts are read); Lab v2 (any-of values,
   `testDriveBooked=0`, `outcome`, group-by, compare with a saved study, `insight_saved_queries`); Team hand-offs
   and per-channel replies; Conversations and Channels broken down by brand / channel / statement kind.
+- **People's decisions (migration 026, 2026-10-12).** All append-only with who and when; managers / owner only
+  for the first three:
+  - **Join / separate people** (`lib/leads/identity-server.ts`, client profile): a join links chats with method
+    `human_confirmed`; "Not this person" moves the chat to a NEW lead with NO phone, so the webhook's phone match
+    (`openLead`) cannot re-attach it. Recorded in `insight_identity_events`; summaries rebuilt afterwards.
+  - **Car words** (`/insights/catalogue`, `insight_aliases`): approve a word for a car or reject a dictionary
+    word — for the INSIGHTS reader only (`insightDeps()` in signal-server.ts), never the live bot. Question words
+    can never become a car (`aliasProblem`). Car facts and official colours stay workbook-only.
+  - **Ad spend** (`/insights/trends`, `insight_ad_spend`): typed monthly per brand and channel; cost per lead =
+    spend ÷ new people from an ad that month (and per qualified, per CRM sale). Never estimated.
+  - **Lost reasons** (client profile, `insight_lead_outcomes`): a closed list; "cleared" withdraws. A quiet lead is
+    never assumed lost.
+  - Studies: `colourSwitched` (wished one colour, later another, same car) and `brochureThenQuiet` (we sent a PDF,
+    no customer message since, 3+ days). Lab exports CSV and a real `.xlsx` (`lib/insights/xlsx.ts`, no
+    dependency; formula-looking cells stored as text). `/insights/trends`: 12 months per car, colour, channel;
+    30/90-day growth (a zero baseline reads "new").
+  - "Take this lead" race checked at database level (2026-10-12, rolled back): the second conditional UPDATE
+    takes 0 rows. Two live browsers were not tested.
 - Labels are kept LONGER than the 12-month chat retention (Samer, 2026-10-12): they hold no words. Deleting
   a person still removes them (every table cascades from `channel_conversations`).
 - Plan for Phases 2–5 (profile facts, client profile + CRM car, IG/FB backfill + nightly, lead ownership,

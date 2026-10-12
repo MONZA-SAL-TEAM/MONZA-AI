@@ -34,7 +34,7 @@ export async function readInsightRows(sinceIso: string | null): Promise<RowsRead
   try {
     const probe = await sb.from("sales_signals").select("id").limit(1);
     if (probe.error) return (probe.error as { code?: string }).code === "42P01" ? { state: "no_table" } : { state: "unavailable" };
-    const [signals, observations, conversations, leads, leadConversations, alerts, touchpoints, bookings] = await Promise.all([
+    const [signals, observations, conversations, leads, leadConversations, alerts, touchpoints, bookings, sentFiles, sentMeta, lost] = await Promise.all([
       all<SignalRow>((f, t) => {
         let q = sb.from("sales_signals").select(SIGNAL_COLUMNS).order("at", { ascending: false });
         if (sinceIso) q = q.gte("at", sinceIso);
@@ -53,7 +53,31 @@ export async function readInsightRows(sinceIso: string | null): Promise<RowsRead
       all<InsightRows["alerts"][number]>((f, t) => sb.from("sales_alerts").select("conversation_ref, kind, status, created_at").range(f, t)),
       all<{ lead_id: string; source_kind: string; occurred_at: string }>((f, t) => sb.from("lead_touchpoints").select("lead_id, source_kind, occurred_at").order("occurred_at", { ascending: true }).range(f, t)).catch(() => []),
       all<{ conversation_ref: string; status: string }>((f, t) => sb.from("test_drive_bookings").select("conversation_ref, status").eq("status", "booked").range(f, t)).catch(() => []),
+      // Files WE sent (no words): a PDF is a brochure. WhatsApp keeps them on the message, Instagram and
+      // Facebook in channel_sent_files (011).
+      all<{ conversation_id: string; sent_at: string; attachments: unknown }>((f, t) => sb.from("channel_messages").select("conversation_id, sent_at, attachments").eq("direction", "out").neq("attachments", "[]").range(f, t)).catch(() => []),
+      all<{ account_id: string; conversation_ref: string; mime: string | null; kind: string | null; created_at: string }>((f, t) => sb.from("channel_sent_files").select("account_id, conversation_ref, mime, kind, created_at").range(f, t)).catch(() => []),
+      all<{ person_key: string; reason: string; at: string }>((f, t) => sb.from("insight_lead_outcomes").select("person_key, reason, at").order("at", { ascending: true }).range(f, t)).catch(() => []),
     ]);
+    const isPdf = (a: unknown) => {
+      const x = a && typeof a === "object" ? (a as { mime?: string; filename?: string; kind?: string }) : {};
+      return x.mime === "application/pdf" || /\.pdf$/i.test(x.filename ?? "");
+    };
+    const brochureByConv: Record<string, string> = {};
+    const later = (conv: string, at: string) => {
+      if (!brochureByConv[conv] || brochureByConv[conv] < at) brochureByConv[conv] = at;
+    };
+    for (const m of sentFiles) if (Array.isArray(m.attachments) && m.attachments.some(isPdf)) later(m.conversation_id, m.sent_at);
+    const byMeta = new Map(conversations.filter((c) => c.meta_conversation_id).map((c) => [`${c.account_id}|${c.meta_conversation_id}`, c.id]));
+    for (const f of sentMeta) {
+      const conv = byMeta.get(`${f.account_id}|${f.conversation_ref}`);
+      if (conv && (f.mime === "application/pdf" || f.kind === "document")) later(conv, f.created_at);
+    }
+    const lostReasonByPerson: Record<string, string> = {};
+    for (const o of lost) {
+      if (o.reason === "cleared") delete lostReasonByPerson[o.person_key];
+      else lostReasonByPerson[o.person_key] = o.reason;
+    }
     const bookingsByConv: Record<string, number> = {};
     for (const b of bookings) bookingsByConv[b.conversation_ref] = (bookingsByConv[b.conversation_ref] ?? 0) + 1;
     // Every person's review decision, applied to the facts before anything is counted (024).
@@ -63,7 +87,7 @@ export async function readInsightRows(sinceIso: string | null): Promise<RowsRead
     for (const t of touchpoints) if (!firstTouchByLead[t.lead_id] && /^[a-z_]{1,20}$/.test(t.source_kind)) firstTouchByLead[t.lead_id] = t.source_kind;
     const ownerByConv: Record<string, string> = {};
     for (const c of conversations) if (c.assigned_to) ownerByConv[c.id] = c.assigned_to;
-    return { state: "ok", rows: { signals, observations: facts, conversations, leads, leadConversations, alerts }, extras: { ownerByConv, firstTouchByLead, bookingsByConv } };
+    return { state: "ok", rows: { signals, observations: facts, conversations, leads, leadConversations, alerts }, extras: { ownerByConv, firstTouchByLead, bookingsByConv, brochureByConv, lostReasonByPerson, nowMs: Date.now() } };
   } catch (e) {
     console.error("[insights] reading failed:", e instanceof Error ? e.message : "unknown error");
     return { state: "unavailable" };
