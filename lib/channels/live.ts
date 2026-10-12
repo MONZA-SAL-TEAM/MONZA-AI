@@ -1751,8 +1751,9 @@ export type InsightThreadsPage =
 
 /** Lighter and lighter, as the inbox list does. Words only: attachments are never asked for here. */
 const INSIGHT_LIST_SHAPES = [
-  { limit: 25, messages: 20 },
+  // Small pages first: Instagram answers 25 threads × 20 messages too slowly (seen live, 2026-10-12).
   { limit: 10, messages: 20 },
+  { limit: 5, messages: 20 },
   { limit: 5, messages: 10 },
 ] as const;
 

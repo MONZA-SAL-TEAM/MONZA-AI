@@ -121,6 +121,72 @@ export default async function TeamPage({ searchParams }: { searchParams: Promise
           </section>
 
           <section className="ins-panel">
+            <h2 className="ins-h2">Hand-offs from the bot to Sales</h2>
+            {read.handoffs.length === 0 ? (
+              <p className="ins-empty">No sales alerts in this period.</p>
+            ) : (
+              <div className="ins-table-wrap">
+                <table className="ins-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Why</th>
+                      <th scope="col">Raised</th>
+                      <th scope="col">Still open</th>
+                      <th scope="col">A person replied</th>
+                      <th scope="col">Typical first reply</th>
+                      <th scope="col">Business time</th>
+                      <th scope="col">Chat has an owner</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {read.handoffs.map((h) => (
+                      <tr key={h.kind}>
+                        <th scope="row">{h.kind.replace(/_/g, " ").toLowerCase()}</th>
+                        <td>{h.created}</td>
+                        <td>{h.open}</td>
+                        <td>{h.answered} <span className="ins-known">{pct(h.answered, h.created)}</span></td>
+                        <td>{minutes(h.medianMinutes)}</td>
+                        <td>{minutes(h.medianBusinessMinutes)}</td>
+                        <td>{h.owned}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="ins-known">A hand-off is a sales alert; its reply is the first message by a person in that chat after the alert (a bot reply never counts).</p>
+          </section>
+
+          <section className="ins-panel">
+            <h2 className="ins-h2">By channel</h2>
+            <div className="ins-table-wrap">
+              <table className="ins-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Channel</th>
+                    <th scope="col">Customer bursts</th>
+                    <th scope="col">Answered by a person</th>
+                    <th scope="col">Typical first reply</th>
+                    <th scope="col">Waiting on us</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(read.byChannel).map(([ch, r]) => (
+                    <tr key={ch}>
+                      <th scope="row">{ch === "whatsapp" ? "WhatsApp" : ch === "instagram" ? "Instagram" : "Messenger"}</th>
+                      <td>{r.bursts}</td>
+                      <td>{r.answered}</td>
+                      <td>{minutes(r.overall.medianMinutes)}</td>
+                      <td>{r.unanswered}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="ins-known">Instagram and Messenger replies count only when sent from Monza AI or read in the nightly history; replies typed inside Instagram are invisible here.</p>
+          </section>
+
+          <section className="ins-panel">
             <h2 className="ins-h2">Owned leads</h2>
             {read.report.owners.length === 0 ? (
               <p className="ins-empty">Nobody has taken a lead yet. Use &quot;Take this lead&quot; in the inbox.</p>

@@ -72,6 +72,11 @@ export async function runMetaBackfill(opts: { accountId: string; mode: "backfill
     const page = await readThreadsForInsights(account.id, cursor, Math.min(remaining, 30_000));
     out.calls += page.calls;
     if (!page.ok) {
+      // Meta being slow is a pause, not a block: the cursor is saved and the next round continues.
+      if (page.code === "too_slow") {
+        out.code = "too_slow";
+        break;
+      }
       const stop = shouldStop({ calls: out.calls, usage, errorCode: page.code, elapsedMs: Date.now() - started, budgetMs });
       out.state = "blocked";
       out.code = stop.stop ? stop.code : page.code;

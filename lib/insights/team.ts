@@ -198,3 +198,47 @@ export function buildTeamReport(rows: TeamRows, now: string, opts: { noFollowUpD
     overdueHours,
   };
 }
+
+/* ── Sales hand-offs (Samer, 2026-10-12 master prompt, part 12) ─────────────────────────────── */
+
+export interface HandoffRow {
+  kind: string;
+  created: number;
+  open: number;
+  /** Hand-offs a person replied to after the alert. */
+  answered: number;
+  medianMinutes: number | null;
+  medianBusinessMinutes: number | null;
+  /** Hand-offs whose chat has an owner. */
+  owned: number;
+}
+
+/**
+ * Every sales alert is a hand-off from the bot to a person. Its response is the first PERSON's message in
+ * that chat after the alert was raised (a bot reply never counts). Grouped by the alert's kind.
+ */
+export function handoffs(rows: { alerts: { conversation_ref: string; status: string; created_at: string; kind: string }[]; turns: readonly TurnRow[]; ownedConvs: ReadonlySet<string> }): HandoffRow[] {
+  const staffTurns = new Map<string, number[]>();
+  for (const t of rows.turns) if (t.author === "staff") (staffTurns.get(t.conversation_id) ?? staffTurns.set(t.conversation_id, []).get(t.conversation_id)!).push(Date.parse(t.at));
+  for (const list of staffTurns.values()) list.sort((a, b) => a - b);
+  const byKind = new Map<string, { created: number; open: number; owned: number; mins: number[]; biz: number[] }>();
+  for (const a of rows.alerts) {
+    const g = byKind.get(a.kind) ?? byKind.set(a.kind, { created: 0, open: 0, owned: 0, mins: [], biz: [] }).get(a.kind)!;
+    g.created++;
+    if (a.status === "open") g.open++;
+    if (rows.ownedConvs.has(a.conversation_ref)) g.owned++;
+    const at = Date.parse(a.created_at);
+    const reply = (staffTurns.get(a.conversation_ref) ?? []).find((t) => t >= at);
+    if (reply !== undefined) {
+      g.mins.push(Math.round((reply - at) / 60_000));
+      g.biz.push(businessMinutes(a.created_at, new Date(reply).toISOString()));
+    }
+  }
+  const median = (xs: number[]) => {
+    const s = [...xs].sort((a, b) => a - b);
+    return s.length ? s[Math.floor((s.length - 1) / 2)] : null;
+  };
+  return [...byKind.entries()]
+    .map(([kind, g]) => ({ kind, created: g.created, open: g.open, answered: g.mins.length, medianMinutes: median(g.mins), medianBusinessMinutes: median(g.biz), owned: g.owned }))
+    .sort((a, b) => b.created - a.created);
+}

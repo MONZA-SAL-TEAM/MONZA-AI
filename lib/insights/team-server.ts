@@ -4,7 +4,7 @@
  */
 
 import { channelDb } from "@/lib/channels/store";
-import { buildTeamReport, type TeamReport, type TeamRows, type TurnRow } from "@/lib/insights/team";
+import { buildTeamReport, handoffs, type HandoffRow, type TeamReport, type TeamRows, type TurnRow } from "@/lib/insights/team";
 import { isPilotChat } from "@/lib/wasales/autoreply-pilot";
 
 const PAGE = 1000;
@@ -21,7 +21,7 @@ async function pages<T>(read: (from: number, to: number) => PromiseLike<{ data: 
   return out;
 }
 
-export type TeamRead = { state: "ok"; report: TeamReport } | { state: "unavailable" };
+export type TeamRead = { state: "ok"; report: TeamReport; byChannel: Record<string, TeamReport>; handoffs: HandoffRow[] } | { state: "unavailable" };
 
 export async function readTeamReport(days: number, now = new Date().toISOString()): Promise<TeamRead> {
   const sb = channelDb();
@@ -39,7 +39,8 @@ export async function readTeamReport(days: number, now = new Date().toISOString(
         sb.from("channel_conversations").select("id, account_id, peer_external_id, assigned_to, assigned_name").range(f, t)
       ),
       sb.from("channel_accounts").select("id, channel"),
-      sb.from("sales_alerts").select("conversation_ref, status, created_at, kind").eq("status", "open").limit(5000),
+      // Every open alert (however old — it is still owed) and every alert raised in the period.
+      sb.from("sales_alerts").select("conversation_ref, status, created_at, kind").or(`status.eq.open,created_at.gte.${since}`).limit(10000),
       sb.from("conversation_owner_events").select("by_staff, by_name, to_staff, to_name").limit(5000),
     ]);
     const channelOf = new Map(((accounts.data ?? []) as { id: string; channel: string }[]).map((a) => [a.id, a.channel]));
@@ -73,8 +74,16 @@ export async function readTeamReport(days: number, now = new Date().toISOString(
       push({ conversation_id: t.conversation_id, at: t.at, direction: t.direction === "in" ? "in" : "out", author: authorOf(t.direction, t.author), staff_id: t.staff_id, staff_name: t.staff_id ? names.get(t.staff_id) ?? null : null }, t.account_id, t.external_message_id);
     }
     const owned = convs.filter((c) => c.assigned_to && !pilot.has(c.id)).map((c) => ({ conversation_id: c.id, owner_id: c.assigned_to as string, owner_name: c.assigned_name }));
-    const report = buildTeamReport({ turns: rows, owned, alerts: (alerts.data ?? []) as TeamRows["alerts"] }, now);
-    return { state: "ok", report };
+    const alertRows = ((alerts.data ?? []) as TeamRows["alerts"]).filter((a) => !pilot.has(a.conversation_ref));
+    const report = buildTeamReport({ turns: rows, owned, alerts: alertRows.filter((a) => a.status === "open") }, now);
+    // Per channel: the same report over that channel's chats only.
+    const convChannel = new Map(convs.map((c) => [c.id, channelOf.get(c.account_id) ?? "whatsapp"]));
+    const byChannel: Record<string, TeamReport> = {};
+    for (const ch of ["whatsapp", "instagram", "facebook"]) {
+      const inCh = (conv: string) => convChannel.get(conv) === ch;
+      byChannel[ch] = buildTeamReport({ turns: rows.filter((r) => inCh(r.conversation_id)), owned: owned.filter((o) => inCh(o.conversation_id)), alerts: alertRows.filter((a) => a.status === "open" && inCh(a.conversation_ref)) }, now);
+    }
+    return { state: "ok", report, byChannel, handoffs: handoffs({ alerts: alertRows.filter((a) => a.created_at >= since), turns: rows, ownedConvs: new Set(owned.map((o) => o.conversation_id)) }) };
   } catch (e) {
     console.error("[insights/team] reading failed:", e instanceof Error ? e.message : JSON.stringify(e));
     return { state: "unavailable" };
