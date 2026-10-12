@@ -40,6 +40,14 @@ export default async function QualityPage({ searchParams }: { searchParams: Prom
         </p>
       </header>
       <InsightsNav current="/insights/quality" />
+      <p className="ins-links">
+        <a className="btn" href="/insights/review">
+          Facts to review — confirm, correct or remove
+        </a>
+        <a className="btn quiet" href="/insights/connections">
+          Connections and imports
+        </a>
+      </p>
       <div className="board-tools">
         <PeriodChips path="/insights/quality" days={days} />
       </div>

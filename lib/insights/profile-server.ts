@@ -9,6 +9,16 @@ import { readCrmPurchases } from "@/lib/insights/crm-server";
 import type { ObservationRow, SignalRow } from "@/lib/insights/insights";
 import { OBSERVATION_COLUMNS } from "@/lib/insights/insights-server";
 import { buildClientProfile, parsePersonKey, type ClientProfile, type ProfileRows } from "@/lib/insights/profile";
+import { applyOverrides, latestOverrides, type Override } from "@/lib/insights/review";
+
+/** People's review decisions (insight_overrides) applied to these facts; unread decisions leave them as they are. */
+async function withDecisions(facts: ObservationRow[]): Promise<ObservationRow[]> {
+  const sb = channelDb();
+  if (!sb || facts.length === 0) return facts;
+  const ids = [...new Set(facts.map((f) => f.external_message_id).filter((x): x is string => Boolean(x)))].slice(0, 2000);
+  const { data, error } = await sb.from("insight_overrides").select("account_id, external_message_id, kind, value, model, action, new_value, new_model, by_name, at").in("external_message_id", ids);
+  return error ? facts : applyOverrides(facts, latestOverrides((data ?? []) as Override[]));
+}
 
 export type ProfileRead = { state: "ok"; profile: ClientProfile } | { state: "not_found" } | { state: "unavailable" };
 
@@ -51,7 +61,7 @@ export async function readClientProfile(key: string, viewer: StaffIdentity): Pro
       lead: (lead.data as ProfileRows["lead"]) ?? null,
       signals: (signals.data ?? []) as SignalRow[],
       // Facts and touchpoints are extras: a missing table (before 021) costs only them.
-      observations: observations.error ? [] : ((observations.data ?? []) as ObservationRow[]),
+      observations: observations.error ? [] : await withDecisions((observations.data ?? []) as ObservationRow[]),
       alerts: (alerts.data ?? []) as ProfileRows["alerts"],
       touchpoints: touchpoints.error ? [] : ((touchpoints.data ?? []) as ProfileRows["touchpoints"]),
     };

@@ -7,9 +7,10 @@
 import { channelDb } from "@/lib/channels/store";
 import { buildInsights, type InsightFilter, type InsightRows, type Insights, type ObservationRow, type SignalRow } from "@/lib/insights/insights";
 import type { PeopleExtras } from "@/lib/insights/people";
+import { applyOverrides, latestOverrides, type Override } from "@/lib/insights/review";
 
 const PAGE = 1000;
-export const OBSERVATION_COLUMNS = "conversation_id, at, kind, stance, model, binding, part, value, detail, amount_min, amount_max, currency, amount_kind, months, external_message_id, rule";
+export const OBSERVATION_COLUMNS = "conversation_id, at, kind, stance, model, binding, part, value, detail, amount_min, amount_max, currency, amount_kind, months, external_message_id, rule, account_id";
 const SIGNAL_COLUMNS = "account_id, brand, channel, conversation_id, at, language, intents, models, weak_models, colour, has_media, alert_kind, alert_tags, offered, silenced, ad_model, context_models";
 
 async function all<T>(read: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>, max = 200_000): Promise<T[]> {
@@ -55,11 +56,14 @@ export async function readInsightRows(sinceIso: string | null): Promise<RowsRead
     ]);
     const bookingsByConv: Record<string, number> = {};
     for (const b of bookings) bookingsByConv[b.conversation_ref] = (bookingsByConv[b.conversation_ref] ?? 0) + 1;
+    // Every person's review decision, applied to the facts before anything is counted (024).
+    const overrides = await sb.from("insight_overrides").select("account_id, external_message_id, kind, value, model, action, new_value, new_model, by_name, at").limit(20000);
+    const facts = overrides.error ? observations : applyOverrides(observations, latestOverrides((overrides.data ?? []) as Override[]));
     const firstTouchByLead: Record<string, string> = {};
     for (const t of touchpoints) if (!firstTouchByLead[t.lead_id] && /^[a-z_]{1,20}$/.test(t.source_kind)) firstTouchByLead[t.lead_id] = t.source_kind;
     const ownerByConv: Record<string, string> = {};
     for (const c of conversations) if (c.assigned_to) ownerByConv[c.id] = c.assigned_to;
-    return { state: "ok", rows: { signals, observations, conversations, leads, leadConversations, alerts }, extras: { ownerByConv, firstTouchByLead, bookingsByConv } };
+    return { state: "ok", rows: { signals, observations: facts, conversations, leads, leadConversations, alerts }, extras: { ownerByConv, firstTouchByLead, bookingsByConv } };
   } catch (e) {
     console.error("[insights] reading failed:", e instanceof Error ? e.message : "unknown error");
     return { state: "unavailable" };

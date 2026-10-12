@@ -53,6 +53,7 @@ export interface ObservationRow {
   external_message_id?: string | null;
   /** Which rule produced it (evidence; "category.only" = no model named). */
   rule?: string | null;
+  account_id?: string | null;
 }
 
 export interface InsightRows {
