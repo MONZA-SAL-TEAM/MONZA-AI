@@ -80,7 +80,10 @@ import {
   mapCustomerProfile,
   PROFILE_FIELDS,
   mapThread,
+  graphTime,
+  metaErrorCode,
   metaErrorDetail,
+  metaUsagePercent,
   nextCursor,
   pageIdFor,
   peerOf,
@@ -163,7 +166,8 @@ const richFieldsWorks = new Map<string, { level: number; until: number }>();
 const RICH_FIELDS_MEMORY_MS = 10 * 60_000;
 
 type GraphResult =
-  | { ok: true; json: unknown }
+  /** usage: Meta's rate-limit use in percent, from its headers (metaUsagePercent), when it sent any. */
+  | { ok: true; json: unknown; usage?: number | null }
   /** meta: Meta's own code/subcode/message, for the staff-only diagnosis. */
   | { ok: false; problem: string; retryLighter: boolean; meta?: string | null };
 
@@ -229,7 +233,7 @@ async function fetchMeta(
           retryLighter: isTooMuchData(json),
           meta: metaErrorDetail(json),
         }
-      : { ok: true, json };
+      : { ok: true, json, usage: metaUsagePercent((name) => res.headers.get(name)) };
   } catch (e) {
     // "Took too long" and "could not connect" need different fixes, so they
     // must not read the same on screen — and how long it waited is the clue.
@@ -1720,4 +1724,74 @@ export async function threadPeerId(threadId: unknown): Promise<string | null> {
   }
   const t = await openThread(threadId, new Date());
   return t.ok && t.peer ? t.peer.id : null;
+}
+
+/* ── Insights: the Instagram and Facebook history, read for LABELS (Samer, 2026-10-12) ──────────── */
+
+/** One thread as the insights reader needs it. The words live in memory only and are dropped by the caller. */
+export interface InsightThread {
+  metaConversationId: string;
+  updatedAt: string | null;
+  peer: Peer | null;
+  /** Oldest first; Meta details the latest 20 per thread. */
+  messages: InboxMessage[];
+}
+
+export type InsightThreadsPage =
+  | { ok: true; threads: InsightThread[]; next: string | null; calls: number; usage: number | null; via: "instagram-login" | "facebook-login" }
+  | { ok: false; code: string; problem: string; calls: number };
+
+/** Lighter and lighter, as the inbox list does. Words only: attachments are never asked for here. */
+const INSIGHT_LIST_SHAPES = [
+  { limit: 25, messages: 20 },
+  { limit: 10, messages: 20 },
+  { limit: 5, messages: 10 },
+] as const;
+
+/**
+ * One page of an Instagram or Facebook account's conversations, each with its latest messages — for
+ * the insights reader (lib/insights/meta-backfill.ts), which keeps labels and never the words. The key
+ * stays here (rule 11); the account comes from OUR registry and the cursor is checked, exactly as
+ * readMore does. Read-only: nothing is sent, nothing is configured.
+ */
+export async function readThreadsForInsights(accountId: string, after: string | null, budgetMs: number): Promise<InsightThreadsPage> {
+  if (after !== null && !isSafeCursor(after)) return { ok: false, code: "bad_cursor", problem: "The saved place in the history is not valid.", calls: 0 };
+  const all = await listAccounts();
+  const account = all.find((a) => a.id === accountId);
+  if (!account || !isMetaChannel(account)) return { ok: false, code: "not_connected", problem: "That account is not connected.", calls: 0 };
+  const route = await readRoute(account, all);
+  if (!route.ok) return { ok: false, code: route.state, problem: route.problem, calls: 1 };
+
+  const platform = account.channel === "instagram" ? "instagram" : "messenger";
+  const started = Date.now();
+  let calls = 0;
+  let r: GraphResult = { ok: false, problem: "Nothing was asked.", retryLighter: false };
+  for (const shape of INSIGHT_LIST_SHAPES) {
+    const remaining = budgetMs - (Date.now() - started);
+    if (remaining < 2_000) break;
+    calls++;
+    r = await route.get(
+      route.listPath,
+      { platform, fields: `id,updated_time,participants,messages.limit(${shape.messages}){${MESSAGE_FIELDS}}`, limit: String(shape.limit), ...(after ? { after } : {}) },
+      route.token,
+      Math.min(25_000, remaining)
+    );
+    if (r.ok || !r.retryLighter) break;
+  }
+  if (!r.ok) return { ok: false, code: metaErrorCode(r.meta) ?? (r.retryLighter ? "too_slow" : "meta_error"), problem: r.problem, calls };
+
+  const data = r.json && typeof r.json === "object" ? (r.json as { data?: unknown }).data : null;
+  const threads: InsightThread[] = [];
+  for (const raw of Array.isArray(data) ? data : []) {
+    const c = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+    const metaId = typeof c?.id === "string" ? c.id : null;
+    if (!metaId || !decodeThreadId(encodeThreadId(account.id, metaId))) continue;
+    threads.push({
+      metaConversationId: metaId,
+      updatedAt: graphTime(c?.updated_time),
+      peer: peerOf(c, route.selfIds),
+      messages: mapThread(c, encodeThreadId(account.id, metaId), route.selfIds),
+    });
+  }
+  return { ok: true, threads, next: nextCursor(r.json), calls, usage: r.usage ?? null, via: route.via };
 }

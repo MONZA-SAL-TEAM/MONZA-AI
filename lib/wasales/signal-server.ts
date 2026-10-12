@@ -28,7 +28,7 @@ function isTestChat(meta: { accountId: string; channel: string; peerExternalId?:
   return Boolean(meta.peerExternalId) && isPilotChat({ accountId: meta.accountId, channel: meta.channel, peerExternalId: meta.peerExternalId ?? "" });
 }
 
-function deps(): EngineDeps {
+export function deps(): EngineDeps {
   return { knowledge: MONZA_KNOWLEDGE, catalog: loadCatalog(), media: folderMedia, ttlHours: 72 };
 }
 
@@ -116,14 +116,14 @@ export async function writeResults(sb: SupabaseClient, results: readonly ReadRes
   return { signals: ids.length, observations: rows.length };
 }
 
-async function loadState(sb: SupabaseClient, conversationId: string): Promise<{ state: SearchEngineState; lastAt: string | null; version: number }> {
+export async function loadState(sb: SupabaseClient, conversationId: string): Promise<{ state: SearchEngineState; lastAt: string | null; version: number }> {
   const { data } = await sb.from("insight_reader_state").select("state, last_at, reader_version").eq("conversation_id", conversationId).maybeSingle();
   const row = data as { state?: unknown; last_at?: string; reader_version?: number } | null;
   if (!row) return { state: freshState(), lastAt: null, version: READER_VERSION };
   return { state: parseState(row.state), lastAt: row.last_at ?? null, version: row.reader_version ?? 1 };
 }
 
-async function saveState(sb: SupabaseClient, meta: { conversationId: string; accountId: string; brand: string }, state: SearchEngineState, lastAt: string, lastId: string | null): Promise<void> {
+export async function saveState(sb: SupabaseClient, meta: { conversationId: string; accountId: string; brand: string }, state: SearchEngineState, lastAt: string, lastId: string | null): Promise<void> {
   await sb.from("insight_reader_state").upsert(
     { conversation_id: meta.conversationId, account_id: meta.accountId, brand: meta.brand, state, last_at: lastAt, last_external_message_id: lastId, reader_version: READER_VERSION, updated_at: new Date().toISOString() },
     { onConflict: "conversation_id" }

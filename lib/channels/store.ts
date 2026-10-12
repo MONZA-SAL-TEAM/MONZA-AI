@@ -204,6 +204,23 @@ async function upsertConversation(
 }
 
 /**
+ * The conversation row for an Instagram or Facebook thread the insights reader went through (Samer,
+ * 2026-10-12): found or made by the customer's id, with Meta's thread id noted so a profile's evidence
+ * link can open the chat. No message and no word is stored — only that the conversation exists.
+ */
+export async function ensureConversation(accountId: string, peerExternalId: string, metaConversationId: string): Promise<string | null> {
+  const sb = client();
+  if (!sb) return null;
+  if (!/^\d{3,40}$/.test(peerExternalId) || !/^[A-Za-z0-9_=.:-]{1,200}$/.test(metaConversationId)) return null;
+  const account = (await listAccounts()).find((a) => a.id === accountId);
+  if (!account || (account.channel !== "instagram" && account.channel !== "facebook")) return null;
+  const id = await upsertConversation(sb, accountId, account.brand, peerExternalId);
+  if (!id) return null;
+  await sb.from("channel_conversations").update({ meta_conversation_id: metaConversationId }).eq("id", id).is("meta_conversation_id", null);
+  return id;
+}
+
+/**
  * Record a batch of inbound events — that they happened, not what they said.
  *
  * Safe to call with the same events repeatedly: that is the normal case, not

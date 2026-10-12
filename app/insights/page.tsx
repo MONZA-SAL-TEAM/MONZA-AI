@@ -4,6 +4,7 @@ import NotAllowed from "./NotAllowed";
 import { readInsights } from "@/lib/insights/insights-server";
 import { readCrmStock } from "@/lib/insights/crm-server";
 import { stockByModel } from "@/lib/insights/crm";
+import { readMetaRuns } from "@/lib/insights/meta-backfill";
 import InsightsClient, { type StockView } from "./InsightsClient";
 
 export const metadata: Metadata = {
@@ -37,7 +38,7 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
     model: model && /^[A-Z0-9_]+$/.test(model) ? model : null,
     now: new Date().toISOString(),
   };
-  const [read, crmStock] = await Promise.all([readInsights(filter), readCrmStock(access.user)]);
+  const [read, crmStock, metaRuns] = await Promise.all([readInsights(filter), readCrmStock(access.user), readMetaRuns().catch(() => [])]);
   const stock: StockView = crmStock.state === "ok" ? { state: "ok", byModel: Object.fromEntries(stockByModel(crmStock.data)) } : crmStock;
-  return <InsightsClient read={read} filter={filter} stock={stock} />;
+  return <InsightsClient read={read} filter={filter} stock={stock} metaRuns={metaRuns} />;
 }

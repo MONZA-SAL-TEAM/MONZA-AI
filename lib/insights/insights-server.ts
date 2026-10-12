@@ -42,7 +42,7 @@ export async function readInsights(filter: InsightFilter): Promise<InsightsRead>
         if (since) q = q.gte("at", since);
         return q.range(f, t);
       }).catch(() => [] as ObservationRow[]),
-      all<InsightRows["conversations"][number]>((f, t) => sb.from("channel_conversations").select("id, account_id, brand, peer_external_id, peer_display, created_at").range(f, t)),
+      all<InsightRows["conversations"][number]>((f, t) => sb.from("channel_conversations").select("id, account_id, brand, peer_external_id, peer_display, created_at, meta_conversation_id").range(f, t)),
       all<InsightRows["leads"][number]>((f, t) => sb.from("leads").select("id, display_name, phone").range(f, t)),
       all<InsightRows["leadConversations"][number]>((f, t) => sb.from("lead_conversations").select("lead_id, conversation_id").range(f, t)),
       all<InsightRows["alerts"][number]>((f, t) => sb.from("sales_alerts").select("conversation_ref, kind, status, created_at").range(f, t)),

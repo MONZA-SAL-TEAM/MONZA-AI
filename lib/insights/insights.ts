@@ -54,7 +54,7 @@ export interface InsightRows {
   signals: SignalRow[];
   /** Facts (021). Optional: absent before the reader ran, and then colours come from nothing. */
   observations?: ObservationRow[];
-  conversations: { id: string; account_id: string; brand: string; peer_external_id: string; peer_display: string | null; created_at: string | null }[];
+  conversations: { id: string; account_id: string; brand: string; peer_external_id: string; peer_display: string | null; created_at: string | null; meta_conversation_id?: string | null }[];
   leads: { id: string; display_name: string | null; phone: string | null }[];
   leadConversations: { lead_id: string; conversation_id: string }[];
   /** Every alert, open or done: the open ones mark who is waiting now. */
@@ -121,7 +121,7 @@ export interface ClientInsight {
   firstAt: string;
   lastAt: string;
   waiting: string | null;
-  /** The chat in the inbox, when it can be opened by thread id (WhatsApp). */
+  /** The chat in the inbox: WhatsApp by our id, Instagram / Facebook by Meta's thread id once read. */
   threadId: string | null;
   /** The latest of each, in plain words (null when never said). */
   budget: string | null;
@@ -388,7 +388,7 @@ export function buildInsights(rows: InsightRows, f: InsightFilter): Insights {
       firstAt: first.at,
       lastAt: last.at,
       waiting: waitingKind,
-      threadId: last.channel === "whatsapp" ? encodeThreadId(last.account_id, last.conversation_id) : null,
+      threadId: last.channel === "whatsapp" ? encodeThreadId(last.account_id, last.conversation_id) : conv?.meta_conversation_id ? encodeThreadId(last.account_id, conv.meta_conversation_id) : null,
       budget: budgetFact ? factLabel(budgetFact).replace(/^Budget /, "") : null,
       timeline: timelineFact ? valueLabel("timeline", timelineFact.value) : null,
       city: cityFact ? valueLabel("city", cityFact.value) : null,

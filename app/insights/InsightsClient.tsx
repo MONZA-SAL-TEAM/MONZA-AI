@@ -15,6 +15,7 @@ import { longDate } from "@/lib/format";
 import { clientsCsv, WEEKS, type CarInsight, type ClientInsight, type Count, type InsightFilter, type Insights } from "@/lib/insights/insights";
 import type { InsightsRead } from "@/lib/insights/insights-server";
 import type { CarStock } from "@/lib/insights/crm";
+import type { MetaRunView } from "@/lib/insights/meta-backfill";
 import "../board.css";
 import "./insights.css";
 
@@ -286,7 +287,91 @@ function Told({ title, items, known }: { title: string; items: readonly Count[];
   );
 }
 
-export default function InsightsClient({ read, filter, stock }: { read: InsightsRead; filter: InsightFilter; stock: StockView }) {
+const CODE_LABEL: Readonly<Record<string, string>> = {
+  empty_first_page: "Meta answered with nothing — unknown, not empty (check the key and permissions)",
+  usage_over_75: "Paused: Meta's rate limit is over 75% used — continues tonight",
+  call_budget: "Paused after 60 calls — continues next run",
+  "meta_4": "Meta's app rate limit — continues later",
+  "meta_17": "Meta's account rate limit — continues later",
+  "meta_32": "Meta's page rate limit — continues later",
+  "meta_613": "Meta's call limit — continues later",
+  "meta_-2_2534084": "Meta timed out listing this account (-2 / 2534084)",
+  no_token: "No key for this account",
+  no_page: "No Facebook Page registered for this brand",
+  not_connected: "Not connected",
+};
+
+/** Instagram and Facebook: read the past once (labels only), then every night. */
+function MetaHistory({ runs }: { runs: readonly MetaRunView[] }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  async function go(accountId: string, dry: boolean) {
+    setBusy(accountId);
+    const say = (text: string) => setNotes((n) => ({ ...n, [accountId]: text }));
+    let totals = { threads: 0, messages: 0, matched: 0, signals: 0 };
+    try {
+      for (let round = 0; round < (dry ? 1 : 25); round++) {
+        const res = await fetch(`/api/insights/backfill?account=${encodeURIComponent(accountId)}${dry ? "&dry=1" : ""}`, { method: "POST" });
+        const b = (await res.json().catch(() => null)) as { ok?: boolean; message?: string; state?: string; code?: string | null; threads?: number; messages?: number; matchedExisting?: number; signals?: number } | null;
+        if (!res.ok || !b?.ok) {
+          say(b?.message ?? "Could not read just now.");
+          break;
+        }
+        totals = { threads: totals.threads + (b.threads ?? 0), messages: totals.messages + (b.messages ?? 0), matched: totals.matched + (b.matchedExisting ?? 0), signals: totals.signals + (b.signals ?? 0) };
+        const where = b.state === "done" ? "Finished." : b.code ? (CODE_LABEL[b.code] ?? `Stopped: ${b.code}`) : "Still reading…";
+        say(
+          dry
+            ? `Count only (nothing written): ${totals.threads} conversations, ${totals.messages} messages, ${totals.matched} already recorded. ${b.state === "done" ? "" : "More pages exist."}`
+            : `${totals.threads} conversations, ${totals.signals} customer messages recorded. ${where}`
+        );
+        if (dry || b.state !== "running") break;
+      }
+      if (!dry) router.refresh();
+    } catch {
+      say("The read could not run — check the connection.");
+    } finally {
+      setBusy(null);
+    }
+  }
+  if (runs.length === 0) return null;
+  return (
+    <section className="ins-panel ins-rebuild">
+      <h2 className="ins-h2">Instagram and Facebook history</h2>
+      <p className="lede">
+        Past chats are read once from Meta and then every night. Only the labels are kept — car, colour, budget, city — never the words. Try
+        &quot;Count first&quot; on one account before reading.
+      </p>
+      <ul className="rows">
+        {runs.map((r) => (
+          <li key={r.accountId} className="rowcard">
+            <div className="rowcard-top">
+              <div>
+                <p className="rowcard-name">{r.label}</p>
+                <p className="rowcard-sub">
+                  {CHANNEL_LABEL[r.channel] ?? r.channel} · {BRAND_LABEL[r.brand] ?? r.brand} ·{" "}
+                  {r.state === "not_started" ? "not read yet" : r.state === "done" ? "history read; refreshed nightly" : r.state === "blocked" ? (CODE_LABEL[r.code ?? ""] ?? `stopped: ${r.code ?? "unknown"}`) : "reading"}
+                  {r.threads > 0 ? ` · ${r.threads} conversations, ${r.signals} customer messages` : ""}
+                </p>
+              </div>
+            </div>
+            <div className="rowcard-actions">
+              <button type="button" className="btn" disabled={busy !== null} onClick={() => void go(r.accountId, true)}>
+                Count first
+              </button>
+              <button type="button" className="btn primary" disabled={busy !== null || r.state === "done"} onClick={() => void go(r.accountId, false)}>
+                {busy === r.accountId ? "Reading…" : r.state === "blocked" || r.state === "running" ? "Continue" : "Read history"}
+              </button>
+              {notes[r.accountId] && <span className="ins-note">{notes[r.accountId]}</span>}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+export default function InsightsClient({ read, filter, stock, metaRuns }: { read: InsightsRead; filter: InsightFilter; stock: StockView; metaRuns: readonly MetaRunView[] }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [stage, setStage] = useState<string | null>(null);
@@ -477,7 +562,7 @@ export default function InsightsClient({ read, filter, stock }: { read: Insights
           <h2 className="ins-h2">Fill in the past</h2>
           <p className="lede">
             Signals are recorded from now on for every message. WhatsApp keeps the last 12 months of messages, so the past can be read through the
-            bot once and recorded too. Instagram and Facebook words are never stored, so those start from today.
+            reader once and recorded too. Instagram and Facebook are read from Meta below.
           </p>
           <div className="rowcard-actions">
             <button type="button" className="btn primary" onClick={() => void rebuild()} disabled={rebuilding || read.state === "no_table"}>
@@ -487,6 +572,7 @@ export default function InsightsClient({ read, filter, stock }: { read: Insights
           </div>
         </section>
       )}
+      {read.state === "ok" && <MetaHistory runs={metaRuns} />}
     </div>
   );
 }

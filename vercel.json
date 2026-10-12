@@ -1,5 +1,6 @@
 {
   "crons": [
-    { "path": "/api/channels/retention", "schedule": "30 1 * * *" }
+    { "path": "/api/channels/retention", "schedule": "30 1 * * *" },
+    { "path": "/api/insights/refresh", "schedule": "0 2 * * *" }
   ]
 }

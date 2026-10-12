@@ -904,3 +904,41 @@ export function summariseDeliveries(
     `${nothingStored}${wrongObject} · ${sample}.`
   );
 }
+
+/**
+ * How much of Meta's rate limit a call has used, in percent: the highest figure in Meta's usage headers
+ * (x-app-usage, x-business-use-case-usage, x-page-usage). Null when Meta sent none. The insights history
+ * reader stops above 75 so the inbox — which shares the same limit — never runs dry.
+ */
+export function metaUsagePercent(header: (name: string) => string | null): number | null {
+  let max: number | null = null;
+  const take = (v: unknown) => {
+    if (typeof v === "number" && Number.isFinite(v)) max = Math.max(max ?? 0, v);
+  };
+  const visit = (o: unknown): void => {
+    if (Array.isArray(o)) o.forEach(visit);
+    else if (o && typeof o === "object")
+      for (const [k, v] of Object.entries(o)) {
+        if (["call_count", "total_cputime", "total_time", "acc_id_util_pct"].includes(k)) take(v);
+        else visit(v);
+      }
+  };
+  for (const name of ["x-app-usage", "x-business-use-case-usage", "x-page-usage"]) {
+    const raw = header(name);
+    if (!raw) continue;
+    try {
+      visit(JSON.parse(raw));
+    } catch {
+      // A header we cannot read says nothing; it is not zero.
+    }
+  }
+  return max;
+}
+
+/** Meta's code (and subcode) from metaErrorDetail's text, as a short key: "meta_4", "meta_-2_2534084". */
+export function metaErrorCode(detail: string | null | undefined): string | null {
+  const code = /code (-?\d+)/.exec(detail ?? "")?.[1];
+  if (!code) return null;
+  const sub = /subcode (\d+)/.exec(detail ?? "")?.[1];
+  return sub ? `meta_${code}_${sub}` : `meta_${code}`;
+}

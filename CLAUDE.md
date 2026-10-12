@@ -731,6 +731,21 @@ about our clients." Until then the engine read every message and forgot it.
   no price). The overview shows "What clients tell us" (each person once, shares over who said it) and
   **CRM stock beside each car** (in a selling status now, by colour, and inbound). A CRM that failed reads
   "could not be read", never "no car".
+- **Instagram and Facebook history (Phase 3, `lib/insights/meta-backfill.ts`): read ONCE from Meta, then
+  every night, LABELS ONLY.** `readThreadsForInsights` in `live.ts` (the only place with a key, rule 11) lists
+  an account's threads with their latest 20 messages, words only, on the account's own route (rule 49); the
+  job passes them through the same reader as the webhook and writes signals with `source = 'meta_backfill'`.
+  The words are dropped when the function returns; **no `channel_messages` row is ever written** (a test
+  scans for it). `ensureConversation` (store.ts) makes the conversation row and notes Meta's thread id
+  (`meta_conversation_id`) so evidence links open the chat. Messages the webhook already read are counted
+  (`matchedExisting`) and NOT rewritten. Resumable (cursor in `insight_backfill_runs` `meta:<account>`),
+  unchanged threads skipped (`insight_meta_threads`). Stops on #4/#17/#32/#613, on -2/2534084, above 75% of
+  Meta's rate limit (usage headers) and after 60 calls — saved as `blocked` with the code. **An empty first
+  page is UNKNOWN (`empty_first_page`), never "no chats" (rule 21).** Manual: the Insights page's
+  "Count first" (dry run, writes nothing) and "Read history" per account (`POST /api/insights/backfill`,
+  owner/managers). Nightly: `GET /api/insights/refresh` (vercel.json `0 2 * * *`, CRON_SECRET), 52 s shared
+  across WhatsApp-on-an-old-reader and the IG/FB accounts, rotating which goes first. **The Instagram-login
+  keys (VOYAH, MHERO) expire ~11–13 Nov 2026**: run the history read before then, or regenerate them first.
 - Labels are kept LONGER than the 12-month chat retention (Samer, 2026-10-12): they hold no words. Deleting
   a person still removes them (every table cascades from `channel_conversations`).
 - Plan for Phases 2–5 (profile facts, client profile + CRM car, IG/FB backfill + nightly, lead ownership,

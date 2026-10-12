@@ -33,7 +33,7 @@ export async function readClientProfile(key: string, viewer: StaffIdentity): Pro
     if (convIds.length === 0) return { state: "not_found" };
 
     const [conversations, accounts, lead, signals, observations, alerts, touchpoints] = await Promise.all([
-      sb.from("channel_conversations").select("id, account_id, brand, peer_external_id, peer_display, created_at").in("id", convIds),
+      sb.from("channel_conversations").select("id, account_id, brand, peer_external_id, peer_display, created_at, meta_conversation_id").in("id", convIds),
       sb.from("channel_accounts").select("id, channel"),
       leadId ? sb.from("leads").select("id, display_name, phone").eq("id", leadId).maybeSingle() : Promise.resolve({ data: null, error: null }),
       sb.from("sales_signals").select("account_id, brand, channel, conversation_id, at, language, intents, models, weak_models, colour, has_media, alert_kind, alert_tags, offered, silenced").in("conversation_id", convIds).order("at", { ascending: true }).limit(5000),

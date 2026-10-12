@@ -14,7 +14,7 @@ import type { ObservationRow, SignalRow } from "@/lib/insights/insights";
 import { STAGE_LABEL, furthestStage, stageOf, topicLabel, type Stage } from "@/lib/wasales/signal";
 
 export interface ProfileRows {
-  conversations: { id: string; account_id: string; brand: string; peer_external_id: string; peer_display: string | null; created_at: string | null }[];
+  conversations: { id: string; account_id: string; brand: string; peer_external_id: string; peer_display: string | null; created_at: string | null; meta_conversation_id?: string | null }[];
   /** account id → channel ("whatsapp" | "instagram" | "facebook"). */
   accountChannel: Record<string, string>;
   lead: { id: string; display_name: string | null; phone: string | null } | null;
@@ -94,7 +94,12 @@ export function buildClientProfile(key: string, rows: ProfileRows, crm: CrmResul
   const crmName = crm.state === "ok" ? crm.data.map((p) => p.customerName).find(Boolean) : undefined;
   const name = display || crmName || (phone ? `+${phone}` : "Customer");
 
-  const threadOf = (convId: string, accountId: string) => (channelOf(accountId) === "whatsapp" ? encodeThreadId(accountId, convId) : null);
+  const metaIdOf = new Map(rows.conversations.map((c) => [c.id, c.meta_conversation_id ?? null]));
+  const threadOf = (convId: string, accountId: string) => {
+    if (channelOf(accountId) === "whatsapp") return encodeThreadId(accountId, convId);
+    const metaId = metaIdOf.get(convId);
+    return metaId ? encodeThreadId(accountId, metaId) : null;
+  };
   const threads = rows.conversations.map((c) => {
     const own = signals.filter((s) => s.conversation_id === c.id);
     return { channel: channelOf(c.account_id), brand: c.brand, threadId: threadOf(c.id, c.account_id), firstAt: own[0]?.at ?? c.created_at, lastAt: own[own.length - 1]?.at ?? null };
