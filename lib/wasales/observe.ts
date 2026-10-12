@@ -9,6 +9,8 @@
  *           the ad's car, else none — and how it was tied (`binding`) is kept, so a page can count
  *           only the certain ones.
  *   concern safety, battery life, battery replacement, charging cost, kept waiting (from intents).
+ *   profile budget, timeline, purpose, city, other brands, trade-in, financing, needs, concerns in the
+ *           customer's words (observe-profile.ts).
  *
  * Colours are read against the WORKBOOK's colour names and the colour families — never the media
  * library, so uploading a video can never change what history says.
@@ -23,6 +25,7 @@ import type { EngineDecision } from "@/lib/wasales/engine";
 import { vocabularyWords } from "@/lib/wasales/intent";
 import { modelByCatalogueId, modelByCode, type ModelCode, type SalesKnowledge } from "@/lib/wasales/knowledge";
 import { matchTokens, sameWord, type WaCar } from "@/lib/wasales/matcher";
+import { observeProfile } from "@/lib/wasales/observe-profile";
 import type { SearchEngineState } from "@/lib/wasales/context";
 import {
   BUT_AFTER,
@@ -298,6 +301,10 @@ export function observe(text: string, d: EngineDecision, ctx: ObserveContext): O
     const value = CONCERN[i];
     if (value) out.push(blank("concern", value, `concern.intent.${value}`, { stance: "mentioned" }));
   }
+
+  // 5. Who they are and what they need: budget, timeline, purpose, city, other brands, trade-in,
+  //    financing, needs, concerns (observe-profile.ts).
+  out.push(...observeProfile(text, d));
 
   return dedupe(out);
 }

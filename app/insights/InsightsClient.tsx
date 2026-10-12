@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { longDate } from "@/lib/format";
 import { clientsCsv, WEEKS, type CarInsight, type ClientInsight, type Count, type InsightFilter, type Insights } from "@/lib/insights/insights";
 import type { InsightsRead } from "@/lib/insights/insights-server";
+import type { CarStock } from "@/lib/insights/crm";
 import "../board.css";
 import "./insights.css";
 
@@ -138,7 +139,23 @@ function Spark({ values }: { values: readonly number[] }) {
 
 /* ── Sections ──────────────────────────────────────────────────────────── */
 
-function CarCard({ car, f }: { car: CarInsight; f: InsightFilter }) {
+/** The CRM's stock beside the demand: read as the viewer, never stored. */
+export type StockView = { state: "ok"; byModel: Record<string, CarStock> } | { state: "not_connected" } | { state: "unavailable" };
+
+function StockLine({ stock, code }: { stock: StockView; code: string }) {
+  if (stock.state === "not_connected") return null;
+  if (stock.state === "unavailable") return <p className="ins-car-line"><span className="cap">CRM stock</span> could not be read just now</p>;
+  const s = stock.byModel[code];
+  if (!s) return <p className="ins-car-line"><span className="cap">CRM stock</span> none now</p>;
+  return (
+    <p className="ins-car-line">
+      <span className="cap">CRM stock</span> {s.now} now{s.colours.length > 0 ? ` (${s.colours.map((c) => `${c.key} ${c.n}`).join(", ")})` : ""}
+      {s.inbound > 0 ? ` · ${s.inbound} on the way` : ""}
+    </p>
+  );
+}
+
+function CarCard({ car, f, stock }: { car: CarInsight; f: InsightFilter; stock: StockView }) {
   const selected = f.model === car.code;
   return (
     <li className={`ins-car${selected ? " is-selected" : ""}`}>
@@ -174,6 +191,7 @@ function CarCard({ car, f }: { car: CarInsight; f: InsightFilter }) {
           <span className="cap">Not wanted</span> {car.rejected.map((c) => `${c.label} (${c.n})`).join(" · ")}
         </p>
       )}
+      <StockLine stock={stock} code={car.code} />
       {car.questions.length > 0 && (
         <p className="ins-car-line">
           <span className="cap">Questions</span> {car.questions.map((q) => `${q.label} (${q.n})`).join(" · ")}
@@ -222,10 +240,28 @@ function ClientRow({ c }: { c: ClientInsight }) {
       <p className="ins-client-line">
         <span className="cap">Asked about</span> {c.topics.length > 0 ? c.topics.join(", ") : "—"}
       </p>
+      {(c.budget || c.timeline || c.city || c.purpose.length > 0) && (
+        <p className="ins-client-line">
+          {c.budget && <><span className="cap">Budget</span> {c.budget} </>}
+          {c.timeline && <><span className="cap">Buying</span> {c.timeline} </>}
+          {c.city && <><span className="cap">Where</span> {c.city} </>}
+          {c.purpose.length > 0 && <><span className="cap">For</span> {c.purpose.join(", ")}</>}
+        </p>
+      )}
+      {(c.otherBrands.length > 0 || c.concerns.length > 0 || c.tradeIn.length > 0) && (
+        <p className="ins-client-line">
+          {c.otherBrands.length > 0 && <><span className="cap">Other brands</span> {c.otherBrands.join(", ")} </>}
+          {c.tradeIn.length > 0 && <><span className="cap">Trade-in</span> {c.tradeIn.join(", ")} </>}
+          {c.concerns.length > 0 && <><span className="cap">Concerns</span> {c.concerns.join(", ")}</>}
+        </p>
+      )}
       <p className="ins-client-line">
         <span className="cap">First</span> {day(c.firstAt)} <span className="cap">Last</span> {day(c.lastAt)}
       </p>
       <div className="rowcard-actions">
+        <Link className="btn" href={`/insights/clients/${encodeURIComponent(c.id)}`}>
+          Full profile
+        </Link>
         {c.threadId ? (
           <Link className="btn quiet" href={`/inbox?open=${encodeURIComponent(c.threadId)}`}>
             Open the chat
@@ -240,7 +276,17 @@ function ClientRow({ c }: { c: ClientInsight }) {
   );
 }
 
-export default function InsightsClient({ read, filter }: { read: InsightsRead; filter: InsightFilter }) {
+function Told({ title, items, known }: { title: string; items: readonly Count[]; known: number }) {
+  return (
+    <div className="ins-panel">
+      <h2 className="ins-h2">{title}</h2>
+      {items.length === 0 ? <p className="ins-empty">Nobody has said yet.</p> : <Bars items={items.slice(0, 10)} title={title} />}
+      {known > 0 && <p className="ins-known">people, of {known} who said</p>}
+    </div>
+  );
+}
+
+export default function InsightsClient({ read, filter, stock }: { read: InsightsRead; filter: InsightFilter; stock: StockView }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [stage, setStage] = useState<string | null>(null);
@@ -252,7 +298,7 @@ export default function InsightsClient({ read, filter }: { read: InsightsRead; f
   const clients = useMemo(() => {
     if (!ins) return [];
     const q = search.trim().toLowerCase();
-    return ins.clients.filter((c) => (!stage || c.stage === stage) && (!q || `${c.name} ${c.phone ?? ""} ${c.cars.join(" ")} ${c.topics.join(" ")}`.toLowerCase().includes(q)));
+    return ins.clients.filter((c) => (!stage || c.stage === stage) && (!q || `${c.name} ${c.phone ?? ""} ${c.cars.join(" ")} ${c.topics.join(" ")} ${c.city ?? ""} ${c.budget ?? ""} ${c.otherBrands.join(" ")}`.toLowerCase().includes(q)));
   }, [ins, search, stage]);
 
   async function rebuild() {
@@ -365,9 +411,24 @@ export default function InsightsClient({ read, filter }: { read: InsightsRead; f
           </section>
           <ul className="ins-cars">
             {ins.cars.map((car) => (
-              <CarCard key={car.code} car={car} f={filter} />
+              <CarCard key={car.code} car={car} f={filter} stock={stock} />
             ))}
           </ul>
+
+          <section className="section-head">
+            <h2 className="ins-h2">What clients tell us</h2>
+            <p className="lede">From their own words: each person counted once, and each share is only over the people who said it — never everyone.</p>
+          </section>
+          <section className="ins-grid" aria-label="What clients tell us">
+            <Told title="Budget" items={ins.profile.budget} known={ins.profile.known.budget} />
+            <Told title="Buying when" items={ins.profile.timeline} known={ins.profile.known.timeline} />
+            <Told title="Where they live" items={ins.profile.city} known={ins.profile.known.city} />
+            <Told title="What it's for" items={ins.profile.purpose} known={ins.profile.known.purpose} />
+            <Told title="Other brands" items={ins.profile.competitors} known={ins.profile.known.competitor} />
+            <Told title="Concerns" items={ins.profile.concerns} known={ins.profile.known.concern} />
+            <Told title="Paying" items={ins.profile.financing} known={ins.profile.known.financing} />
+            <Told title="Looking for" items={ins.profile.needs} known={ins.profile.known.need} />
+          </section>
 
           <section className="section-head">
             <h2 className="ins-h2">The clients</h2>
@@ -377,7 +438,7 @@ export default function InsightsClient({ read, filter }: { read: InsightsRead; f
             </p>
           </section>
           <div className="board-tools">
-            <input className="board-search" type="search" placeholder="Search a name, number, car or question…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search clients" />
+            <input className="board-search" type="search" placeholder="Search a name, number, car, city or question…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search clients" />
             <div className="chips" role="group" aria-label="Stage">
               <button type="button" className="chip" aria-pressed={stage === null} onClick={() => setStage(null)}>
                 Everyone

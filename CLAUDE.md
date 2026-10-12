@@ -714,6 +714,23 @@ about our clients." Until then the engine read every message and forgot it.
   want black" / "kel shi ella el abyad" / "أي لون غير الأبيض" are REJECTS, never counted as wishes.
   Replaced per signal atomically by `insight_replace_observations` (service role only). The car card shows
   exterior shares OVER PEOPLE WITH A KNOWN PREFERENCE (`colourKnown`), interior, and "Not wanted".
+- **Profile facts (Phase 2, `lib/wasales/observe-profile.ts`): budget, timeline, purpose, city, other
+  brands, trade-in, financing, needs, concerns.** Each demands evidence, and the traps are tests
+  (`tests/insights-traps.test.ts`): a budget needs an amount AND a budget word or a currency ("Free 318",
+  "318 km", "BMW 318", a phone number, "a 2025 model", "40 kWh", "is it 40k$?" are not budgets); "k" / "alf"
+  without a currency is USD (stated in `rule`); a timeline needs a buying verb ("test drive tomorrow" is not
+  a purchase date), except "just looking"; places that are also words ("tyre", "صور" = photos, "chouf" =
+  look, "saida" = good day) need a place word before them; brands that are also words ("range", "seat",
+  "jeep", "tank") are never read alone; "kahraba" means electric, not a power cut. Labels in
+  `lib/insights/facts.ts`. Bump `READER_VERSION` (now 3) and re-run the rebuild after any rule change.
+- **The client profile `/insights/clients/[key]`** (`lib/insights/profile.ts` pure, `profile-server.ts`;
+  key `lead:<uuid>` or `chat:<uuid>`, anything else refused): who (new / back after a month / customer),
+  the ad that brought them, main / other / compared / refused cars, colours by stance, every fact, the open
+  alert, a journey of labels (newest first, each opening the chat), and **their car from the CRM**
+  (`lib/insights/crm-server.ts`, read AS THE VIEWER, linked only by the same Lebanese mobile, never stored,
+  no price). The overview shows "What clients tell us" (each person once, shares over who said it) and
+  **CRM stock beside each car** (in a selling status now, by colour, and inbound). A CRM that failed reads
+  "could not be read", never "no car".
 - Labels are kept LONGER than the 12-month chat retention (Samer, 2026-10-12): they hold no words. Deleting
   a person still removes them (every table cascades from `channel_conversations`).
 - Plan for Phases 2–5 (profile facts, client profile + CRM car, IG/FB backfill + nightly, lead ownership,

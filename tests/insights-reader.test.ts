@@ -131,7 +131,7 @@ describe("never the words", () => {
       if (o.detail) assert.match(o.detail, /^[A-Za-z0-9 ]{1,40}$/);
     }
     const json = JSON.stringify(r.results).toLowerCase();
-    for (const w of ["bade", "please", "budget", "kel shi"]) assert.ok(!json.includes(w), `"${w}" leaked`);
+    for (const w of ["bade", "please", "around", "kel shi"]) assert.ok(!json.includes(w), `"${w}" leaked`);
   });
 
   test("the database refuses free text: the value check is in the migration", () => {

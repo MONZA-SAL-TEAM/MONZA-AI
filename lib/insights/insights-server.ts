@@ -7,6 +7,7 @@ import { channelDb } from "@/lib/channels/store";
 import { buildInsights, type InsightFilter, type InsightRows, type Insights, type ObservationRow, type SignalRow } from "@/lib/insights/insights";
 
 const PAGE = 1000;
+export const OBSERVATION_COLUMNS = "conversation_id, at, kind, stance, model, binding, part, value, detail, amount_min, amount_max, currency, amount_kind, months, external_message_id";
 
 async function all<T>(read: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> {
   const out: T[] = [];
@@ -37,7 +38,7 @@ export async function readInsights(filter: InsightFilter): Promise<InsightsRead>
         return q.range(f, t);
       }),
       all<ObservationRow>((f, t) => {
-        let q = sb.from("sales_observations").select("conversation_id, at, kind, stance, model, binding, part, value, detail").in("kind", ["model", "colour"]).order("at", { ascending: false });
+        let q = sb.from("sales_observations").select(OBSERVATION_COLUMNS).order("at", { ascending: false });
         if (since) q = q.gte("at", since);
         return q.range(f, t);
       }).catch(() => [] as ObservationRow[]),

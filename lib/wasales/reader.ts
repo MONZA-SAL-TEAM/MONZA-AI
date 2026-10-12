@@ -21,7 +21,7 @@ import { observe, type Observation } from "@/lib/wasales/observe";
 import { signalFromDecision, type Signal, type SignalMeta } from "@/lib/wasales/signal";
 
 /** Bump when a reading rule changes: stored rows on an older version are read again. */
-export const READER_VERSION = 2;
+export const READER_VERSION = 3;
 
 export interface Turn {
   author: "customer" | "staff" | "automation";
@@ -96,7 +96,7 @@ export function readNext(turn: Turn, state: SearchEngineState, meta: SignalMeta,
   const observations = observe(turn.text, d, { knowledge: deps.knowledge, cars: engineCars(deps.knowledge, deps.catalog), before });
   return {
     result: {
-      signal: { ...signal, readerVersion: READER_VERSION, contextModels, needs: [], ownerSupport: u.ownerSupport, ended: u.ended },
+      signal: { ...signal, readerVersion: READER_VERSION, contextModels, needs: observations.filter((o) => o.kind === "need").map((o) => o.value), ownerSupport: u.ownerSupport, ended: u.ended },
       observations,
     },
     state: next,

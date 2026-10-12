@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { requireInsightsAccess } from "@/lib/auth-server";
 import NotAllowed from "./NotAllowed";
 import { readInsights } from "@/lib/insights/insights-server";
-import InsightsClient from "./InsightsClient";
+import { readCrmStock } from "@/lib/insights/crm-server";
+import { stockByModel } from "@/lib/insights/crm";
+import InsightsClient, { type StockView } from "./InsightsClient";
 
 export const metadata: Metadata = {
   title: "Insights — Monza AI",
@@ -35,6 +37,7 @@ export default async function InsightsPage({ searchParams }: { searchParams: Pro
     model: model && /^[A-Z0-9_]+$/.test(model) ? model : null,
     now: new Date().toISOString(),
   };
-  const read = await readInsights(filter);
-  return <InsightsClient read={read} filter={filter} />;
+  const [read, crmStock] = await Promise.all([readInsights(filter), readCrmStock(access.user)]);
+  const stock: StockView = crmStock.state === "ok" ? { state: "ok", byModel: Object.fromEntries(stockByModel(crmStock.data)) } : crmStock;
+  return <InsightsClient read={read} filter={filter} stock={stock} />;
 }

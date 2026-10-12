@@ -67,3 +67,7 @@
 @media (max-width: 480px) {
   .ins-car-stats { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* Client profile (2026-10-12) */
+.ins-tile-date { font-size: var(--t-md); }
+.ins-journey .rowcard-top { align-items: center; }
