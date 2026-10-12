@@ -429,6 +429,11 @@ export default function InsightsClient({ read, filter, stock, metaRuns }: { read
           What people ask about, which cars, which colours, and how far each client has come — counted from what the sales bot understood in every
           message. Never the words themselves: the chat is one click away.
         </p>
+        <div className="ins-links">
+          <Link className="btn quiet" href="/insights/team">
+            How fast we answer
+          </Link>
+        </div>
       </header>
 
       {read.state === "no_table" && (

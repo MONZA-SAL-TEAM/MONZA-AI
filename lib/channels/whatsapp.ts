@@ -858,6 +858,8 @@ export function whatsappSentRow(input: {
   text: string;
   at: string;
   staffName: string;
+  /** Who pressed Send (the CRM staff id), for response times per person. */
+  staffId?: string | null;
   attachment?: StoredAttachment;
   /** Sent from the sales engine: "sales-suggestion:…" (a person pressed Send) or "sales-autoreply:…". */
   automationId?: string;
@@ -875,6 +877,7 @@ export function whatsappSentRow(input: {
     external_message_id: input.externalMessageId,
     status: "sent",
     staff_name: input.staffName,
+    ...(input.staffId && /^[0-9a-f-]{36}$/i.test(input.staffId) ? { staff_id: input.staffId } : {}),
     sent_at: input.at,
     ...(input.automationId ? { automation_id: input.automationId } : {}),
   };

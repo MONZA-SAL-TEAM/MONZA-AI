@@ -71,3 +71,12 @@
 /* Client profile (2026-10-12) */
 .ins-tile-date { font-size: var(--t-md); }
 .ins-journey .rowcard-top { align-items: center; }
+
+/* Team (2026-10-12) */
+.ins-table-wrap { overflow-x: auto; margin: 0 -2px; }
+.ins-table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); font-variant-numeric: tabular-nums; }
+.ins-table th, .ins-table td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.ins-table thead th { font-size: var(--t-xs); color: var(--ink-3); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.ins-table tbody th { font-weight: 600; color: var(--ink); }
+.ins-table tbody tr:last-child th, .ins-table tbody tr:last-child td { border-bottom: 0; }
+.ins-links { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }

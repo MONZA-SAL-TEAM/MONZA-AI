@@ -30,6 +30,7 @@ import {
   readWhatsAppConversations,
   readWhatsAppMessages,
   recordSentFile,
+  recordStaffTurn,
   recordWhatsAppSent,
   type StoredAccount,
 } from "@/lib/channels/store";
@@ -688,7 +689,8 @@ async function sendOnWhatsApp(
   text: string,
   live: boolean,
   staffName: string,
-  attachment?: OutgoingAttachment
+  attachment?: OutgoingAttachment,
+  staffId?: string
 ): Promise<SendOutcome> {
   const r = await readWhatsAppMessages(account.id, conversationId, 1);
   if (!r.ok) return { kind: "refused", status: 502, problem: "Could not read this WhatsApp conversation." };
@@ -778,6 +780,7 @@ async function sendOnWhatsApp(
     text,
     at: new Date().toISOString(),
     staffName,
+    staffId: staffId ?? null,
     attachment: stored,
   });
   // It WENT. Failing to write our copy must not report a failure — a person
@@ -1546,7 +1549,7 @@ export async function sendOnThread(
   staffId?: string
 ): Promise<SendOutcome> {
   const wa = await whatsappAccountOf(threadId);
-  if (wa) return sendOnWhatsApp(wa.account, wa.id, text, live, staffName, attachment);
+  if (wa) return sendOnWhatsApp(wa.account, wa.id, text, live, staffName, attachment, staffId);
   const t = await openThread(threadId, new Date());
   if (!t.ok) return { kind: "refused", status: t.status, problem: t.problem };
   if (!t.peer) {
@@ -1567,7 +1570,11 @@ export async function sendOnThread(
         : instagramAdapter.send;
   if (!attachment) {
     const result = await send({ accountId: t.account.id, toExternalId: t.peer.id, text }, t.token);
-    if (result.ok) return { kind: "sent" };
+    if (result.ok) {
+      const ids = decodeThreadId(threadId);
+      if (ids) await recordStaffTurn({ accountId: t.account.id, peerExternalId: t.peer.id, metaConversationId: ids.metaConversationId, externalMessageId: result.externalMessageId, staffId: staffId ?? null, at: new Date().toISOString() });
+      return { kind: "sent" };
+    }
     // Codes only in the log — never the words, never the customer.
     console.warn(`[channels/send] ${t.account.id} refused: ${result.kind ?? "unknown"} (${result.codes ?? "no code"}) via ${t.via ?? "facebook-login"}`);
     return { kind: "refused", status: 502, problem: result.error };
@@ -1621,6 +1628,7 @@ export async function sendOnThread(
     staffId: staffId ?? null,
   });
   if (!recorded) console.error("[channels/send] file sent, but its record could not be written");
+  await recordStaffTurn({ accountId: t.account.id, peerExternalId: t.peer.id, metaConversationId: ids.metaConversationId, externalMessageId: sent.externalMessageId, staffId: staffId ?? null, at: new Date().toISOString() });
 
   // Instagram and Messenger files carry no caption: the words follow as their own message.
   if (text !== "") {

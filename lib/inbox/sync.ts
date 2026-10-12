@@ -198,15 +198,17 @@ export function arrivals(
 
 /* ── What the list shows ─────────────────────────────────────────────────── */
 
-export type ShowFilter = "all" | "unread" | "needs_reply" | "waiting";
+export type ShowFilter = "all" | "unread" | "needs_reply" | "waiting" | "mine" | "unassigned";
 
-export const SHOW_FILTERS: readonly ShowFilter[] = ["all", "unread", "needs_reply", "waiting"];
+export const SHOW_FILTERS: readonly ShowFilter[] = ["all", "unread", "needs_reply", "waiting", "mine", "unassigned"];
 
 export const SHOW_LABEL: Readonly<Record<ShowFilter, string>> = {
   all: "Everything",
   unread: "Unread",
   needs_reply: "Needs a reply",
   waiting: "Waiting on customer",
+  mine: "My leads",
+  unassigned: "Unassigned",
 };
 
 export interface ViewFilter {
@@ -247,6 +249,9 @@ export interface ViewContext {
   baselineAt: string;
   /** The local day an ISO instant falls on — injected, so this file never reads a clock. */
   dayOf: (iso: string) => string;
+  /** Owned leads by thread id (GET /api/conversations/owners), and who is looking. */
+  owners?: Readonly<Record<string, { id: string }>>;
+  me?: string | null;
 }
 
 export function matchesView(c: Conversation, v: ViewFilter, ctx: ViewContext): boolean {
@@ -257,6 +262,8 @@ export function matchesView(c: Conversation, v: ViewFilter, ctx: ViewContext): b
     return false;
   }
   if (v.show === "waiting" && c.lastMessage.direction !== "out") return false;
+  if (v.show === "mine" && !(ctx.me && ctx.owners?.[c.id]?.id === ctx.me)) return false;
+  if (v.show === "unassigned" && ctx.owners?.[c.id]) return false;
   if (v.from !== "" || v.to !== "") {
     // A range typed backwards is still a range.
     const [lo, hi] = v.from !== "" && v.to !== "" && v.from > v.to ? [v.to, v.from] : [v.from, v.to];

@@ -481,6 +481,8 @@ export async function recordWhatsAppSent(input: {
   text: string;
   at: string;
   staffName: string;
+  /** Who pressed Send (the CRM staff id). */
+  staffId?: string | null;
   /** The file that went with it, already kept in our bucket. */
   attachment?: StoredAttachment;
   /** Sent from the sales engine ("sales-suggestion:…" or "sales-autoreply:…"). */
@@ -608,4 +610,35 @@ function deliveryRecord(row: Record<string, unknown>): DeliveryRecord {
     eventCount: typeof row.event_count === "number" ? row.event_count : 0,
     storedCount: typeof row.stored_count === "number" ? row.stored_count : 0,
   };
+}
+
+/**
+ * WHEN a reply went on Instagram or Facebook and who sent it — never its words (migration 022). Meta keeps
+ * those chats, not us; this row is what lets response times exist for every channel. Best effort.
+ */
+export async function recordStaffTurn(input: { accountId: string; peerExternalId: string; metaConversationId: string; externalMessageId: string | null; staffId: string | null; at: string }): Promise<void> {
+  const sb = client();
+  if (!sb) return;
+  try {
+    const conversationId = await ensureConversation(input.accountId, input.peerExternalId, input.metaConversationId);
+    if (!conversationId) return;
+    const account = (await listAccounts()).find((a) => a.id === input.accountId);
+    const known = input.externalMessageId && !/-unknown-/.test(input.externalMessageId) ? input.externalMessageId : `local:${crypto.randomUUID()}`;
+    await sb.from("channel_turns").upsert(
+      {
+        conversation_id: conversationId,
+        account_id: input.accountId,
+        channel: account?.channel ?? "instagram",
+        direction: "out",
+        author: "staff",
+        staff_id: input.staffId && /^[0-9a-f-]{36}$/i.test(input.staffId) ? input.staffId : null,
+        external_message_id: known.slice(0, 200),
+        at: input.at,
+        source: "send",
+      },
+      { onConflict: "account_id,external_message_id", ignoreDuplicates: true }
+    );
+  } catch {
+    // Timing only: a send that went is never reported as failed because its turn was not noted.
+  }
 }

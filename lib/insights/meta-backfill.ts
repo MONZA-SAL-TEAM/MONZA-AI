@@ -116,6 +116,11 @@ export async function runMetaBackfill(opts: { accountId: string; mode: "backfill
       // What the webhook already read live stays as it was; only what it never saw is written.
       const fresh = read.results.filter((r) => !already.has(r.signal.externalMessageId.slice(0, 200)));
       const w = await writeResults(sb, fresh, "meta_backfill");
+      // When each side spoke (migration 022), for response times — never the words. Best effort.
+      await sb.from("channel_turns").upsert(
+        turns.map((x) => ({ conversation_id: conversationId, account_id: account.id, channel: account.channel, direction: x.author === "customer" ? "in" : "out", author: x.author, staff_id: null, external_message_id: x.externalMessageId.slice(0, 200), at: x.at, source: "meta_backfill" })),
+        { onConflict: "account_id,external_message_id", ignoreDuplicates: true }
+      );
       if (w) {
         out.signals += w.signals;
         out.observations += w.observations;

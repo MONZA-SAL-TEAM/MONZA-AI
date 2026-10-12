@@ -77,6 +77,7 @@ import {
 } from "@/lib/inbox/sync";
 import { PushDialog, PushNudge, usePush } from "@/components/PushToggle";
 import { PUSH_ON_FLAG } from "@/lib/push/device";
+import OwnerChip from "@/components/OwnerChip";
 import "./inbox.css";
 
 interface Props {
@@ -743,6 +744,27 @@ export default function InboxClient(props: Props) {
     return { byBrand, byAccount, unread };
   }, [all, accounts, unreadOf]);
 
+  // Who owns which lead (Samer, 2026-10-12: "Take this lead"): read now and every minute, for the
+  // "My leads" / "Unassigned" filters and the name on each row.
+  const [owners, setOwners] = useState<{ map: Record<string, { id: string; name: string | null }>; me: string | null }>({ map: {}, me: null });
+  useEffect(() => {
+    if (!live) return;
+    let alive = true;
+    const load = () =>
+      fetch("/api/conversations/owners", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b: { ok?: boolean; me?: string; owners?: Record<string, { id: string; name: string | null }> } | null) => {
+          if (alive && b?.ok && b.owners) setOwners({ map: b.owners, me: b.me ?? null });
+        })
+        .catch(() => undefined);
+    void load();
+    const t = window.setInterval(load, 60_000);
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
+  }, [live]);
+
   const channels = useMemo(() => {
     const present = new Set(all.map((c) => c.channel as string));
     for (const a of accounts) present.add(a.channel);
@@ -756,8 +778,10 @@ export default function InboxClient(props: Props) {
         seen,
         baselineAt: live ? baselineAt : "",
         dayOf: localDay,
+        owners: owners.map,
+        me: owners.me,
       }),
-    [all, view, accounts, seen, baselineAt, live]
+    [all, view, accounts, seen, baselineAt, live, owners]
   );
 
   useEffect(() => setRenderCount(RENDER_STEP), [view]);
@@ -1646,6 +1670,19 @@ export default function InboxClient(props: Props) {
                   >
                     <Icon d={I.phone} />
                   </a>
+                )}
+                {live && (
+                  <OwnerChip
+                    threadId={open.id}
+                    onChange={(o) =>
+                      setOwners((prev) => {
+                        const map = { ...prev.map };
+                        if (o) map[open.id] = o;
+                        else delete map[open.id];
+                        return { ...prev, map };
+                      })
+                    }
+                  />
                 )}
                 <button
                   type="button"

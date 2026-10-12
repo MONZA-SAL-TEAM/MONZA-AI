@@ -746,6 +746,24 @@ about our clients." Until then the engine read every message and forgot it.
   owner/managers). Nightly: `GET /api/insights/refresh` (vercel.json `0 2 * * *`, CRON_SECRET), 52 s shared
   across WhatsApp-on-an-old-reader and the IG/FB accounts, rotating which goes first. **The Instagram-login
   keys (VOYAH, MHERO) expire ~11–13 Nov 2026**: run the history read before then, or regenerate them first.
+- **Lead ownership (Phase 4, migration 022 APPLIED 2026-10-12): "Take this lead".** Rules in
+  `lib/leads/ownership.ts`: `sales`, `manage_team` and the owner take an UNOWNED lead and release their own;
+  only `manage_team` / owner assign, reassign or release someone else's. Taking an owned lead is a 409 naming
+  the owner (a manager reassigns instead). The write (`ownership-server.ts changeOwner`) is ONE conditional
+  UPDATE (`.is("assigned_to", null)` / `.eq("assigned_to", <who we read>)`), so two people pressing Take at
+  once → one wins; every change writes `conversation_owner_events`. An assignee must be on the CRM's
+  assignable list (`profiles`, active, sales/manage_team/owner, read AS the manager) — the browser cannot name
+  anyone. An Instagram/Facebook thread gets its conversation row via Meta's thread id, or the customer's id
+  asked of Meta (`threadPeerId` → `ensureConversation`). Inbox: `components/OwnerChip.tsx` in the chat header,
+  "My leads" / "Unassigned" filters (`lib/inbox/sync.ts`, owners from `GET /api/conversations/owners`).
+- **Response times (`/insights/team`, `lib/insights/team.ts` pure).** From WHEN each side spoke, never the
+  words: WhatsApp from `channel_messages` (now with `staff_id` on sends), Instagram/Facebook from
+  `channel_turns` (written on every MONZA AI send — `recordStaffTurn` — and by the history read). A burst =
+  customer messages in a row; its response = the first PERSON's message after it; bot replies counted apart.
+  Business minutes = showroom hours (Mon–Fri 8–18, Sat 8–14, closed Sunday). Phone-app replies show as "not
+  attributed". Plus chats waiting on us, alerts open over 2 h, and per owner: leads, waiting, no follow-up in
+  3 days. Pilot test phones are excluded. Replies typed inside Instagram / Business Suite are invisible (echoes
+  are not subscribed, rule 46), so Instagram/Facebook times cover MONZA AI sends and the nightly history only.
 - Labels are kept LONGER than the 12-month chat retention (Samer, 2026-10-12): they hold no words. Deleting
   a person still removes them (every table cascades from `channel_conversations`).
 - Plan for Phases 2–5 (profile facts, client profile + CRM car, IG/FB backfill + nightly, lead ownership,
