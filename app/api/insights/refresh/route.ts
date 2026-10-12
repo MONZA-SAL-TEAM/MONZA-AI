@@ -38,7 +38,8 @@ export async function GET(request: Request): Promise<NextResponse> {
   const { data: stale } = await sb.from("sales_signals").select("id").eq("channel", "whatsapp").lt("reader_version", READER_VERSION).limit(1);
   if (Array.isArray(stale) && stale.length > 0) {
     const { data: run } = await sb.from("insight_backfill_runs").select("state").eq("id", "wa:rebuild").maybeSingle();
-    const r = await rebuildWhatsApp(15_000, (run as { state?: string } | null)?.state === "done");
+    // A reader change re-labels everything: WhatsApp gets most of the night's minute until it is done.
+    const r = await rebuildWhatsApp(32_000, (run as { state?: string } | null)?.state === "done");
     whatsapp = r ? { conversations: r.conversations, done: r.done } : null;
   }
 

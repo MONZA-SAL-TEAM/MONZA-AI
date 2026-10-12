@@ -775,6 +775,36 @@ about our clients." Until then the engine read every message and forgot it.
   The Lab reads `insight_people` (one row per person, labels only — NO name, NO phone; those are joined at
   read time from leads / chats so they keep the 12-month rule), rebuilt by `refreshInsightPeople`
   nightly, after a finished WhatsApp or Meta history read, and on "Rebuild the summaries now". CSV defused.
+- **Second stage (Samer's master prompt, 2026-10-12).** Audit findings that shaped it:
+  - The "0 everywhere" dashboards were simply before the push and the WhatsApp history read (both 2026-10-12).
+    Live labelling works: 2,425 of 2,427 stored customer messages were labelled; the 3 others are test phones.
+  - **662 of ~900 leads came from Click-to-WhatsApp ads** (557 "Voyah COURAGE"), and the reader ignored the ad.
+    It now passes the ad headline to the engine (`SignalMeta.adHeadline`, `adHeadlineOf` in signal-server.ts);
+    every signal records `ad_model` (024). **Named vs context is decided by the engine's model SOURCE alone**
+    (`text`/`payload`/`choice` = named; `state`/`ad`/`referral` = `context_models`) — the engine also lists the
+    ad's car among `u.models`, which once made "Can I get more info on this?" count as naming the Courage
+    (regression test in tests/insights-recognition.test.ts). READER_VERSION 5.
+  - Instagram has never delivered a webhook (rule 43); Messenger's 11 stored messages predate labelling and can
+    only be labelled by the Meta history read. Dry runs on 2026-10-12: ig-voyah 50+ threads, fb-voyah 62 (all),
+    ig-mhero 50+, fb-mhero 34 (all), ig-monza 50+; Meta answers 25 threads × 20 messages too slowly, so pages
+    are 10 threads and "too slow" is a pause, not a block.
+  - **Vercel fails a commit whose title contains "&"** ("Git information retrieval failed", build never starts).
+  - The staff sign-in lasts an hour: a long history read in the browser stops with 401 — sign in and continue
+    (the cursor is kept); the nightly cron also continues it (WhatsApp first while any label is on an old reader).
+- **New facts** (migration 024): `mention` (WHICH dictionary word named a car — a key from
+  `lib/wasales/aliases.ts`, never the customer's text; "fuzzy" for a tolerated misspelling), `category` (electric /
+  SUV / MPV… with `rule` category.only when no model), `unresolved` (a car name that could be an ordinary word —
+  never interest), colour stance `alternative` ("grey is fine") and value `which` ("what colours do you have?",
+  an availability question, never a preference). Aliases added: mengshi 917/817, m-hero 1/2, voyah mpv.
+- **Pages:** `/insights` Executive overview (17 defined figures vs the previous equal period, custom range,
+  filters = the Lab's question, demand vs CRM stock, funnel); `/insights/customers` (10-stage funnel, each stage
+  defined and sourced: their words / Monza AI / the CRM; CRM outcomes read as the viewer by mobile —
+  `readCrmOutcomes`, `orderOutcome`; no order = unknown, never lost); `/insights/clients` (the former overview);
+  `/insights/language` (how customers name each car); `/insights/connections` (live / history / labels per
+  account, counts from `insight_pipeline_counts` (025), keys only as set/not set); `/insights/review` (confirm /
+  correct / remove uncertain facts → `insight_overrides`, applied wherever facts are read); Lab v2 (any-of values,
+  `testDriveBooked=0`, `outcome`, group-by, compare with a saved study, `insight_saved_queries`); Team hand-offs
+  and per-channel replies; Conversations and Channels broken down by brand / channel / statement kind.
 - Labels are kept LONGER than the 12-month chat retention (Samer, 2026-10-12): they hold no words. Deleting
   a person still removes them (every table cascades from `channel_conversations`).
 - Plan for Phases 2–5 (profile facts, client profile + CRM car, IG/FB backfill + nightly, lead ownership,
