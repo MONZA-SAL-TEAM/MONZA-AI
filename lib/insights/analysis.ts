@@ -243,6 +243,13 @@ export interface ConversationsView {
   needs: LinkedCount[];
   byModel: { code: string; name: string; questions: LinkedCount[] }[];
   rising: Rising[];
+  byBrand: { key: string; label: string; questions: LinkedCount[] }[];
+  byChannel: { key: string; label: string; questions: LinkedCount[] }[];
+  /** People who made each kind of statement: a question, a concern, a preference, a refusal, a wish to buy. */
+  statements: LinkedCount[];
+  /** Questions among qualified leads vs everyone else (people). */
+  qualifiedTopics: LinkedCount[];
+  otherTopics: LinkedCount[];
 }
 
 /** Topics asked by people; rising = asked by at least `minPeople` in the last 30 days and more than in the 30 before. */
@@ -270,8 +277,26 @@ export function conversationsView(people: readonly PersonFacts[], signals: reado
       .map((m) => ({ code: m.code, name: m.displayName, questions: tally(people.filter((p) => p.models.includes(m.code) || p.contextModels.includes(m.code)), (p) => p.topics, topicLabel, (k) => ({ anyModel: m.code, topic: k })).slice(0, 6) }))
       .filter((r) => r.questions.length > 0),
     rising,
+    byBrand: ["voyah", "mhero", "monza"]
+      .map((b) => ({ key: b, label: b === "voyah" ? "VOYAH" : b === "mhero" ? "MHERO" : "Monza S.A.L.", questions: tally(people.filter((p) => p.brands.includes(b)), (p) => p.topics, topicLabel, (k) => ({ brand: b, topic: k })).slice(0, 8) }))
+      .filter((r) => r.questions.length > 0),
+    byChannel: ["whatsapp", "instagram", "facebook"]
+      .map((c) => ({ key: c, label: c === "whatsapp" ? "WhatsApp" : c === "instagram" ? "Instagram" : "Messenger", questions: tally(people.filter((p) => p.channels.includes(c)), (p) => p.topics, topicLabel, (k) => ({ channel: c, topic: k })).slice(0, 8) }))
+      .filter((r) => r.questions.length > 0),
+    statements: [
+      { key: "question", label: "Asked a question", n: people.filter((p) => p.topics.length > 0).length, q: {} },
+      { key: "concern", label: "Raised a concern", n: people.filter((p) => p.concerns.length > 0).length, q: {} },
+      { key: "preference", label: "Stated a preference (car, colour, budget…)", n: people.filter((p) => p.coloursWanted.length > 0 || p.budgetBand !== null || p.categories.length > 0 || p.timeline !== null).length, q: {} },
+      { key: "refusal", label: "Refused a car or a colour", n: people.filter((p) => p.rejectedModels.length > 0 || p.coloursRejected.length > 0).length, q: {} },
+      { key: "buying", label: "Said they want to buy", n: people.filter((p) => p.stage === "buying").length, q: { stage: "buying" } },
+    ],
+    qualifiedTopics: tally(people.filter(isQualified), (p) => p.topics, topicLabel, (k) => ({ topic: k, stage: "pricing,test_drive,buying" })).slice(0, 10),
+    otherTopics: tally(people.filter((p) => !isQualified(p)), (p) => p.topics, topicLabel, (k) => ({ topic: k, stage: "asking,interested,wrote" })).slice(0, 10),
   };
 }
+
+const QUALIFYING_TOPICS = new Set(["PRICE", "FINANCING", "TEST_DRIVE", "AVAILABILITY", "BUYING_INTENT", "TRADE_IN", "VISIT", "DISCOUNT"]);
+const isQualified = (p: PersonFacts) => (p.models.length > 0 || p.contextModels.length > 0) && p.topics.some((t) => QUALIFYING_TOPICS.has(t));
 
 /* ── Channels ─────────────────────────────────────────────────────────── */
 

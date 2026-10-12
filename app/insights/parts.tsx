@@ -104,3 +104,25 @@ export function parseDays(raw: unknown, fallback = 90): number {
   const n = Number(typeof raw === "string" ? raw : fallback);
   return [30, 90, 365, 0].includes(n) ? n : fallback;
 }
+
+/** Bars that are NOT links — for counts the Research Lab cannot list exactly yet. */
+export function PlainBars({ items, title, of }: { items: readonly { key: string; label: string; n: number }[]; title: string; of?: number }) {
+  if (items.length === 0) return <p className="ins-empty">Nobody yet.</p>;
+  const max = Math.max(1, ...items.map((i) => i.n));
+  return (
+    <ul className="ins-bars" aria-label={title}>
+      {items.map((i) => (
+        <li key={i.key} title={`${i.label}: ${i.n}`}>
+          <span className="ins-bar-label">{i.label}</span>
+          <span className="ins-bar-track">
+            <span className="ins-bar-fill" style={{ width: `${Math.max(2, (i.n / max) * 100)}%` }} />
+          </span>
+          <span className="ins-bar-value">
+            {i.n}
+            {of ? <span className="ins-known"> {Math.round((i.n / of) * 100)}%</span> : null}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}

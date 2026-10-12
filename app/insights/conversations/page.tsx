@@ -5,7 +5,7 @@ import { conversationsView } from "@/lib/insights/analysis";
 import { readAnalysis } from "@/lib/insights/analysis-server";
 import { labHref } from "@/lib/insights/query";
 import NotAllowed from "../NotAllowed";
-import { InsightsNav, LinkedBars, PeriodChips, parseDays } from "../parts";
+import { InsightsNav, LinkedBars, PeriodChips, PlainBars, parseDays } from "../parts";
 import "../../board.css";
 import "../insights.css";
 
@@ -64,6 +64,32 @@ export default async function ConversationsPage({ searchParams }: { searchParams
               <h2 className="ins-h2">Looking for</h2>
               <LinkedBars items={v.needs} title="Needs" />
             </div>
+          </section>
+          <section className="ins-grid">
+            <div className="ins-panel">
+              <h2 className="ins-h2">What people said</h2>
+              <PlainBars items={v.statements} title="Kinds of statement" of={read.state === "ok" ? read.people.length : undefined} />
+              <p className="ins-known">A person can be in several rows. A concern is not a refusal; a refusal is not a lost sale.</p>
+            </div>
+            <div className="ins-panel">
+              <h2 className="ins-h2">Asked by qualified leads</h2>
+              <LinkedBars items={v.qualifiedTopics} title="Qualified" />
+              <h2 className="ins-h2">Asked by everyone else</h2>
+              <LinkedBars items={v.otherTopics} title="Others" />
+              <p className="ins-known">Side by side, not cause and effect.</p>
+            </div>
+            {v.byBrand.map((b) => (
+              <div key={b.key} className="ins-panel">
+                <h2 className="ins-h2">{b.label}</h2>
+                <LinkedBars items={b.questions} title={`${b.label} questions`} />
+              </div>
+            ))}
+            {v.byChannel.map((c) => (
+              <div key={c.key} className="ins-panel">
+                <h2 className="ins-h2">On {c.label}</h2>
+                <LinkedBars items={c.questions} title={`${c.label} questions`} />
+              </div>
+            ))}
           </section>
           <section className="section-head">
             <h2 className="ins-h2">By car</h2>
