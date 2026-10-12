@@ -57,6 +57,7 @@
 .ins-car-stats dd.is-hot { color: var(--urgent); }
 .ins-car-line, .ins-client-line { margin: 0; font-size: var(--t-sm); color: var(--ink-2); line-height: 1.5; }
 .ins-car-line .cap, .ins-client-line .cap { margin-right: 4px; }
+.ins-known { color: var(--ink-3); font-size: var(--t-xs); }
 .ins-client-line .cap + .cap, .ins-client-line .cap:not(:first-child) { margin-left: 8px; }
 
 /* The small per-week bars on a car card. */

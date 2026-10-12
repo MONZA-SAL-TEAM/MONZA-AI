@@ -689,9 +689,35 @@ about our clients." Until then the engine read every message and forgot it.
   is read in memory at the webhook (`lib/channels/store.ts`, right after `noteInboundLead`) and only
   the labels land. Idempotent on `(account_id, external_message_id)`. RLS on, no policies.
 - `lib/wasales/signal.ts` is pure (`signalFromDecision`, `stageOf`, `TOPIC_LABEL`); the writer is
-  `signal-server.ts` (`recordSignal`, best effort — never fails a delivery; `rebuildSignals` reads the
-  stored WhatsApp history through the engine, `POST /api/insights/rebuild`, staff only, idempotent).
-  The reading is FRESH per message (no conversation memory), the same on every channel.
+  `signal-server.ts` (`recordSignal`, best effort — never fails a delivery; `rebuildWhatsApp` replays the
+  stored WhatsApp history, resumable in 45 s rounds with its cursor in `insight_backfill_runs`
+  (`wa:rebuild`), `POST /api/insights/rebuild[?restart=1]`, idempotent).
+- **Who may see it (Phase 0):** the owner and `manage_team` / `view_reports` only (`lib/insights/access.ts`
+  `INSIGHTS_CAPS`, `requireInsightsAccess` on every `app/insights/**/page.tsx`, `requireRealStaff(request,
+  INSIGHTS_CAPS)` or `isCronAuthorized` on every `app/api/insights/**` route — a test scans both). The demo
+  identity is refused whenever the database is reachable. The side rail hides the link
+  (`/api/me/capabilities`); the page check is the real gate. **The five pilot test phones are never clients**
+  (`isTestChat` in `recordSignal`, `isPilotChat` in the rebuild).
+- **The READER (Phase 1, migration 021 APPLIED 2026-10-12).** A conversation is read with memory, the way a
+  person reads it (`lib/wasales/reader.ts`): `readNext` threads the engine state message after message, as a
+  LISTENER (`listenerState` keeps the customer's cars, ad, trade-in; it clears what the silent bot would have
+  asked, so a later "yes" / "2" / "white" is never an answer to a question nobody asked). A car a STAFF
+  message names is context (`noteStaffWords`), never the customer's interest. The 72 h TTL applies to the
+  observer too. State per conversation in `insight_reader_state` (labels only). `READER_VERSION` is stored on
+  every row: bump it when a rule changes and re-run the rebuild.
+- **`sales_observations`: typed facts, never words** (`lib/wasales/observe.ts`, lexicon in
+  `observe-lexicon.ts`). `kind` model / colour (later budget, timeline, purpose, city, competitor, trade_in,
+  financing, need, concern); `stance` named / compared / wants / asked / rejects / no_preference;
+  `part` exterior / interior; `binding` how a colour found its car (same_clause → only_car_named →
+  conversation → ad → none); `detail` the workbook's official colour name; `rule` which rule fired. `value` is
+  a CLOSED vocabulary checked by the database (`^[a-z0-9_]{1,40}$`), so no customer word can land. "I don't
+  want black" / "kel shi ella el abyad" / "أي لون غير الأبيض" are REJECTS, never counted as wishes.
+  Replaced per signal atomically by `insight_replace_observations` (service role only). The car card shows
+  exterior shares OVER PEOPLE WITH A KNOWN PREFERENCE (`colourKnown`), interior, and "Not wanted".
+- Labels are kept LONGER than the 12-month chat retention (Samer, 2026-10-12): they hold no words. Deleting
+  a person still removes them (every table cascades from `channel_conversations`).
+- Plan for Phases 2–5 (profile facts, client profile + CRM car, IG/FB backfill + nightly, lead ownership,
+  analysis pages): `C:\Users\Samer\.claude\plans\temporal-coalescing-aho.md`.
 - `/insights` (`lib/insights/insights.ts` pure, `insights-server.ts` the read): totals, messages and
   people per week, questions, stages, channels, languages; per car — people (counted ONCE however many
   messages), price / test drive / installments / availability / wants-to-buy, colours asked for,

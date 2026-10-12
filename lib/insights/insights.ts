@@ -30,8 +30,23 @@ export interface SignalRow {
   silenced: string[];
 }
 
+/** One typed fact (sales_observations): a colour wanted / asked / rejected, tied to a car. */
+export interface ObservationRow {
+  conversation_id: string;
+  at: string;
+  kind: string;
+  stance: string | null;
+  model: string | null;
+  binding: string | null;
+  part: string | null;
+  value: string;
+  detail: string | null;
+}
+
 export interface InsightRows {
   signals: SignalRow[];
+  /** Facts (021). Optional: absent before the reader ran, and then colours come from nothing. */
+  observations?: ObservationRow[];
   conversations: { id: string; account_id: string; brand: string; peer_external_id: string; peer_display: string | null; created_at: string | null }[];
   leads: { id: string; display_name: string | null; phone: string | null }[];
   leadConversations: { lead_id: string; conversation_id: string }[];
@@ -66,7 +81,14 @@ export interface CarInsight {
   financing: number;
   buying: number;
   stock: number;
+  /** Exterior colours people WANT or ASKED about — distinct people per colour. */
   colours: Count[];
+  /** Interior colours. */
+  interior: Count[];
+  /** Colours people said they do NOT want. */
+  rejected: Count[];
+  /** People with a known colour wish for this car (the denominator for a share). */
+  colourKnown: number;
   questions: Count[];
   /** People who named it, per week, oldest first (WEEKS weeks). */
   weekly: number[];
@@ -83,6 +105,10 @@ export interface ClientInsight {
   stageLabel: string;
   topics: string[];
   colours: string[];
+  /** Colours they said they don't want. */
+  rejectedColours: string[];
+  /** Cars they said they don't want. */
+  rejectedCars: string[];
   messages: number;
   language: string;
   firstAt: string;
@@ -177,13 +203,15 @@ export function buildInsights(rows: InsightRows, f: InsightFilter): Insights {
     buying: 0,
     stock: 0,
     colours: [],
+    interior: [],
+    rejected: [],
+    colourKnown: 0,
     questions: [],
     weekly: Array.from({ length: WEEKS }, () => 0),
   }));
   const carByCode = new Map(cars.map((c) => [c.code, c]));
   const carPeople = new Map<string, Set<string>>();
   const carWeekPeople = new Map<string, Set<string>>();
-  const carColours = new Map<string, Map<string, number>>();
   const carQuestions = new Map<string, Map<string, number>>();
   for (const s of signals) {
     const key = personKey(s.conversation_id);
@@ -197,15 +225,41 @@ export function buildInsights(rows: InsightRows, f: InsightFilter): Insights {
       if (s.intents.includes("FINANCING")) car.financing++;
       if (s.intents.includes("BUYING_INTENT")) car.buying++;
       if (s.intents.includes("AVAILABILITY")) car.stock++;
-      if (s.colour) bump(carColours.get(code) ?? carColours.set(code, new Map()).get(code)!, s.colour);
       for (const i of s.intents) bump(carQuestions.get(code) ?? carQuestions.set(code, new Map()).get(code)!, i);
       const w = weekIndex(s.at, nowMs);
       if (w >= 0 && w < WEEKS) (carWeekPeople.get(`${code}:${w}`) ?? carWeekPeople.set(`${code}:${w}`, new Set()).get(`${code}:${w}`)!).add(key);
     }
   }
+  // Colours: distinct PEOPLE per car and colour, from the facts — wishes and questions apart from refusals.
+  const colourPeople = new Map<string, Set<string>>();
+  const knownPeople = new Map<string, Set<string>>();
+  const signalConvs = new Set(signals.map((s) => s.conversation_id));
+  for (const o of rows.observations ?? []) {
+    if (o.kind !== "colour" || !o.model || !signalConvs.has(o.conversation_id)) continue;
+    const t = Date.parse(o.at);
+    if (!Number.isFinite(t) || t < sinceMs || t > nowMs + 86_400_000) continue;
+    if (o.value === "any") continue;
+    const key = personKey(o.conversation_id);
+    const bucket = o.stance === "rejects" ? "rejected" : o.part === "interior" ? "interior" : "exterior";
+    const label = o.detail ?? o.value;
+    const k2 = `${o.model}|${bucket}|${label}`;
+    (colourPeople.get(k2) ?? colourPeople.set(k2, new Set()).get(k2)!).add(key);
+    if (bucket === "exterior") (knownPeople.get(o.model) ?? knownPeople.set(o.model, new Set()).get(o.model)!).add(key);
+  }
+  const colourCounts = (code: string, bucket: string): Count[] =>
+    [...colourPeople.entries()]
+      .filter(([k2]) => k2.startsWith(`${code}|${bucket}|`))
+      .map(([k2, set]) => {
+        const label = k2.split("|")[2];
+        return { key: label, label: label.charAt(0).toUpperCase() + label.slice(1), n: set.size };
+      })
+      .sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
   for (const car of cars) {
     car.people = carPeople.get(car.code)?.size ?? 0;
-    car.colours = counts(carColours.get(car.code) ?? new Map(), (k) => k).slice(0, 6);
+    car.colours = colourCounts(car.code, "exterior").slice(0, 8);
+    car.interior = colourCounts(car.code, "interior").slice(0, 6);
+    car.rejected = colourCounts(car.code, "rejected").slice(0, 6);
+    car.colourKnown = knownPeople.get(car.code)?.size ?? 0;
     car.questions = counts(carQuestions.get(car.code) ?? new Map(), topicLabel).slice(0, 8);
     for (let w = 0; w < WEEKS; w++) car.weekly[w] = carWeekPeople.get(`${car.code}:${w}`)?.size ?? 0;
   }
@@ -252,7 +306,13 @@ export function buildInsights(rows: InsightRows, f: InsightFilter): Insights {
     const carCodes = [...new Set(sorted.flatMap((s) => s.models))];
     const stage = furthestStage(sorted.map((s) => stageOf(s.intents, s.models)));
     const topicsOf = [...new Set(sorted.flatMap((s) => s.intents))].map(topicLabel);
-    const coloursOf = [...new Set(sorted.map((s) => s.colour).filter((c): c is string => Boolean(c)))];
+    const convIds = new Set(p.convs);
+    const facts = (rows.observations ?? []).filter((o) => convIds.has(o.conversation_id));
+    const nameOfCar = (c: string | null) => (c ? (modelByCode(MONZA_KNOWLEDGE, c)?.displayName ?? c) : "");
+    const colourLabel = (o: ObservationRow) => `${o.part === "interior" ? "interior " : ""}${o.detail ?? o.value}${o.model ? ` (${nameOfCar(o.model)})` : ""}`;
+    const coloursOf = [...new Set(facts.filter((o) => o.kind === "colour" && o.stance !== "rejects" && o.value !== "any").map(colourLabel))];
+    const rejectedColours = [...new Set(facts.filter((o) => o.kind === "colour" && o.stance === "rejects").map(colourLabel))];
+    const rejectedCars = [...new Set(facts.filter((o) => o.kind === "model" && o.stance === "rejects").map((o) => nameOfCar(o.model)))];
     const lang = counts(sorted.reduce((m, s) => (bump(m, s.language), m), new Map<string, number>()), (k) => k)[0]?.key ?? "unknown";
     const waitingKind = [...p.convs].map((c) => openAlertByConv.get(c) ?? null).find((k) => k) ?? null;
     if (stage === "buying") hot++;
@@ -270,6 +330,8 @@ export function buildInsights(rows: InsightRows, f: InsightFilter): Insights {
       stageLabel: STAGE_LABEL[stage],
       topics: topicsOf,
       colours: coloursOf,
+      rejectedColours,
+      rejectedCars,
       messages: sorted.length,
       language: LANGUAGE_LABEL[lang] ?? lang,
       firstAt: first.at,

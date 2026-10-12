@@ -145,6 +145,15 @@ function negated(tokens: readonly string[], start: number, otherStarts: readonly
   return false;
 }
 
+/**
+ * The same negation test, for the insights observer (lib/wasales/observe.ts): is the word at `start`
+ * negated, given where the other things in the clause start? Exported so the bot and the counting
+ * agree on what "no" means — never duplicated.
+ */
+export function negatedAt(tokens: readonly string[], start: number, otherStarts: readonly number[]): boolean {
+  return negated(tokens, start, otherStarts);
+}
+
 /** The token-aware pass: what each trigger word is attached to. Returns the intents that survive, and why the others did not. */
 function attach(read: readonly Intent[], words: ReadWords, dropped: Classification["dropped"]): { intents: Intent[]; specDetail: string | null } {
   let intents = [...read];

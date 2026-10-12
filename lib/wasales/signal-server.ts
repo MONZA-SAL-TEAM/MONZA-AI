@@ -1,26 +1,30 @@
 /**
- * Writing signals (lib/wasales/signal.ts) — SERVER ONLY.
+ * Writing what the insights reader understood (lib/wasales/reader.ts) — SERVER ONLY.
  *
  * `recordSignal` runs at the webhook, for every channel, with the message's words in hand and only
- * the labels written: the words are read in memory and dropped, exactly as lib/leads/store.ts reads a
- * car name. Best effort, always: a failure here can never fail a delivery (rule 16).
+ * labels written: the words are read in memory and dropped, exactly as lib/leads/store.ts reads a car
+ * name. It reads the message IN ITS CONVERSATION — the reader's memory per conversation is kept in
+ * `insight_reader_state` (labels only). Best effort, always: a failure here never fails a delivery
+ * (rule 16).
  *
- * `rebuildSignals` reads the STORED WhatsApp history (channel_messages keeps WhatsApp for 12 months;
- * Instagram and Facebook are never stored) and fills the table for the past — idempotent on the
- * message id, so it can be run again.
+ * `rebuildWhatsApp` replays the STORED WhatsApp history (channel_messages keeps WhatsApp for 12 months;
+ * Instagram and Facebook are never stored) conversation by conversation, resumable within a time
+ * budget, idempotent on the message id.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { channelDb } from "@/lib/channels/store";
 import { folderMedia, loadCatalog } from "@/lib/wasales/catalog";
-import { freshState } from "@/lib/wasales/context";
-import { decide, type EngineDeps } from "@/lib/wasales/engine";
-import { MONZA_KNOWLEDGE, salesBrandOf } from "@/lib/wasales/knowledge";
-import { signalFromDecision, type Signal, type SignalMeta } from "@/lib/wasales/signal";
+import { freshState, parseState, type SearchEngineState } from "@/lib/wasales/context";
+import type { EngineDeps } from "@/lib/wasales/engine";
+import { MONZA_KNOWLEDGE } from "@/lib/wasales/knowledge";
+import type { Observation } from "@/lib/wasales/observe";
+import { READER_VERSION, readConversation, readNext, type ReadResult, type Turn } from "@/lib/wasales/reader";
+import type { SignalMeta } from "@/lib/wasales/signal";
 import { isPilotChat } from "@/lib/wasales/autoreply-pilot";
 
 /** Samer's test phones writing to try the bot: never counted as clients. */
-function isTestChat(meta: SignalMeta): boolean {
+function isTestChat(meta: { accountId: string; channel: string; peerExternalId?: string }): boolean {
   return Boolean(meta.peerExternalId) && isPilotChat({ accountId: meta.accountId, channel: meta.channel, peerExternalId: meta.peerExternalId ?? "" });
 }
 
@@ -28,15 +32,10 @@ function deps(): EngineDeps {
   return { knowledge: MONZA_KNOWLEDGE, catalog: loadCatalog(), media: folderMedia, ttlHours: 72 };
 }
 
-/** The labels for one message, read fresh (no conversation memory: the same reading on every channel). */
-export function readSignal(text: string, meta: SignalMeta): Signal | null {
-  const brand = salesBrandOf(meta.brand);
-  if (!brand) return null;
-  const d = decide({ text, hasMedia: meta.hasMedia, brand, channel: meta.channel as "whatsapp" | "instagram" | "facebook", conversationIsNew: true, now: meta.at }, freshState(), deps());
-  return signalFromDecision(d, meta);
-}
+export type Source = "webhook" | "whatsapp_rebuild" | "meta_backfill";
 
-function rowOf(s: Signal) {
+function signalRow(r: ReadResult, source: Source) {
+  const s = r.signal;
   return {
     account_id: s.accountId,
     brand: s.brand,
@@ -54,21 +53,97 @@ function rowOf(s: Signal) {
     alert_tags: s.alertTags,
     offered: s.offered,
     silenced: s.silenced,
+    reader_version: s.readerVersion,
+    source,
+    context_models: s.contextModels,
+    needs: s.needs,
+    owner_support: s.ownerSupport,
+    ended: s.ended,
   };
 }
 
-/** Record one inbound message's labels. Never throws. */
+function observationRow(o: Observation, signalId: string, s: ReadResult["signal"]) {
+  return {
+    signal_id: signalId,
+    conversation_id: s.conversationId,
+    account_id: s.accountId,
+    brand: s.brand,
+    channel: s.channel,
+    at: s.at,
+    external_message_id: s.externalMessageId.slice(0, 200),
+    kind: o.kind,
+    stance: o.stance,
+    model: o.model,
+    binding: o.binding,
+    part: o.part,
+    value: o.value,
+    detail: o.detail,
+    amount_min: o.amountMin,
+    amount_max: o.amountMax,
+    currency: o.currency,
+    amount_kind: o.amountKind,
+    months: o.months,
+    rule: o.rule,
+    reader_version: READER_VERSION,
+  };
+}
+
+/** Write a batch of read messages (one conversation): the signals, then all their facts at once. */
+export async function writeResults(sb: SupabaseClient, results: readonly ReadResult[], source: Source): Promise<{ signals: number; observations: number } | null> {
+  if (results.length === 0) return { signals: 0, observations: 0 };
+  const { data, error } = await sb
+    .from("sales_signals")
+    .upsert(results.map((r) => signalRow(r, source)), { onConflict: "account_id,external_message_id" })
+    .select("id, external_message_id");
+  if (error || !Array.isArray(data)) {
+    console.error(`[signals] not written (${(error as { code?: string } | null)?.code ?? "?"}) — are migrations 020/021 applied?`);
+    return null;
+  }
+  const idOf = new Map((data as { id: string; external_message_id: string }[]).map((r) => [r.external_message_id, r.id]));
+  const ids: string[] = [];
+  const rows: ReturnType<typeof observationRow>[] = [];
+  for (const r of results) {
+    const id = idOf.get(r.signal.externalMessageId.slice(0, 200));
+    if (!id) continue;
+    ids.push(id);
+    for (const o of r.observations) rows.push(observationRow(o, id, r.signal));
+  }
+  const { error: rpcError } = await sb.rpc("insight_replace_observations", { p_signal_ids: ids, p_rows: rows });
+  if (rpcError) {
+    console.error(`[signals] facts not written (${(rpcError as { code?: string }).code ?? "?"})`);
+    return { signals: ids.length, observations: 0 };
+  }
+  return { signals: ids.length, observations: rows.length };
+}
+
+async function loadState(sb: SupabaseClient, conversationId: string): Promise<{ state: SearchEngineState; lastAt: string | null; version: number }> {
+  const { data } = await sb.from("insight_reader_state").select("state, last_at, reader_version").eq("conversation_id", conversationId).maybeSingle();
+  const row = data as { state?: unknown; last_at?: string; reader_version?: number } | null;
+  if (!row) return { state: freshState(), lastAt: null, version: READER_VERSION };
+  return { state: parseState(row.state), lastAt: row.last_at ?? null, version: row.reader_version ?? 1 };
+}
+
+async function saveState(sb: SupabaseClient, meta: { conversationId: string; accountId: string; brand: string }, state: SearchEngineState, lastAt: string, lastId: string | null): Promise<void> {
+  await sb.from("insight_reader_state").upsert(
+    { conversation_id: meta.conversationId, account_id: meta.accountId, brand: meta.brand, state, last_at: lastAt, last_external_message_id: lastId, reader_version: READER_VERSION, updated_at: new Date().toISOString() },
+    { onConflict: "conversation_id" }
+  );
+}
+
+/** Record one inbound message, read in its conversation. Never throws. */
 export async function recordSignal(sb: SupabaseClient, text: string, meta: SignalMeta): Promise<boolean> {
   try {
     if (isTestChat(meta)) return false;
-    const s = readSignal(text, meta);
-    if (!s) return false;
-    const { error } = await sb.from("sales_signals").upsert(rowOf(s), { onConflict: "account_id,external_message_id" });
-    if (error) {
-      console.error(`[signals] not written (${error.code ?? "?"}) — is migration 020 applied?`);
-      return false;
+    const stored = await loadState(sb, meta.conversationId);
+    const turn: Turn = { author: "customer", text, hasMedia: meta.hasMedia, at: meta.at, externalMessageId: meta.externalMessageId };
+    const { result, state } = readNext(turn, stored.state, meta, deps());
+    if (!result) return false;
+    const written = await writeResults(sb, [result], "webhook");
+    // A message older than what was already read (a redelivery) is recorded, but the memory moves only forward.
+    if (!stored.lastAt || Date.parse(meta.at) >= Date.parse(stored.lastAt)) {
+      await saveState(sb, meta, state, meta.at, meta.externalMessageId);
     }
-    return true;
+    return written !== null;
   } catch (e) {
     console.error("[signals] failed:", e instanceof Error ? e.message : e);
     return false;
@@ -76,71 +151,82 @@ export async function recordSignal(sb: SupabaseClient, text: string, meta: Signa
 }
 
 export interface RebuildOutcome {
-  read: number;
-  written: number;
-  skipped: number;
+  done: boolean;
+  conversations: number;
+  messages: number;
+  signals: number;
+  observations: number;
 }
 
+const RUN_ID = "wa:rebuild";
+
 /**
- * Fill the table from the stored WhatsApp history (`days` back). Only messages the engine does not
- * exclude; a message already recorded is rewritten with the current reading.
+ * Replay the stored WhatsApp conversations through the reader, in conversation order, from where the
+ * last run stopped. `restart` starts again from the first conversation (after a reader change).
  */
-export async function rebuildSignals(days = 365, budgetMs = 50_000): Promise<RebuildOutcome | null> {
+export async function rebuildWhatsApp(budgetMs = 45_000, restart = false): Promise<RebuildOutcome | null> {
   const sb = channelDb();
   if (!sb) return null;
-  const since = new Date(Date.now() - days * 86_400_000).toISOString();
   const deadline = Date.now() + budgetMs;
-  const PAGE = 500;
-  // The pilot test phones' conversations, left out of the rebuild.
-  const { data: convs } = await sb.from("channel_conversations").select("id, account_id, peer_external_id");
-  const testConversations = new Set(
-    (Array.isArray(convs) ? (convs as { id: string; account_id: string; peer_external_id: string }[]) : [])
-      .filter((c) => isPilotChat({ accountId: c.account_id, channel: "whatsapp", peerExternalId: c.peer_external_id }))
-      .map((c) => c.id)
-  );
-  let read = 0;
-  let written = 0;
-  let skipped = 0;
-  for (let from = 0; from < 50_000 && Date.now() < deadline; from += PAGE) {
-    const { data, error } = await sb
-      .from("channel_messages")
-      .select("account_id, brand, conversation_id, external_message_id, body, attachments, sent_at")
-      .eq("direction", "in")
-      .gte("sent_at", since)
-      .order("sent_at", { ascending: true })
-      .range(from, from + PAGE - 1);
+  const d = deps();
+
+  const { data: accounts } = await sb.from("channel_accounts").select("id, brand").eq("channel", "whatsapp");
+  const waAccounts = Array.isArray(accounts) ? (accounts as { id: string; brand: string }[]) : [];
+  if (waAccounts.length === 0) return { done: true, conversations: 0, messages: 0, signals: 0, observations: 0 };
+
+  const { data: runRow } = await sb.from("insight_backfill_runs").select("cursor, state").eq("id", RUN_ID).maybeSingle();
+  let cursor = restart ? null : ((runRow as { cursor?: string | null } | null)?.cursor ?? null);
+  if (restart || !runRow) await sb.from("insight_backfill_runs").upsert({ id: RUN_ID, state: "running", cursor: null, started_at: new Date().toISOString(), updated_at: new Date().toISOString(), finished_at: null }, { onConflict: "id" });
+
+  const out: RebuildOutcome = { done: false, conversations: 0, messages: 0, signals: 0, observations: 0 };
+  while (Date.now() < deadline) {
+    let q = sb.from("channel_conversations").select("id, account_id, brand, peer_external_id").in("account_id", waAccounts.map((a) => a.id)).order("id", { ascending: true }).limit(25);
+    if (cursor) q = q.gt("id", cursor);
+    const { data: convs, error } = await q;
     if (error) {
-      console.error(`[signals] rebuild could not read messages (${error.code ?? "?"})`);
+      console.error(`[signals] rebuild could not list conversations (${(error as { code?: string }).code ?? "?"})`);
+      return null;
+    }
+    const list = Array.isArray(convs) ? (convs as { id: string; account_id: string; brand: string; peer_external_id: string }[]) : [];
+    if (list.length === 0) {
+      out.done = true;
       break;
     }
-    const rows = Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
-    const batch: ReturnType<typeof rowOf>[] = [];
-    for (const r of rows) {
-      read++;
-      const id = typeof r.external_message_id === "string" ? r.external_message_id : null;
-      const at = typeof r.sent_at === "string" ? r.sent_at : null;
-      if (!id || !at || typeof r.account_id !== "string" || typeof r.brand !== "string" || typeof r.conversation_id !== "string" || testConversations.has(r.conversation_id)) {
-        skipped++;
-        continue;
+    for (const c of list) {
+      if (Date.now() > deadline) break;
+      cursor = c.id;
+      if (isPilotChat({ accountId: c.account_id, channel: "whatsapp", peerExternalId: c.peer_external_id })) continue;
+      const { data: msgs } = await sb
+        .from("channel_messages")
+        .select("direction, author, body, attachments, sent_at, external_message_id")
+        .eq("conversation_id", c.id)
+        .order("sent_at", { ascending: true })
+        .limit(5000);
+      const turns: Turn[] = (Array.isArray(msgs) ? (msgs as Record<string, unknown>[]) : [])
+        .filter((m) => typeof m.sent_at === "string" && typeof m.external_message_id === "string")
+        .map((m) => ({
+          author: m.direction === "in" ? "customer" : m.author === "automation" ? "automation" : "staff",
+          text: typeof m.body === "string" ? m.body : "",
+          hasMedia: Array.isArray(m.attachments) && m.attachments.length > 0,
+          at: m.sent_at as string,
+          externalMessageId: m.external_message_id as string,
+        }));
+      const read = readConversation(turns, { accountId: c.account_id, brand: c.brand, channel: "whatsapp", conversationId: c.id }, d);
+      const w = await writeResults(sb, read.results, "whatsapp_rebuild");
+      if (w) {
+        out.signals += w.signals;
+        out.observations += w.observations;
       }
-      const body = typeof r.body === "string" ? r.body : "";
-      const hasMedia = Array.isArray(r.attachments) && r.attachments.length > 0;
-      const s = readSignal(body, { accountId: r.account_id, brand: r.brand, channel: "whatsapp", conversationId: r.conversation_id, externalMessageId: id, at, hasMedia });
-      if (!s) {
-        skipped++;
-        continue;
-      }
-      batch.push(rowOf(s));
+      if (read.lastAt) await saveState(sb, { conversationId: c.id, accountId: c.account_id, brand: c.brand }, read.state, read.lastAt, read.lastId);
+      out.conversations++;
+      out.messages += turns.length;
     }
-    if (batch.length > 0) {
-      const { error: upsertError } = await sb.from("sales_signals").upsert(batch, { onConflict: "account_id,external_message_id" });
-      if (upsertError) {
-        console.error(`[signals] rebuild could not write (${upsertError.code ?? "?"}) — is migration 020 applied?`);
-        break;
-      }
-      written += batch.length;
+    await sb.from("insight_backfill_runs").update({ cursor, updated_at: new Date().toISOString() }).eq("id", RUN_ID);
+    if (list.length < 25) {
+      out.done = true;
+      break;
     }
-    if (rows.length < PAGE) break;
   }
-  return { read, written, skipped };
+  if (out.done) await sb.from("insight_backfill_runs").update({ state: "done", cursor: null, finished_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", RUN_ID);
+  return out;
 }

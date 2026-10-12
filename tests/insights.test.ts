@@ -119,6 +119,13 @@ describe("the picture", () => {
       { id: "c3", account_id: "ig-voyah", brand: "voyah", peer_external_id: "1784100000", peer_display: "=cmd", created_at: daysAgo(10) },
       { id: "c4", account_id: "wa-monza", brand: "monza", peer_external_id: "96170000004", peer_display: "Old", created_at: daysAgo(200) },
     ],
+    observations: [
+      { conversation_id: "c1", at: daysAgo(1), kind: "colour", stance: "wants", model: "COURAGE", binding: "same_clause", part: "exterior", value: "black", detail: "Pearl Black" },
+      { conversation_id: "c1", at: daysAgo(1), kind: "colour", stance: "asked", model: "COURAGE", binding: "same_clause", part: "exterior", value: "black", detail: "Pearl Black" },
+      { conversation_id: "c2", at: daysAgo(5), kind: "colour", stance: "rejects", model: "COURAGE", binding: "conversation", part: "exterior", value: "white", detail: "Pearl White" },
+      { conversation_id: "c2", at: daysAgo(5), kind: "colour", stance: "asked", model: "COURAGE", binding: "conversation", part: "interior", value: "beige", detail: null },
+      { conversation_id: "c2", at: daysAgo(5), kind: "model", stance: "rejects", model: "FREE_318", binding: "same_clause", part: null, value: "free_318", detail: null },
+    ],
     leads: [{ id: "L1", display_name: "Rami K.", phone: "96170000001" }],
     leadConversations: [{ lead_id: "L1", conversation_id: "c1" }],
     alerts: [
@@ -145,7 +152,11 @@ describe("the picture", () => {
     assert.equal(courage.price, 1);
     assert.equal(courage.testDrive, 1);
     assert.equal(courage.buying, 1);
+    // One person, counted once however many times they named it; a refusal is not a wish; interior apart.
     assert.deepEqual(courage.colours, [{ key: "Pearl Black", label: "Pearl Black", n: 1 }]);
+    assert.equal(courage.colourKnown, 1);
+    assert.deepEqual(courage.rejected, [{ key: "Pearl White", label: "Pearl White", n: 1 }]);
+    assert.deepEqual(courage.interior, [{ key: "beige", label: "Beige", n: 1 }]);
     assert.equal(courage.weekly.length, WEEKS);
     assert.equal(courage.weekly[WEEKS - 1], 2);
     assert.equal(ins.cars[0].code, "COURAGE");

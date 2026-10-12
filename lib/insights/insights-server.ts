@@ -4,7 +4,7 @@
  */
 
 import { channelDb } from "@/lib/channels/store";
-import { buildInsights, type InsightFilter, type InsightRows, type Insights, type SignalRow } from "@/lib/insights/insights";
+import { buildInsights, type InsightFilter, type InsightRows, type Insights, type ObservationRow, type SignalRow } from "@/lib/insights/insights";
 
 const PAGE = 1000;
 
@@ -30,18 +30,23 @@ export async function readInsights(filter: InsightFilter): Promise<InsightsRead>
     const since = filter.days > 0 ? new Date(Date.parse(filter.now) - filter.days * 86_400_000).toISOString() : null;
     const probe = await sb.from("sales_signals").select("id").limit(1);
     if (probe.error) return (probe.error as { code?: string }).code === "42P01" ? { state: "no_table" } : { state: "unavailable" };
-    const [signals, conversations, leads, leadConversations, alerts] = await Promise.all([
+    const [signals, observations, conversations, leads, leadConversations, alerts] = await Promise.all([
       all<SignalRow>((f, t) => {
         let q = sb.from("sales_signals").select("account_id, brand, channel, conversation_id, at, language, intents, models, weak_models, colour, has_media, alert_kind, alert_tags, offered, silenced").order("at", { ascending: false });
         if (since) q = q.gte("at", since);
         return q.range(f, t);
       }),
+      all<ObservationRow>((f, t) => {
+        let q = sb.from("sales_observations").select("conversation_id, at, kind, stance, model, binding, part, value, detail").in("kind", ["model", "colour"]).order("at", { ascending: false });
+        if (since) q = q.gte("at", since);
+        return q.range(f, t);
+      }).catch(() => [] as ObservationRow[]),
       all<InsightRows["conversations"][number]>((f, t) => sb.from("channel_conversations").select("id, account_id, brand, peer_external_id, peer_display, created_at").range(f, t)),
       all<InsightRows["leads"][number]>((f, t) => sb.from("leads").select("id, display_name, phone").range(f, t)),
       all<InsightRows["leadConversations"][number]>((f, t) => sb.from("lead_conversations").select("lead_id, conversation_id").range(f, t)),
       all<InsightRows["alerts"][number]>((f, t) => sb.from("sales_alerts").select("conversation_ref, kind, status, created_at").range(f, t)),
     ]);
-    return { state: "ok", insights: buildInsights({ signals, conversations, leads, leadConversations, alerts }, filter), signalsTable: true };
+    return { state: "ok", insights: buildInsights({ signals, observations, conversations, leads, leadConversations, alerts }, filter), signalsTable: true };
   } catch (e) {
     console.error("[insights] reading failed:", e instanceof Error ? e.message : "unknown error");
     return { state: "unavailable" };

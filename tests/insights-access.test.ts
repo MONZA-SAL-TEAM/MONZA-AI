@@ -54,7 +54,7 @@ describe("who may open Insights", () => {
   test("the pilot test phones are left out of the signals", () => {
     const src = readFileSync(join(process.cwd(), "lib/wasales/signal-server.ts"), "utf8");
     assert.match(src, /if \(isTestChat\(meta\)\) return false;/);
-    assert.match(src, /testConversations\.has\(r\.conversation_id\)/);
+    assert.match(src, /isPilotChat\(\{ accountId: c\.account_id, channel: "whatsapp", peerExternalId: c\.peer_external_id \}\)\) continue;/);
     assert.match(readFileSync(join(process.cwd(), "lib/channels/store.ts"), "utf8"), /peerExternalId: event\.fromExternalId,/);
   });
 });

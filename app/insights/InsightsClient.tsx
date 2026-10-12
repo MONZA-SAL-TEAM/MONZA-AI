@@ -55,6 +55,8 @@ const ALERT_LABEL: Readonly<Record<string, string>> = {
 };
 
 const day = (iso: string) => longDate(iso.slice(0, 10));
+/** "Pearl Black 43% (9)": a share only over people who named a colour — unknowns are never in the denominator. */
+const share = (n: number, of: number) => (of > 0 ? `${Math.round((n / of) * 100)}% (${n})` : `(${n})`);
 
 function href(f: InsightFilter, patch: Partial<Pick<InsightFilter, "days" | "brand" | "channel" | "model">>): string {
   const next = { ...f, ...patch };
@@ -158,7 +160,18 @@ function CarCard({ car, f }: { car: CarInsight; f: InsightFilter }) {
       </dl>
       {car.colours.length > 0 && (
         <p className="ins-car-line">
-          <span className="cap">Colours asked for</span> {car.colours.map((c) => `${c.label} (${c.n})`).join(" · ")}
+          <span className="cap">Exterior</span> {car.colours.map((c) => `${c.label} ${share(c.n, car.colourKnown)}`).join(" · ")}
+          <span className="ins-known"> of {car.colourKnown} who named a colour</span>
+        </p>
+      )}
+      {car.interior.length > 0 && (
+        <p className="ins-car-line">
+          <span className="cap">Interior</span> {car.interior.map((c) => `${c.label} (${c.n})`).join(" · ")}
+        </p>
+      )}
+      {car.rejected.length > 0 && (
+        <p className="ins-car-line">
+          <span className="cap">Not wanted</span> {car.rejected.map((c) => `${c.label} (${c.n})`).join(" · ")}
         </p>
       )}
       {car.questions.length > 0 && (
@@ -197,6 +210,12 @@ function ClientRow({ c }: { c: ClientInsight }) {
           <>
             {" "}
             <span className="cap">Colours</span> {c.colours.join(", ")}
+          </>
+        )}
+        {(c.rejectedColours.length > 0 || c.rejectedCars.length > 0) && (
+          <>
+            {" "}
+            <span className="cap">Doesn&apos;t want</span> {[...c.rejectedCars, ...c.rejectedColours].join(", ")}
           </>
         )}
       </p>
@@ -240,10 +259,20 @@ export default function InsightsClient({ read, filter }: { read: InsightsRead; f
     setRebuilding(true);
     setNote(null);
     try {
-      const res = await fetch("/api/insights/rebuild", { method: "POST" });
-      const body = (await res.json().catch(() => null)) as { message?: string } | null;
-      setNote(body?.message ?? (res.ok ? "Done." : "The rebuild could not run."));
-      if (res.ok) router.refresh();
+      // Each call reads for ~45 s; keep calling until the history is read.
+      let total = { conversations: 0, signals: 0, observations: 0 };
+      for (let round = 0; round < 40; round++) {
+        const res = await fetch(`/api/insights/rebuild${round === 0 ? "?restart=1" : ""}`, { method: "POST" });
+        const body = (await res.json().catch(() => null)) as { ok?: boolean; done?: boolean; message?: string; conversations?: number; signals?: number; observations?: number } | null;
+        if (!res.ok || !body?.ok) {
+          setNote(body?.message ?? "The history could not be read.");
+          break;
+        }
+        total = { conversations: total.conversations + (body.conversations ?? 0), signals: total.signals + (body.signals ?? 0), observations: total.observations + (body.observations ?? 0) };
+        setNote(`Read ${total.conversations} conversations: ${total.signals} customer messages, ${total.observations} facts${body.done ? "." : " — still reading…"}`);
+        if (body.done) break;
+      }
+      router.refresh();
     } catch {
       setNote("The rebuild could not run — check the connection.");
     } finally {
