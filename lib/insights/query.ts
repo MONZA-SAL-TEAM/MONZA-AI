@@ -148,7 +148,9 @@ const any = (field: string | undefined) => (field ? field.split(",") : null);
 export function matchesQuery(p: PersonFacts, q: InsightQuery, nowMs: number, outcomeOf?: (p: PersonFacts) => string | null): boolean {
   const has = (values: string[] | null, ok: (v: string) => boolean) => !values || values.some(ok);
   const models = any(q.model);
-  const colourOn = (list: readonly string[], fam: string) => list.some((c) => c.endsWith(`:${fam}`) && (!models || models.some((m) => c.startsWith(`${m}:`))));
+  // A colour is tied to a car: with a car in the question, only that car's colour counts.
+  const colourCars = models ?? any(q.anyModel);
+  const colourOn = (list: readonly string[], fam: string) => list.some((c) => c.endsWith(`:${fam}`) && (!colourCars || colourCars.some((m) => c.startsWith(`${m}:`))));
   if (!has(models, (m) => p.models.includes(m))) return false;
   if (!has(any(q.alsoModel), (m) => p.models.includes(m))) return false;
   if (!has(any(q.anyModel), (m) => p.models.includes(m) || p.contextModels.includes(m))) return false;

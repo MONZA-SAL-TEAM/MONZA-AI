@@ -19,14 +19,17 @@ export default async function ModelsPage({ searchParams }: { searchParams: Promi
   const days = parseDays((await searchParams).days);
   const read = await readAnalysis(days);
   const rows = read.state === "ok" ? modelsTable(read.people, read.nowMs) : [];
-  const lab = (q: Parameters<typeof labHref>[0]) => labHref({ ...q, ...(days ? { days: days === 0 ? undefined : days } : {}) });
+  const lab = (q: Parameters<typeof labHref>[0]) => labHref({ ...q, ...([30, 90, 365].includes(days) ? { days } : {}) });
 
   return (
     <div className="board">
       <header className="board-head">
         <p className="eyebrow">Insights · Models</p>
         <h1 className="h1">The cars people want</h1>
-        <p className="lede">Each person counted once per car. &quot;Main car&quot; is the one they named most. Every number opens those people.</p>
+        <p className="lede">
+          Each person counted once per car. &quot;People&quot; named it or asked about it by context (its ad, the car being discussed); &quot;Named it&quot; is in their own
+          words; &quot;From its ad&quot; is how they arrived, not a stated interest. &quot;Main car&quot; is the one they named most. Every number opens those people.
+        </p>
       </header>
       <InsightsNav current="/insights/models" />
       <div className="board-tools">
@@ -42,6 +45,8 @@ export default async function ModelsPage({ searchParams }: { searchParams: Promi
                 <tr>
                   <th scope="col">Car</th>
                   <th scope="col">People</th>
+                  <th scope="col">Named it</th>
+                  <th scope="col">From its ad</th>
                   <th scope="col">Main car</th>
                   <th scope="col">New in 30 days</th>
                   <th scope="col">Price</th>
@@ -58,13 +63,15 @@ export default async function ModelsPage({ searchParams }: { searchParams: Promi
                     <th scope="row">
                       <Link href={`/insights/models/${r.code}${days !== 90 ? `?days=${days}` : ""}`}>{r.name}</Link>
                     </th>
-                    <td><Link href={lab({ model: r.code })}>{r.people}</Link></td>
+                    <td><Link href={lab({ anyModel: r.code })}>{r.people}</Link></td>
+                    <td><Link href={lab({ model: r.code })}>{r.named}</Link></td>
+                    <td><Link href={lab({ adModel: r.code })}>{r.fromAd}</Link></td>
                     <td>{r.primary}</td>
                     <td>{r.newThisMonth}</td>
-                    <td><Link href={lab({ model: r.code, topic: "PRICE" })}>{r.price}</Link></td>
-                    <td><Link href={lab({ model: r.code, topic: "TEST_DRIVE" })}>{r.testDrive}</Link></td>
-                    <td><Link href={lab({ model: r.code, topic: "FINANCING" })}>{r.financing}</Link></td>
-                    <td><Link href={lab({ model: r.code, stage: "buying" })}>{r.buying}</Link></td>
+                    <td><Link href={lab({ anyModel: r.code, topic: "PRICE" })}>{r.price}</Link></td>
+                    <td><Link href={lab({ anyModel: r.code, topic: "TEST_DRIVE" })}>{r.testDrive}</Link></td>
+                    <td><Link href={lab({ anyModel: r.code, topic: "FINANCING" })}>{r.financing}</Link></td>
+                    <td><Link href={lab({ anyModel: r.code, stage: "buying" })}>{r.buying}</Link></td>
                     <td>{r.topColour ? <Link href={labHref(r.topColour.q)}>{`${r.topColour.label} (${r.topColour.n})`}</Link> : "—"}</td>
                     <td>{r.topCompetitor ? <Link href={labHref(r.topCompetitor.q)}>{`${r.topCompetitor.label} (${r.topCompetitor.n})`}</Link> : "—"}</td>
                   </tr>

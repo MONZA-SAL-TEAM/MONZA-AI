@@ -37,7 +37,10 @@ export interface ModelRow {
   code: string;
   name: string;
   brand: string;
+  /** Named it, or asked about it by context. */
   people: number;
+  named: number;
+  fromAd: number;
   primary: number;
   newThisMonth: number;
   price: number;
@@ -51,21 +54,23 @@ export interface ModelRow {
 export function modelsTable(people: readonly PersonFacts[], nowMs: number): ModelRow[] {
   return MONZA_KNOWLEDGE.models
     .map((m) => {
-      const its = people.filter((p) => p.models.includes(m.code));
+      const its = people.filter((p) => p.models.includes(m.code) || p.contextModels.includes(m.code));
       const has = (t: string) => its.filter((p) => p.topics.includes(t)).length;
       return {
         code: m.code,
         name: m.displayName,
         brand: m.brand,
         people: its.length,
+        named: its.filter((p) => p.models.includes(m.code)).length,
+        fromAd: people.filter((p) => p.adModel === m.code).length,
         primary: its.filter((p) => p.primaryModel === m.code).length,
         newThisMonth: its.filter((p) => nowMs - Date.parse(p.firstAt) <= 30 * DAY).length,
         price: has("PRICE"),
         testDrive: has("TEST_DRIVE"),
         financing: has("FINANCING"),
         buying: its.filter((p) => p.stage === "buying").length,
-        topColour: tally(its, (p) => p.coloursWanted.filter((c) => modelOf(c) === m.code).map(family), capital, (k) => ({ model: m.code, colour: k }))[0] ?? null,
-        topCompetitor: tally(its, (p) => p.competitors, (k) => valueLabel("competitor", k), (k) => ({ model: m.code, competitor: k }))[0] ?? null,
+        topColour: tally(its, (p) => p.coloursWanted.filter((c) => modelOf(c) === m.code).map(family), capital, (k) => ({ anyModel: m.code, colour: k }))[0] ?? null,
+        topCompetitor: tally(its, (p) => p.competitors, (k) => valueLabel("competitor", k), (k) => ({ anyModel: m.code, competitor: k }))[0] ?? null,
       };
     })
     .sort((a, b) => b.people - a.people || a.name.localeCompare(b.name));
@@ -74,7 +79,17 @@ export function modelsTable(people: readonly PersonFacts[], nowMs: number): Mode
 export interface ModelDetail {
   code: string;
   name: string;
+  /** People who named it OR asked about it by context (its ad, the car being discussed). */
   people: number;
+  named: number;
+  byContext: number;
+  fromAd: number;
+  activeRecently: number;
+  returning: number;
+  topics: LinkedCount[];
+  channels: LinkedCount[];
+  languages: LinkedCount[];
+  alternatives: LinkedCount[];
   primary: number;
   secondary: number;
   newThisMonth: number;
@@ -95,8 +110,14 @@ export interface ModelDetail {
 }
 
 export function modelDetail(code: string, people: readonly PersonFacts[], signals: readonly SignalRow[], personOf: (conv: string) => string, nowMs: number): ModelDetail {
-  const its = people.filter((p) => p.models.includes(code));
-  const q = (extra: InsightQuery): InsightQuery => ({ model: code, ...extra });
+  const its = people.filter((p) => p.models.includes(code) || p.contextModels.includes(code));
+  const q = (extra: InsightQuery): InsightQuery => ({ anyModel: code, ...extra });
+  const TOPICS: ReadonlyArray<[string, string]> = [
+    ["PRICE", "Price"], ["FINANCING", "Installments / financing"], ["DISCOUNT", "Offers"], ["AVAILABILITY", "Availability"], ["RANGE", "Range"],
+    ["CHARGING", "Charging"], ["HOME_CHARGING", "Charging at home"], ["BATTERY", "Battery"], ["WARRANTY", "Warranty"], ["SERVICE", "Service / maintenance"],
+    ["SPECIFICATIONS", "Specifications"], ["OTHER_SPEC", "Features"], ["INTERIOR_COLOUR", "Interior"], ["COLOUR", "Colours"], ["SEATS", "Seats"],
+    ["TEST_DRIVE", "Test drive"], ["VISIT", "Showroom visit"], ["DELIVERY_LOCATION", "Delivery"], ["TRADE_IN", "Trade-in"], ["BUYING_INTENT", "Wants to buy"],
+  ];
   const ASKS: ReadonlyArray<[string, string]> = [["BROCHURE", "Brochure"], ["COLOUR_VIDEO", "Video"], ["PRICE", "Price"], ["FINANCING", "Installments"], ["TEST_DRIVE", "Test drive"], ["AVAILABILITY", "Availability"], ["TRADE_IN", "Trade-in"]];
   const weekly = Array.from({ length: WEEKS }, () => new Set<string>());
   for (const s of signals) {
@@ -109,8 +130,17 @@ export function modelDetail(code: string, people: readonly PersonFacts[], signal
     code,
     name: carName(code),
     people: its.length,
+    named: its.filter((p) => p.models.includes(code)).length,
+    byContext: its.filter((p) => !p.models.includes(code)).length,
+    fromAd: people.filter((p) => p.adModel === code).length,
+    activeRecently: its.filter((p) => nowMs - Date.parse(p.lastAt) <= 14 * DAY).length,
+    returning: its.filter((p) => p.customerType === "returning").length,
+    topics: TOPICS.map(([t, label]) => ({ key: t, label, n: its.filter((p) => p.topics.includes(t)).length, q: q({ topic: t }) })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n),
+    channels: tally(its, (p) => p.channels, (k) => ({ whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Messenger" })[k] ?? k, (k) => q({ channel: k })),
+    languages: tally(its, (p) => (p.language ? [p.language] : []), (k) => ({ en: "English", ar: "Arabic", arabizi: "Arabizi", fr: "French", mixed: "Mixed" })[k] ?? k, (k) => q({ language: k })),
+    alternatives: tally(its, (p) => p.colourAlternatives.filter((c) => modelOf(c) === code).map(family), capital, (k) => q({ colour: k })),
     primary: its.filter((p) => p.primaryModel === code).length,
-    secondary: its.filter((p) => p.primaryModel !== code).length,
+    secondary: its.filter((p) => p.models.includes(code) && p.primaryModel !== code).length,
     newThisMonth: its.filter((p) => nowMs - Date.parse(p.firstAt) <= 30 * DAY).length,
     asks: ASKS.map(([t, label]) => ({ key: t, label, n: its.filter((p) => p.topics.includes(t)).length, q: q({ topic: t }) })),
     exterior: tally(its, (p) => onCar(p.coloursWanted), capital, (k) => q({ colour: k })),
@@ -180,14 +210,14 @@ export function colourMatrix(observations: readonly ObservationRow[], people: re
     const its = people.filter((p) => p.models.includes(m.code)).length;
     const st = stock ? (stock[m.code] ?? { now: 0, inbound: 0, colours: [] }) : null;
     const toCounts = (mm: Map<string, Set<string>> | undefined, key: "interior" | "rejectedColour"): LinkedCount[] =>
-      [...(mm ?? new Map<string, Set<string>>()).entries()].map(([fam, s]) => ({ key: fam, label: capital(fam), n: s.size, q: { model: m.code, [key]: fam } as InsightQuery })).sort((a, b) => b.n - a.n);
+      [...(mm ?? new Map<string, Set<string>>()).entries()].map(([fam, s]) => ({ key: fam, label: capital(fam), n: s.size, q: { anyModel: m.code, [key]: fam } as InsightQuery })).sort((a, b) => b.n - a.n);
     return {
       code: m.code,
       name: m.displayName,
       known: knownSet.size,
       unknown: Math.max(0, its - knownSet.size),
       exterior: [...e.entries()]
-        .map(([fam, s]) => ({ family: fam, people: s.size, share: knownSet.size ? s.size / knownSet.size : null, stockNow: st ? (st.colours.find((c) => c.key === fam)?.n ?? 0) : null, q: { model: m.code, colour: fam } }))
+        .map(([fam, s]) => ({ family: fam, people: s.size, share: knownSet.size ? s.size / knownSet.size : null, stockNow: st ? (st.colours.find((c) => c.key === fam)?.n ?? 0) : null, q: { anyModel: m.code, colour: fam } }))
         .sort((a, b) => b.people - a.people || a.family.localeCompare(b.family)),
       interior: toCounts(int.get(m.code), "interior"),
       rejected: toCounts(rej.get(m.code), "rejectedColour"),
@@ -237,7 +267,7 @@ export function conversationsView(people: readonly PersonFacts[], signals: reado
     concerns: tally(people, (p) => p.concerns, (k) => valueLabel("concern", k), (k) => ({ concern: k })),
     needs: tally(people, (p) => p.needs, (k) => valueLabel("need", k), (k) => ({ need: k })),
     byModel: MONZA_KNOWLEDGE.models
-      .map((m) => ({ code: m.code, name: m.displayName, questions: tally(people.filter((p) => p.models.includes(m.code)), (p) => p.topics, topicLabel, (k) => ({ model: m.code, topic: k })).slice(0, 6) }))
+      .map((m) => ({ code: m.code, name: m.displayName, questions: tally(people.filter((p) => p.models.includes(m.code) || p.contextModels.includes(m.code)), (p) => p.topics, topicLabel, (k) => ({ anyModel: m.code, topic: k })).slice(0, 6) }))
       .filter((r) => r.questions.length > 0),
     rising,
   };
@@ -266,7 +296,7 @@ export function channelsView(people: readonly PersonFacts[]): ChannelView[] {
       channel: ch,
       people: its.length,
       highIntent: its.filter((p) => HIGH_INTENT.has(p.stage)).length,
-      models: tally(its, (p) => p.models, carName, (k) => q({ model: k })).slice(0, 8),
+      models: tally(its, (p) => [...new Set([...p.models, ...p.contextModels])], carName, (k) => q({ anyModel: k })).slice(0, 8),
       colours: tally(its, (p) => p.coloursWanted.map(family), capital, (k) => q({ colour: k })).slice(0, 8),
       languages: tally(its, (p) => (p.language ? [p.language] : []), (k) => LANGUAGE_LABEL[k] ?? k, (k) => q({ language: k })),
       firstTouch: tally(its, (p) => [p.firstTouch ?? "direct"], (k) => TOUCH_LABEL[k] ?? k, (k) => q({ firstTouch: k })),

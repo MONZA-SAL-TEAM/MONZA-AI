@@ -110,7 +110,7 @@ describe("the analysis pages", () => {
     assert.equal(courage.price, 2);
     assert.equal(courage.buying, 1);
     const d = modelDetail("COURAGE", people, ROWS.signals, personOf, NOW);
-    assert.deepEqual(d.alsoAsked.map((c) => [c.key, c.n, c.q]), [["FREE_318", 1, { model: "COURAGE", alsoModel: "FREE_318" }]]);
+    assert.deepEqual(d.alsoAsked.map((c) => [c.key, c.n, c.q]), [["FREE_318", 1, { anyModel: "COURAGE", alsoModel: "FREE_318" }]]);
     assert.equal(d.weekly.reduce((a, b) => a + b, 0) >= 2, true);
   });
   test("colours: the share is over people who named a colour; strict drops conversation-tied ones", () => {
