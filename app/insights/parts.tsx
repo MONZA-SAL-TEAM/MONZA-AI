@@ -16,6 +16,7 @@ const SECTIONS: ReadonlyArray<[string, string]> = [
   ["/insights/language", "Vehicle language"],
   ["/insights/catalogue", "Car catalogue"],
   ["/insights/trends", "Market trends"],
+  ["/insights/demand", "Stored demand"],
   ["/insights/conversations", "Conversations"],
   ["/insights/channels", "Channels"],
   ["/insights/team", "Team"],

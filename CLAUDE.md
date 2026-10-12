@@ -823,6 +823,17 @@ about our clients." Until then the engine read every message and forgot it.
     30/90-day growth (a zero baseline reads "new").
   - "Take this lead" race checked at database level (2026-10-12, rolled back): the second conditional UPDATE
     takes 0 rows. Two live browsers were not tested.
+- **The demand record with NO client data (migration 027, `insight_demand_daily`; Samer, 2026-10-12: "I want
+  the data about the models, colours and more to be saved and stored, not client data").** Per Beirut day AND
+  per month × brand × channel × dimension (cars named / by context / interest / ad, colours wanted / interior /
+  refused / second choice / "which colours?", topics, kinds of car, budget, timeline, city, purpose, financing,
+  other brands with stance, concerns, needs, trade-in, the dictionary word used, language, people who wrote):
+  people (each once per period) and messages. No name, number, chat or person id, and NO foreign key — the
+  counts stay after the 12-month clean-up or a person's deletion. Built by `lib/insights/demand.ts` (pure),
+  stored by `demand-server.ts storeDemand`: nightly from the start of last month (cron step 4), "all" on demand
+  (`POST /api/insights/demand?scope=all`); a period is rewritten whole, and periods whose labels are gone are
+  never touched. Page `/insights/demand` with Excel/CSV export. Monthly rows exist because adding days counts a
+  person once per day.
 - Labels are kept LONGER than the 12-month chat retention (Samer, 2026-10-12): they hold no words. Deleting
   a person still removes them (every table cascades from `channel_conversations`).
 - Plan for Phases 2–5 (profile facts, client profile + CRM car, IG/FB backfill + nightly, lead ownership,

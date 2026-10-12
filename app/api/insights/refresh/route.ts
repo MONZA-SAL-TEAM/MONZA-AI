@@ -4,6 +4,7 @@ import { isCronAuthorized } from "@/lib/channels/retention";
 import { channelDb } from "@/lib/channels/store";
 import { backfillDone, metaAccountIds, runMetaBackfill, type BackfillOutcome } from "@/lib/insights/meta-backfill";
 import { refreshInsightPeople } from "@/lib/insights/people-server";
+import { storeDemand } from "@/lib/insights/demand-server";
 import { READER_VERSION } from "@/lib/wasales/reader";
 import { rebuildWhatsApp } from "@/lib/wasales/signal-server";
 
@@ -16,6 +17,7 @@ import { rebuildWhatsApp } from "@/lib/wasales/signal-server";
  *      done, the newest threads are read, stopping at the first one already read and unchanged.
  *      The account that starts rotates each night, so none is starved.
  *   3. The per-person summaries (insight_people) are rebuilt for the Research Lab.
+ *   4. The anonymous demand record (insight_demand_daily) is stored for recent months.
  *
  * Vercel Cron sends `Authorization: Bearer <CRON_SECRET>`; anybody else — and everybody while it is
  * unset — gets 401. Codes and counts only in the answer and the log.
@@ -50,8 +52,8 @@ export async function GET(request: Request): Promise<NextResponse> {
   const accounts: Pick<BackfillOutcome, "accountId" | "mode" | "state" | "code" | "threads" | "signals" | "calls">[] = [];
   for (const id of order) {
     const remaining = deadline - Date.now();
-    // Keep ~10 s for the per-person summaries at the end.
-    if (remaining < 18_000) break;
+    // Keep ~14 s for the per-person summaries and the demand record at the end.
+    if (remaining < 22_000) break;
     const mode = (await backfillDone(id)) ? "nightly" : "backfill";
     const r = await runMetaBackfill({ accountId: id, mode, budgetMs: Math.min(remaining - 13_000, 35_000) });
     if (!r) break;
@@ -61,5 +63,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
   // 3. The per-person summaries the Research Lab reads (migration 023).
   const people = deadline - Date.now() > 4_000 ? await refreshInsightPeople() : null;
-  return NextResponse.json({ ok: true, whatsapp, accounts, people }, { headers: NO_STORE });
+  // 4. The anonymous demand record (027) for recent months — kept permanently, no client data.
+  const demand = deadline - Date.now() > 3_000 ? await storeDemand("recent") : null;
+  return NextResponse.json({ ok: true, whatsapp, accounts, people, demand }, { headers: NO_STORE });
 }
