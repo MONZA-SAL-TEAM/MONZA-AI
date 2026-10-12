@@ -105,3 +105,11 @@
 .ins-people { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: var(--t-sm); }
 .ins-people a { font-weight: 600; color: var(--ink); }
 .ins-table td.ins-wrap { white-space: normal; min-width: 220px; color: var(--ink-2); }
+
+/* Research Lab v2 (2026-10-12) */
+.ins-lab-field select[multiple] { min-height: 64px; }
+.ins-lab-tools { align-items: center; }
+.ins-lab-save { display: flex; gap: 6px; flex-wrap: wrap; }
+.ins-lab-save .board-search { min-width: 180px; }
+.ins-compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+.ins-saved { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }

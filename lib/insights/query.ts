@@ -2,6 +2,10 @@
  * The Research Lab's question, as a URL — PURE. Every count on every Insights page links to
  * /insights/lab?<this>, which opens exactly the people it counted. Closed vocabulary only: anything that
  * is not a known shape is dropped, never passed to the database.
+ *
+ * Within one filter, several values mean ANY of them ("model=COURAGE,FREE_318"); different filters must
+ * ALL hold. `testDriveBooked=0` means "has NOT booked one". `outcome` is what the CRM recorded (read as
+ * the viewer at query time; "none" = no CRM order).
  */
 
 import type { PersonFacts } from "@/lib/insights/people";
@@ -32,7 +36,7 @@ export interface InsightQuery {
   firstTouch?: string;
   tradeIn?: boolean;
   waiting?: boolean;
-  /** Has a booked slot in the test-drive calendar. */
+  /** true: has a booked test-drive slot; false: has NOT. */
   testDriveBooked?: boolean;
   /** Came from this car's ad. */
   adModel?: string;
@@ -43,6 +47,8 @@ export interface InsightQuery {
   anyModel?: string;
   /** Named a car with this dictionary word: "MHERO_1:917". */
   mention?: string;
+  /** What the CRM recorded: won, reserved, quoted, open, lost, none. */
+  outcome?: string;
   /** "none" = unowned, else a staff id. */
   owner?: string;
   /** Last message within this many days; 0 = any time. */
@@ -53,9 +59,11 @@ const KEY = /^[a-z0-9_]{1,40}$/;
 const CODE = /^[A-Z0-9_]{1,20}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const FIELDS: ReadonlyArray<[keyof InsightQuery, RegExp]> = [
+export const QUERY_FIELDS: ReadonlyArray<[keyof InsightQuery, RegExp]> = [
   ["model", CODE],
   ["alsoModel", CODE],
+  ["anyModel", CODE],
+  ["adModel", CODE],
   ["colour", KEY],
   ["rejectedColour", KEY],
   ["interior", KEY],
@@ -75,85 +83,109 @@ const FIELDS: ReadonlyArray<[keyof InsightQuery, RegExp]> = [
   ["brand", KEY],
   ["language", KEY],
   ["firstTouch", KEY],
-  ["adModel", CODE],
   ["category", KEY],
   ["customerType", KEY],
-  ["anyModel", CODE],
   ["mention", /^[A-Z0-9_]{1,20}:[a-z0-9_]{1,40}$/],
+  ["outcome", /^(won|reserved|quoted|open|lost|none)$/],
 ];
+
+/** A field's values: "a,b" → ["a","b"]; each must match, at most 12. */
+function list(raw: string | null, re: RegExp): string | null {
+  if (!raw) return null;
+  const items = [...new Set(raw.split(",").map((s) => s.trim()).filter((s) => re.test(s)))].slice(0, 12);
+  return items.length ? items.join(",") : null;
+}
 
 export function parseInsightQuery(sp: URLSearchParams | Record<string, string | string[] | undefined>): InsightQuery {
   const get = (k: string): string | null => {
     if (sp instanceof URLSearchParams) return sp.get(k);
     const v = sp[k];
-    return typeof v === "string" ? v : null;
+    return typeof v === "string" ? v : Array.isArray(v) ? v.join(",") : null;
   };
   const q: InsightQuery = {};
-  for (const [field, re] of FIELDS) {
-    const v = get(field);
-    if (v && re.test(v)) (q as Record<string, unknown>)[field] = v;
+  for (const [field, re] of QUERY_FIELDS) {
+    const v = list(get(field), re);
+    if (v) (q as Record<string, unknown>)[field] = v;
   }
   if (get("tradeIn") === "1") q.tradeIn = true;
   if (get("waiting") === "1") q.waiting = true;
-  if (get("testDriveBooked") === "1") q.testDriveBooked = true;
+  const booked = get("testDriveBooked");
+  if (booked === "1") q.testDriveBooked = true;
+  if (booked === "0") q.testDriveBooked = false;
   const owner = get("owner");
   if (owner && (owner === "none" || UUID.test(owner))) q.owner = owner;
   const days = Number(get("days"));
-  if ([7, 30, 90, 365].includes(days)) q.days = days;
+  if ([7, 30, 60, 90, 365].includes(days)) q.days = days;
   return q;
 }
 
 export function toSearch(q: InsightQuery): string {
   const p = new URLSearchParams();
-  for (const [field] of FIELDS) {
+  for (const [field] of QUERY_FIELDS) {
     const v = q[field];
     if (typeof v === "string") p.set(field, v);
   }
   if (q.tradeIn) p.set("tradeIn", "1");
   if (q.waiting) p.set("waiting", "1");
-  if (q.testDriveBooked) p.set("testDriveBooked", "1");
+  if (q.testDriveBooked !== undefined) p.set("testDriveBooked", q.testDriveBooked ? "1" : "0");
   if (q.owner) p.set("owner", q.owner);
   if (q.days) p.set("days", String(q.days));
-  const s = p.toString();
+  const s = p.toString().replace(/%2C/g, ",").replace(/%3A/g, ":");
   return s ? `?${s}` : "";
 }
 
 export const labHref = (q: InsightQuery) => `/insights/lab${toSearch(q)}`;
 
-/** Does this person answer the question? (Also what the database filter does, for tests and fallbacks.) */
-export function matchesQuery(p: PersonFacts, q: InsightQuery, nowMs: number): boolean {
-  const colourOn = (list: readonly string[], fam: string) => list.some((c) => c.endsWith(`:${fam}`) && (!q.model || c.startsWith(`${q.model}:`)));
-  if (q.model && !p.models.includes(q.model)) return false;
-  if (q.alsoModel && !p.models.includes(q.alsoModel)) return false;
-  if (q.colour && !colourOn(p.coloursWanted, q.colour)) return false;
-  if (q.rejectedColour && !colourOn(p.coloursRejected, q.rejectedColour)) return false;
-  if (q.interior && !colourOn(p.interior, q.interior)) return false;
-  if (q.rejectedModel && !p.rejectedModels.includes(q.rejectedModel)) return false;
-  if (q.comparedModel && !p.comparedModels.includes(q.comparedModel)) return false;
-  if (q.topic && !p.topics.includes(q.topic)) return false;
-  if (q.stage && p.stage !== q.stage) return false;
-  if (q.budget && p.budgetBand !== q.budget) return false;
-  if (q.timeline && p.timeline !== q.timeline) return false;
-  if (q.city && p.city !== q.city) return false;
-  if (q.purpose && !p.purpose.includes(q.purpose)) return false;
-  if (q.competitor && !p.competitors.includes(q.competitor)) return false;
-  if (q.concern && !p.concerns.includes(q.concern)) return false;
-  if (q.need && !p.needs.includes(q.need)) return false;
-  if (q.financing && !p.financing.includes(q.financing)) return false;
-  if (q.channel && !p.channels.includes(q.channel)) return false;
-  if (q.brand && !p.brands.includes(q.brand)) return false;
-  if (q.language && p.language !== q.language) return false;
-  if (q.firstTouch && p.firstTouch !== q.firstTouch) return false;
+/** Whether the question needs the CRM (read as the viewer) to be answered. */
+export const needsCrm = (q: InsightQuery) => Boolean(q.outcome);
+
+const any = (field: string | undefined) => (field ? field.split(",") : null);
+
+/**
+ * Does this person answer the question? (Also what the database's coarse filter is checked against.)
+ * `outcomeOf` gives the CRM's furthest outcome for a person, or null when they have no order.
+ */
+export function matchesQuery(p: PersonFacts, q: InsightQuery, nowMs: number, outcomeOf?: (p: PersonFacts) => string | null): boolean {
+  const has = (values: string[] | null, ok: (v: string) => boolean) => !values || values.some(ok);
+  const models = any(q.model);
+  const colourOn = (list: readonly string[], fam: string) => list.some((c) => c.endsWith(`:${fam}`) && (!models || models.some((m) => c.startsWith(`${m}:`))));
+  if (!has(models, (m) => p.models.includes(m))) return false;
+  if (!has(any(q.alsoModel), (m) => p.models.includes(m))) return false;
+  if (!has(any(q.anyModel), (m) => p.models.includes(m) || p.contextModels.includes(m))) return false;
+  if (!has(any(q.adModel), (m) => p.adModel === m)) return false;
+  if (!has(any(q.colour), (f) => colourOn(p.coloursWanted, f))) return false;
+  if (!has(any(q.rejectedColour), (f) => colourOn(p.coloursRejected, f))) return false;
+  if (!has(any(q.interior), (f) => colourOn(p.interior, f))) return false;
+  if (!has(any(q.rejectedModel), (m) => p.rejectedModels.includes(m))) return false;
+  if (!has(any(q.comparedModel), (m) => p.comparedModels.includes(m))) return false;
+  if (!has(any(q.topic), (t) => p.topics.includes(t))) return false;
+  if (!has(any(q.stage), (s) => p.stage === s)) return false;
+  if (!has(any(q.budget), (b) => p.budgetBand === b)) return false;
+  if (!has(any(q.timeline), (t) => p.timeline === t)) return false;
+  if (!has(any(q.city), (c) => p.city === c)) return false;
+  if (!has(any(q.purpose), (x) => p.purpose.includes(x))) return false;
+  if (!has(any(q.competitor), (x) => p.competitors.includes(x))) return false;
+  if (!has(any(q.concern), (x) => p.concerns.includes(x))) return false;
+  if (!has(any(q.need), (x) => p.needs.includes(x))) return false;
+  if (!has(any(q.financing), (x) => p.financing.includes(x))) return false;
+  if (!has(any(q.channel), (x) => p.channels.includes(x))) return false;
+  if (!has(any(q.brand), (x) => p.brands.includes(x))) return false;
+  if (!has(any(q.language), (x) => p.language === x)) return false;
+  if (!has(any(q.firstTouch), (x) => (p.firstTouch ?? "direct") === x)) return false;
+  if (!has(any(q.category), (x) => p.categories.includes(x))) return false;
+  if (!has(any(q.customerType), (x) => p.customerType === x)) return false;
+  if (!has(any(q.mention), (x) => p.mentions.includes(x))) return false;
   if (q.tradeIn && !p.tradeIn) return false;
   if (q.waiting && !p.waiting) return false;
-  if (q.testDriveBooked && !(p.testDrivesBooked > 0)) return false;
-  if (q.adModel && p.adModel !== q.adModel) return false;
-  if (q.category && !p.categories.includes(q.category)) return false;
-  if (q.customerType && p.customerType !== q.customerType) return false;
-  if (q.anyModel && !p.models.includes(q.anyModel) && !p.contextModels.includes(q.anyModel)) return false;
-  if (q.mention && !p.mentions.includes(q.mention)) return false;
+  if (q.testDriveBooked === true && !(p.testDrivesBooked > 0)) return false;
+  if (q.testDriveBooked === false && p.testDrivesBooked > 0) return false;
   if (q.owner === "none" && p.ownerId) return false;
   if (q.owner && q.owner !== "none" && p.ownerId !== q.owner) return false;
   if (q.days && nowMs - Date.parse(p.lastAt) > q.days * 86_400_000) return false;
+  if (q.outcome) {
+    if (!outcomeOf) return false; // a question about sales with no CRM answer matches nobody — never everybody
+    const o = outcomeOf(p) ?? "none";
+    if (!q.outcome.split(",").includes(o)) return false;
+  }
   return true;
 }

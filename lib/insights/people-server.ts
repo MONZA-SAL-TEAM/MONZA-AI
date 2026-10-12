@@ -8,6 +8,9 @@ import { channelDb } from "@/lib/channels/store";
 import { readInsightRows } from "@/lib/insights/insights-server";
 import { buildPersonFacts, type PersonFacts } from "@/lib/insights/people";
 import { matchesQuery, type InsightQuery } from "@/lib/insights/query";
+import { readCrmOutcomes } from "@/lib/insights/crm-server";
+import type { StaffIdentity } from "@/lib/connectors/types";
+import { isAutoLinkable, normalizeLebanesePhone } from "@/lib/leads/phone";
 import { READER_VERSION } from "@/lib/wasales/reader";
 
 function row(p: PersonFacts, at: string) {
@@ -134,37 +137,56 @@ export interface LabPerson extends PersonFacts {
 
 export type LabRead = { state: "ok"; people: LabPerson[]; total: number; refreshedAt: string | null } | { state: "unavailable" } | { state: "empty" };
 
-/** The people who answer the question, newest first, with their names joined now. */
-export async function readLab(q: InsightQuery, now = Date.now()): Promise<LabRead> {
+export interface LabBase {
+  /** Everyone with a summary, newest first, names and numbers joined now. */
+  people: LabPerson[];
+  /** The CRM's furthest outcome per person key (null = no order), when the CRM could be read as the viewer. */
+  outcomeOf: ((p: PersonFacts) => string | null) | null;
+  crm: "ok" | "not_connected" | "unavailable";
+  refreshedAt: string | null;
+}
+
+export type LabBaseRead = { state: "ok"; base: LabBase } | { state: "unavailable" } | { state: "empty" };
+
+/**
+ * Everyone the Lab can study: the per-person summaries (insight_people), names and numbers joined at read
+ * time, and — read as the viewer, never stored — what the CRM recorded for them (matched by mobile only).
+ */
+export async function readLabBase(viewer: StaffIdentity | null): Promise<LabBaseRead> {
   const sb = channelDb();
   if (!sb) return { state: "unavailable" };
   try {
-    const out: Row[] = [];
+    const rows: Row[] = [];
     for (let from = 0; from < 100_000; from += 1000) {
-      let query = sb.from("insight_people").select("*").order("last_at", { ascending: false });
-      // The selective ones in the database; everything else in matchesQuery (one meaning, tested).
-      if (q.model) query = query.contains("models", [q.model]);
-      if (q.stage) query = query.eq("stage", q.stage);
-      if (q.city) query = query.eq("city", q.city);
-      if (q.budget) query = query.eq("budget_band", q.budget);
-      if (q.timeline) query = query.eq("timeline", q.timeline);
-      if (q.days) query = query.gte("last_at", new Date(now - q.days * 86_400_000).toISOString());
-      const { data, error } = await query.range(from, from + 999);
+      const { data, error } = await sb.from("insight_people").select("*").order("last_at", { ascending: false }).range(from, from + 999);
       if (error) throw error;
-      const rows = (data ?? []) as Row[];
-      out.push(...rows);
-      if (rows.length < 1000) break;
+      const page = (data ?? []) as Row[];
+      rows.push(...page);
+      if (page.length < 1000) break;
     }
-    if (out.length === 0 && !Object.keys(q).length) return { state: "empty" };
-    const matched = out.map(factsOf).filter((p) => matchesQuery(p, q, now));
-    const refreshedAt = out.map((r) => r.updated_at).sort().at(-1) ?? null;
-
-    const people = await attachNames(matched.slice(0, 2000));
-    return { state: "ok", people, total: matched.length, refreshedAt };
+    if (rows.length === 0) return { state: "empty" };
+    const [people, crm] = await Promise.all([attachNames(rows.map(factsOf)), viewer ? readCrmOutcomes(viewer) : Promise.resolve({ state: "not_connected" as const })]);
+    const outcomeOf =
+      crm.state === "ok"
+        ? ((phoneByKey) => (p: PersonFacts) => {
+            const phone = phoneByKey.get(p.key);
+            const n = phone ? normalizeLebanesePhone(phone) : null;
+            return n && isAutoLinkable(n) ? (crm.data[n]?.outcome ?? null) : null;
+          })(new Map(people.map((x) => [x.key, x.phone])))
+        : null;
+    return { state: "ok", base: { people, outcomeOf, crm: crm.state, refreshedAt: rows.map((r) => r.updated_at).sort().at(-1) ?? null } };
   } catch (e) {
     console.error("[insights/lab] reading failed:", e instanceof Error ? e.message : JSON.stringify(e));
     return { state: "unavailable" };
   }
+}
+
+/** The people who answer the question, newest first, with their names joined now. */
+export async function readLab(q: InsightQuery, now = Date.now()): Promise<LabRead> {
+  const r = await readLabBase(null);
+  if (r.state !== "ok") return r;
+  const people = r.base.people.filter((p) => matchesQuery(p, q, now));
+  return { state: "ok", people, total: people.length, refreshedAt: r.base.refreshedAt };
 }
 
 /** Names and numbers for people, from MONZA AI's own leads and chats, at read time (never stored with the labels). */
