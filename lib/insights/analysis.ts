@@ -167,7 +167,7 @@ export function colourMatrix(observations: readonly ObservationRow[], people: re
     (inner.get(fam) ?? inner.set(fam, new Set()).get(fam)!).add(who);
   };
   for (const o of observations) {
-    if (o.kind !== "colour" || !o.model || o.value === "any" || !allowed(o)) continue;
+    if (o.kind !== "colour" || !o.model || o.value === "any" || o.value === "which" || o.stance === "alternative" || !allowed(o)) continue;
     const who = personOf(o.conversation_id);
     if (o.stance === "rejects") add(rej, o.model, o.value, who);
     else if (o.part === "interior") add(int, o.model, o.value, who);
@@ -291,7 +291,7 @@ export function qualityView(people: readonly PersonFacts[], observations: readon
     const k = people.filter(ok).length;
     return { key, label, n: k, share: n ? k / n : 0 };
   };
-  const colours = observations.filter((o) => o.kind === "colour" && o.value !== "any");
+  const colours = observations.filter((o) => o.kind === "colour" && o.value !== "any" && o.value !== "which");
   const binding = new Map<string, number>();
   for (const o of colours) binding.set(o.binding ?? "none", (binding.get(o.binding ?? "none") ?? 0) + 1);
   const BINDING_LABEL: Readonly<Record<string, string>> = { same_clause: "Same sentence as the car", only_car_named: "The only car named", conversation: "The car being discussed", ad: "The ad's car", none: "No car" };

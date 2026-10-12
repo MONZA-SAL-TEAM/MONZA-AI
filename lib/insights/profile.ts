@@ -50,7 +50,7 @@ export interface ClientProfile {
   stage: Stage;
   stageLabel: string;
   models: { primary: string | null; secondary: string[]; compared: string[]; rejected: string[] };
-  colours: { wants: string[]; asked: string[]; interior: string[]; rejects: string[]; anyColour: boolean };
+  colours: { wants: string[]; asked: string[]; alternatives: string[]; askedWhich: boolean; interior: string[]; rejects: string[]; anyColour: boolean };
   /** One line per kind, latest first: "Budget $35,000–45,000". */
   facts: { kind: string; label: string; items: string[] }[];
   waiting: string | null;
@@ -124,7 +124,9 @@ export function buildClientProfile(key: string, rows: ProfileRows, crm: CrmResul
   const uniq = (xs: string[]) => [...new Set(xs)];
   const colours = {
     wants: uniq(colourFacts.filter((o) => o.stance === "wants" && o.part !== "interior" && o.value !== "any").map(colourText)),
-    asked: uniq(colourFacts.filter((o) => o.stance === "asked" && o.part !== "interior").map(colourText)),
+    asked: uniq(colourFacts.filter((o) => o.stance === "asked" && o.part !== "interior" && o.value !== "which").map(colourText)),
+    alternatives: uniq(colourFacts.filter((o) => o.stance === "alternative").map(colourText)),
+    askedWhich: colourFacts.some((o) => o.value === "which"),
     interior: uniq(colourFacts.filter((o) => o.part === "interior" && o.stance !== "rejects").map(colourText)),
     rejects: uniq(colourFacts.filter((o) => o.stance === "rejects").map((o) => `${o.part === "interior" ? "interior " : ""}${colourText(o)}`)),
     anyColour: colourFacts.some((o) => o.value === "any"),
@@ -170,7 +172,7 @@ export function buildClientProfile(key: string, rows: ProfileRows, crm: CrmResul
   }
   journey.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 
-  const stage = furthestStage(signals.map((s) => stageOf(s.intents, s.models)));
+  const stage = furthestStage(signals.map((s) => stageOf(s.intents, [...s.models, ...(s.context_models ?? [])])));
   const activeDays = new Set(signals.map((s) => s.at.slice(0, 10))).size;
 
   return {

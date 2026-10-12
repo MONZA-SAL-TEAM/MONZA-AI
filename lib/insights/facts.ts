@@ -127,6 +127,8 @@ export function factLabel(o: FactLike): string {
       const where = o.part === "interior" ? "interior " : "";
       const car = o.model ? ` (${carName(o.model)})` : "";
       if (o.value === "any") return `Any colour${car}`;
+      if (o.value === "which") return `Asked which colours exist${car}`;
+      if (o.stance === "alternative") return `Would accept ${where}${name}${car}`;
       const verb = o.stance === "rejects" ? "Doesn't want" : o.stance === "wants" ? "Wants" : "Asked about";
       return `${verb} ${where}${name}${car}`;
     }

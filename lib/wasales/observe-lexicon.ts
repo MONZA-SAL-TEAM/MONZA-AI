@@ -65,3 +65,9 @@ export const COLOUR_TOPIC_WORDS: readonly string[] = ["colour", "color", "colour
 
 /** Words a model's mention may be compared with. */
 export const COMPARE_WORDS: readonly string[] = ["vs", "versus", "compare", "comparison", "difference", "better", "or", "aw", "walla", "او", "ولا", "مقارنه", "الفرق"];
+
+/** A colour accepted as a second choice: "black first, but grey is fine" — grey is an alternative. */
+export const ALTERNATIVE_WORDS: readonly string[] = [
+  "fine", "ok", "okay", "acceptable", "works", "also good", "second choice", "backup", "mashi", "meshi", "ma3le", "ma3lesh",
+  "mish moshkle", "msh moshkle", "mesh moshkle", "ماشي", "مقبول", "مش مشكله", "معليش", "ca va", "aussi",
+];

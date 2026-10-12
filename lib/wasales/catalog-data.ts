@@ -110,10 +110,10 @@ export const WASALES_CATALOG: WaCar[] = [
  * fuzzy-matched, so 911 cannot land on either.
  */
 export const CUSTOMER_WORDS: Readonly<Record<string, readonly string[]>> = {
-  "mhero-1": ["917", "mhero 917", "m hero 917", "mhero one", "m hero one", "ام هيرو 1"],
-  "mhero-2": ["817", "mhero 817", "m hero 817", "mhero two", "m hero two", "ام هيرو 2"],
+  "mhero-1": ["917", "mhero 917", "m hero 917", "mhero one", "m hero one", "ام هيرو 1", "mengshi 917", "m-hero 1"],
+  "mhero-2": ["817", "mhero 817", "m hero 817", "mhero two", "m hero two", "ام هيرو 2", "mengshi 817", "m-hero 2"],
   "voyah-courage": ["curage", "corage", "courge", "currage", "كوراج", "كوريج"],
-  "voyah-dream": ["dreem", "drim", "دريم"],
+  "voyah-dream": ["dreem", "drim", "دريم", "voyah mpv"],
   // The FREE 318: its folder is "Voyah Free Comp", its video caption says
   // "The new Voyah Free 318 Competition", so "318" is its own word.
   "voyah-free-comp": [

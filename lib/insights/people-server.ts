@@ -46,6 +46,14 @@ function row(p: PersonFacts, at: string) {
     first_touch: p.firstTouch,
     owner_id: p.ownerId,
     waiting: p.waiting,
+    ad_model: p.adModel,
+    context_models: p.contextModels,
+    categories: p.categories,
+    unresolved: p.unresolved,
+    mentions: p.mentions,
+    colour_alternatives: p.colourAlternatives,
+    test_drives_booked: p.testDrivesBooked,
+    customer_type: p.customerType,
     reader_version: READER_VERSION,
     updated_at: at,
   };
@@ -89,6 +97,14 @@ function factsOf(r: Row): PersonFacts {
     firstTouch: r.first_touch,
     ownerId: r.owner_id,
     waiting: r.waiting,
+    adModel: r.ad_model ?? null,
+    contextModels: r.context_models ?? [],
+    categories: r.categories ?? [],
+    unresolved: r.unresolved ?? [],
+    mentions: r.mentions ?? [],
+    colourAlternatives: r.colour_alternatives ?? [],
+    testDrivesBooked: r.test_drives_booked ?? 0,
+    customerType: (r.customer_type as PersonFacts["customerType"]) ?? "new",
   };
 }
 

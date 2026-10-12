@@ -41,6 +41,8 @@ export interface SignalMeta {
   externalMessageId: string;
   at: string;
   hasMedia: boolean;
+  /** The headline of the ad the chat came from (a Click-to-WhatsApp ad's title — ours, not the customer's). */
+  adHeadline?: string | null;
 }
 
 /** Intents that are only politeness or mechanics — not a question worth counting. */
@@ -50,7 +52,11 @@ const NOT_A_TOPIC: ReadonlySet<string> = new Set(["UNKNOWN", "GREETING", "ACKNOW
 export function signalFromDecision(d: EngineDecision, meta: SignalMeta): Signal | null {
   if (d.outcome === "EXCLUDED") return null;
   const u = d.understanding;
-  const models = u.models.length > 0 ? u.models : u.model ? [u.model] : [];
+  // Only cars the customer's OWN words (or a tap on a choice) named. A car known from the conversation or
+  // the ad is context, kept apart by the reader (contextModels) — Samer, 2026-10-12: explicit and
+  // contextual interest are different things.
+  const explicit = u.modelSource === "text" || u.modelSource === "payload" || u.modelSource === "choice";
+  const models = u.models.length > 0 ? u.models : u.model && explicit ? [u.model] : [];
   const alerts = d.actions.filter((a): a is Extract<EngineDecision["actions"][number], { type: "ALERT_SALES" }> => a.type === "ALERT_SALES");
   const alert = alerts[0] ?? null;
   const offered = unique(d.actions.filter((a) => a.type.startsWith("SEND_") || a.type.startsWith("SHOW_")).map((a) => a.type));

@@ -124,6 +124,8 @@ export default async function ClientProfilePage({ params }: { params: Promise<{ 
           <h2 className="ins-h2">Colours</h2>
           <Line label="Wants">{list(p.colours.wants)}</Line>
           <Line label="Asked about">{list(p.colours.asked)}</Line>
+          <Line label="Would accept">{list(p.colours.alternatives)}</Line>
+          {p.colours.askedWhich && <Line label="Also">Asked which colours exist</Line>}
           <Line label="Interior">{list(p.colours.interior)}</Line>
           <Line label="Doesn't want">{list(p.colours.rejects)}</Line>
           {p.colours.anyColour && <Line label="Flexible">Said any colour is fine</Line>}

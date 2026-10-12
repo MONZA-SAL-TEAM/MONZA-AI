@@ -26,6 +26,9 @@ import { vocabularyWords } from "@/lib/wasales/intent";
 import { modelByCatalogueId, modelByCode, type ModelCode, type SalesKnowledge } from "@/lib/wasales/knowledge";
 import { matchTokens, sameWord, type WaCar } from "@/lib/wasales/matcher";
 import { observeProfile } from "@/lib/wasales/observe-profile";
+import { aliasIndex, aliasOf, type AliasEntry } from "@/lib/wasales/aliases";
+import { readBodyType, readCategories, readNeeds } from "@/lib/wasales/intent";
+import { normalize } from "@/lib/wasales/matcher";
 import type { SearchEngineState } from "@/lib/wasales/context";
 import {
   BUT_AFTER,
@@ -37,10 +40,11 @@ import {
   INTERIOR_MARKERS,
   NO_PREFERENCE_PHRASES,
   WANT_WORDS,
+  ALTERNATIVE_WORDS,
 } from "@/lib/wasales/observe-lexicon";
 
-export type ObservationKind = "model" | "colour" | "budget" | "timeline" | "purpose" | "city" | "competitor" | "trade_in" | "financing" | "need" | "concern";
-export type Stance = "named" | "compared" | "wants" | "asked" | "rejects" | "no_preference" | "owns" | "trading_in" | "mentioned";
+export type ObservationKind = "model" | "colour" | "budget" | "timeline" | "purpose" | "city" | "competitor" | "trade_in" | "financing" | "need" | "concern" | "mention" | "category" | "unresolved";
+export type Stance = "named" | "compared" | "wants" | "asked" | "rejects" | "no_preference" | "owns" | "trading_in" | "mentioned" | "alternative" | "prefers";
 export type Binding = "same_clause" | "only_car_named" | "conversation" | "ad" | "none";
 
 export interface Observation {
@@ -107,6 +111,18 @@ interface CarSpot {
   code: ModelCode;
   clause: number;
   at: number;
+  /** The words that named it, to find WHICH dictionary word (never kept as text). */
+  matchedText: string;
+  fuzzy: boolean;
+}
+
+const indexByCars = new WeakMap<readonly WaCar[], AliasEntry[]>();
+function indexFor(cars: readonly WaCar[]): AliasEntry[] {
+  const hit = indexByCars.get(cars);
+  if (hit) return hit;
+  const built = aliasIndex(cars);
+  indexByCars.set(cars, built);
+  return built;
 }
 
 /** Where each strongly named car stands in the clauses. */
@@ -130,9 +146,9 @@ function carSpots(text: string, clauses: readonly Clause[], ctx: ObserveContext)
     clauses.forEach((c, ci) => {
       if (found) return;
       const at = phraseAt(c.tokens, m.matchedText);
-      if (at >= 0) found = { code, clause: ci, at };
+      if (at >= 0) found = { code, clause: ci, at, matchedText: m.matchedText, fuzzy: m.fuzzy };
     });
-    spots.push(found ?? { code, clause: 0, at: 0 });
+    spots.push(found ?? { code, clause: 0, at: 0, matchedText: m.matchedText, fuzzy: m.fuzzy });
   }
   return spots;
 }
@@ -275,6 +291,10 @@ export function observe(text: string, d: EngineDecision, ctx: ObserveContext): O
     const others = spots.filter((s) => s !== spot && s.clause === spot.clause).map((s) => s.at);
     let stance = stanceOf(c, spot.at, others);
     if (stance === "asked" && onlyColours) stance = "wants";
+    // "…but grey is fine": a second choice, never counted as the wish itself.
+    const nextColour = Math.min(...others.filter((o) => o > spot.at), Infinity);
+    const after = c.tokens.slice(spot.at + 1, Math.min(spot.at + 4, nextColour));
+    if (stance !== "rejects" && after.some((t) => has(ALTERNATIVE_WORDS, t))) stance = "alternative";
     const part = partOf(c, spot.at);
     out.push(
       blank("colour", family, `colour.${stance}${part === "interior" ? ".interior" : ""}`, {
@@ -295,11 +315,34 @@ export function observe(text: string, d: EngineDecision, ctx: ObserveContext): O
     out.push(blank("colour", "any", "colour.no_preference", { stance: "no_preference", model, binding: model ? (cars.length === 1 ? "only_car_named" : "conversation") : "none", part: "exterior" }));
   }
 
+  // 3b. "What colours do you have?" — a question about availability, not a preference for any colour.
+  if (spots.length === 0 && u.intents.includes("COLOUR") && !out.some((o) => o.kind === "colour")) {
+    const model = cars.length === 1 ? cars[0].code : cars.length === 0 ? contextCar : null;
+    out.push(blank("colour", "which", "colour.which", { stance: "asked", model, binding: model ? (cars.length === 1 ? "only_car_named" : "conversation") : "none", part: "exterior" }));
+  }
+
   // 4. Concerns the engine already names.
   const CONCERN: Readonly<Record<string, string>> = { SAFETY: "safety", BATTERY_LIFE: "battery_life", BATTERY_REPLACEMENT: "battery_replacement", CHARGING_COST: "charging_cost", WAITING_COMPLAINT: "kept_waiting" };
   for (const i of u.intents) {
     const value = CONCERN[i];
     if (value) out.push(blank("concern", value, `concern.intent.${value}`, { stance: "mentioned" }));
+  }
+
+  // 4b. HOW they named each car (a dictionary key, never their text), the car words that could be
+  //     ordinary words (unresolved — asked, never counted as interest), and the kind of car wanted
+  //     with or without a model ("an electric SUV").
+  const index = indexFor(ctx.cars);
+  for (const car of cars) {
+    const alias = car.fuzzy ? null : aliasOf(car.matchedText, index);
+    out.push(blank("mention", alias ? alias.key : "fuzzy", alias ? `mention.${alias.script}` : "mention.fuzzy", { stance: "named", model: car.code }));
+  }
+  for (const w of u.weakModels) out.push(blank("unresolved", w.toLowerCase(), "unresolved.ordinary_word", { stance: "mentioned", model: w }));
+  const plain = normalize(text).split(" ").filter(Boolean);
+  const CATEGORY: Readonly<Record<string, string>> = { EV: "bev", EREV: "erev", PHEV: "phev", HYBRID: "hybrid", SEDAN: "sedan", MPV: "mpv", SUV: "suv", OFF_ROAD: "off_road" };
+  const categories: string[] = [...readCategories(plain), readBodyType(plain) ?? "", ...readNeeds(plain).filter((n) => n === "SUV" || n === "OFF_ROAD")].filter(Boolean);
+  for (const c of new Set(categories)) {
+    const value = CATEGORY[c];
+    if (value) out.push(blank("category", value, cars.length ? "category.with_model" : "category.only", { stance: "wants" }));
   }
 
   // 5. Who they are and what they need: budget, timeline, purpose, city, other brands, trade-in,

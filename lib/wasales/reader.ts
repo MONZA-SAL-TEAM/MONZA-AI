@@ -21,7 +21,7 @@ import { observe, type Observation } from "@/lib/wasales/observe";
 import { signalFromDecision, type Signal, type SignalMeta } from "@/lib/wasales/signal";
 
 /** Bump when a reading rule changes: stored rows on an older version are read again. */
-export const READER_VERSION = 3;
+export const READER_VERSION = 4;
 
 export interface Turn {
   author: "customer" | "staff" | "automation";
@@ -33,7 +33,7 @@ export interface Turn {
 }
 
 export interface ReadResult {
-  signal: Signal & { readerVersion: number; contextModels: string[]; needs: string[]; ownerSupport: boolean; ended: boolean };
+  signal: Signal & { readerVersion: number; contextModels: string[]; needs: string[]; ownerSupport: boolean; ended: boolean; adModel: string | null };
   observations: Observation[];
 }
 
@@ -82,6 +82,9 @@ export function readNext(turn: Turn, state: SearchEngineState, meta: SignalMeta,
       channel: meta.channel as "whatsapp" | "instagram" | "facebook",
       conversationIsNew: state.updatedAt === null,
       now: turn.at,
+      // The ad the chat came from (Samer, 2026-10-12: 557 people came from the COURAGE ad): the engine
+      // makes it soft context, exactly as for the live bot — "how much is it?" is then the Courage.
+      ...(meta.adHeadline ? { referral: { headline: meta.adHeadline } } : {}),
     },
     state,
     deps
@@ -90,13 +93,13 @@ export function readNext(turn: Turn, state: SearchEngineState, meta: SignalMeta,
   const signal = signalFromDecision(d, meta);
   if (!signal) return { result: null, state: next };
   const u = d.understanding;
-  const contextModels = u.models.length === 0 && u.model && (u.modelSource === "state" || u.modelSource === "ad") ? [u.model] : [];
+  const contextModels = u.models.length === 0 && u.model && (u.modelSource === "state" || u.modelSource === "ad" || u.modelSource === "referral") ? [u.model] : [];
   // The memory the observer may use is the memory the engine used: none, once the conversation has gone cold.
   const before = isExpired(state, turn.at, deps.ttlHours) ? freshState() : state;
   const observations = observe(turn.text, d, { knowledge: deps.knowledge, cars: engineCars(deps.knowledge, deps.catalog), before });
   return {
     result: {
-      signal: { ...signal, readerVersion: READER_VERSION, contextModels, needs: observations.filter((o) => o.kind === "need").map((o) => o.value), ownerSupport: u.ownerSupport, ended: u.ended },
+      signal: { ...signal, readerVersion: READER_VERSION, contextModels, needs: observations.filter((o) => o.kind === "need").map((o) => o.value), ownerSupport: u.ownerSupport, ended: u.ended, adModel: next.adModel ?? null },
       observations,
     },
     state: next,

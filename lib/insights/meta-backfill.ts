@@ -22,7 +22,7 @@ import { channelDb, ensureConversation } from "@/lib/channels/store";
 import { emptyFirstPage, shouldStop, turnsOf, unchanged } from "@/lib/insights/meta-backfill-rules";
 import { freshState } from "@/lib/wasales/context";
 import { readConversation } from "@/lib/wasales/reader";
-import { deps, loadState, saveState, writeResults } from "@/lib/wasales/signal-server";
+import { adHeadlineOf, deps, loadState, saveState, writeResults } from "@/lib/wasales/signal-server";
 
 export interface BackfillOutcome {
   accountId: string;
@@ -112,7 +112,8 @@ export async function runMetaBackfill(opts: { accountId: string; mode: "backfill
       const stored = await loadState(sb, conversationId);
       // The saved memory is used only when it ends before this window starts; otherwise read the window fresh.
       const start = stored.lastAt && turns[0] && Date.parse(stored.lastAt) < Date.parse(turns[0].at) ? stored.state : freshState();
-      const read = readConversation(turns, { accountId: account.id, brand: account.brand, channel: account.channel, conversationId, peerExternalId: t.peer.id }, d, start);
+      const adHeadline = start.adModel ? null : await adHeadlineOf(sb, conversationId);
+      const read = readConversation(turns, { accountId: account.id, brand: account.brand, channel: account.channel, conversationId, peerExternalId: t.peer.id, adHeadline }, d, start);
       // What the webhook already read live stays as it was; only what it never saw is written.
       const fresh = read.results.filter((r) => !already.has(r.signal.externalMessageId.slice(0, 200)));
       const w = await writeResults(sb, fresh, "meta_backfill");

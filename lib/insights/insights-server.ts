@@ -10,7 +10,7 @@ import type { PeopleExtras } from "@/lib/insights/people";
 
 const PAGE = 1000;
 export const OBSERVATION_COLUMNS = "conversation_id, at, kind, stance, model, binding, part, value, detail, amount_min, amount_max, currency, amount_kind, months, external_message_id";
-const SIGNAL_COLUMNS = "account_id, brand, channel, conversation_id, at, language, intents, models, weak_models, colour, has_media, alert_kind, alert_tags, offered, silenced";
+const SIGNAL_COLUMNS = "account_id, brand, channel, conversation_id, at, language, intents, models, weak_models, colour, has_media, alert_kind, alert_tags, offered, silenced, ad_model, context_models";
 
 async function all<T>(read: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>, max = 200_000): Promise<T[]> {
   const out: T[] = [];
@@ -33,7 +33,7 @@ export async function readInsightRows(sinceIso: string | null): Promise<RowsRead
   try {
     const probe = await sb.from("sales_signals").select("id").limit(1);
     if (probe.error) return (probe.error as { code?: string }).code === "42P01" ? { state: "no_table" } : { state: "unavailable" };
-    const [signals, observations, conversations, leads, leadConversations, alerts, touchpoints] = await Promise.all([
+    const [signals, observations, conversations, leads, leadConversations, alerts, touchpoints, bookings] = await Promise.all([
       all<SignalRow>((f, t) => {
         let q = sb.from("sales_signals").select(SIGNAL_COLUMNS).order("at", { ascending: false });
         if (sinceIso) q = q.gte("at", sinceIso);
@@ -51,12 +51,15 @@ export async function readInsightRows(sinceIso: string | null): Promise<RowsRead
       all<InsightRows["leadConversations"][number]>((f, t) => sb.from("lead_conversations").select("lead_id, conversation_id").range(f, t)),
       all<InsightRows["alerts"][number]>((f, t) => sb.from("sales_alerts").select("conversation_ref, kind, status, created_at").range(f, t)),
       all<{ lead_id: string; source_kind: string; occurred_at: string }>((f, t) => sb.from("lead_touchpoints").select("lead_id, source_kind, occurred_at").order("occurred_at", { ascending: true }).range(f, t)).catch(() => []),
+      all<{ conversation_ref: string; status: string }>((f, t) => sb.from("test_drive_bookings").select("conversation_ref, status").eq("status", "booked").range(f, t)).catch(() => []),
     ]);
+    const bookingsByConv: Record<string, number> = {};
+    for (const b of bookings) bookingsByConv[b.conversation_ref] = (bookingsByConv[b.conversation_ref] ?? 0) + 1;
     const firstTouchByLead: Record<string, string> = {};
     for (const t of touchpoints) if (!firstTouchByLead[t.lead_id] && /^[a-z_]{1,20}$/.test(t.source_kind)) firstTouchByLead[t.lead_id] = t.source_kind;
     const ownerByConv: Record<string, string> = {};
     for (const c of conversations) if (c.assigned_to) ownerByConv[c.id] = c.assigned_to;
-    return { state: "ok", rows: { signals, observations, conversations, leads, leadConversations, alerts }, extras: { ownerByConv, firstTouchByLead } };
+    return { state: "ok", rows: { signals, observations, conversations, leads, leadConversations, alerts }, extras: { ownerByConv, firstTouchByLead, bookingsByConv } };
   } catch (e) {
     console.error("[insights] reading failed:", e instanceof Error ? e.message : "unknown error");
     return { state: "unavailable" };

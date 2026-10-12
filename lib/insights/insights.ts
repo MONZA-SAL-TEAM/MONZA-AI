@@ -29,6 +29,9 @@ export interface SignalRow {
   alert_tags: string[];
   offered: string[];
   silenced: string[];
+  /** The car of the ad the chat came from (024), and cars a question was about by context. */
+  ad_model?: string | null;
+  context_models?: string[];
 }
 
 /** One typed fact (sales_observations): a colour wanted / asked / rejected, tied to a car. */
@@ -80,8 +83,12 @@ export interface CarInsight {
   code: string;
   name: string;
   brand: string;
-  /** Distinct people who named it. */
+  /** Distinct people who named it in their own words. */
   people: number;
+  /** Distinct people who came from this car's ad (acquisition, not a stated interest). */
+  fromAd: number;
+  /** Distinct people who asked about it by context (the ad's car, the car being discussed) without naming it. */
+  byContext: number;
   messages: number;
   price: number;
   testDrive: number;
@@ -234,6 +241,8 @@ export function buildInsights(rows: InsightRows, f: InsightFilter): Insights {
     name: m.displayName,
     brand: m.brand,
     people: 0,
+    fromAd: 0,
+    byContext: 0,
     messages: 0,
     price: 0,
     testDrive: 0,
@@ -251,8 +260,12 @@ export function buildInsights(rows: InsightRows, f: InsightFilter): Insights {
   const carPeople = new Map<string, Set<string>>();
   const carWeekPeople = new Map<string, Set<string>>();
   const carQuestions = new Map<string, Map<string, number>>();
+  const adPeople = new Map<string, Set<string>>();
+  const contextPeople = new Map<string, Set<string>>();
   for (const s of signals) {
     const key = personKey(s.conversation_id);
+    if (s.ad_model) (adPeople.get(s.ad_model) ?? adPeople.set(s.ad_model, new Set()).get(s.ad_model)!).add(key);
+    for (const m of s.context_models ?? []) (contextPeople.get(m) ?? contextPeople.set(m, new Set()).get(m)!).add(key);
     for (const code of s.models) {
       const car = carByCode.get(code);
       if (!car) continue;
@@ -276,7 +289,7 @@ export function buildInsights(rows: InsightRows, f: InsightFilter): Insights {
     if (o.kind !== "colour" || !o.model || !signalConvs.has(o.conversation_id)) continue;
     const t = Date.parse(o.at);
     if (!Number.isFinite(t) || t < sinceMs || t > nowMs + 86_400_000) continue;
-    if (o.value === "any") continue;
+    if (o.value === "any" || o.value === "which" || o.stance === "alternative") continue;
     const key = personKey(o.conversation_id);
     const bucket = o.stance === "rejects" ? "rejected" : o.part === "interior" ? "interior" : "exterior";
     const label = o.detail ?? o.value;
@@ -294,6 +307,8 @@ export function buildInsights(rows: InsightRows, f: InsightFilter): Insights {
       .sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
   for (const car of cars) {
     car.people = carPeople.get(car.code)?.size ?? 0;
+    car.fromAd = adPeople.get(car.code)?.size ?? 0;
+    car.byContext = [...(contextPeople.get(car.code) ?? [])].filter((k) => !carPeople.get(car.code)?.has(k)).length;
     car.colours = colourCounts(car.code, "exterior").slice(0, 8);
     car.interior = colourCounts(car.code, "interior").slice(0, 6);
     car.rejected = colourCounts(car.code, "rejected").slice(0, 6);
@@ -301,7 +316,7 @@ export function buildInsights(rows: InsightRows, f: InsightFilter): Insights {
     car.questions = counts(carQuestions.get(car.code) ?? new Map(), topicLabel).slice(0, 8);
     for (let w = 0; w < WEEKS; w++) car.weekly[w] = carWeekPeople.get(`${car.code}:${w}`)?.size ?? 0;
   }
-  cars.sort((a, b) => b.people - a.people || b.messages - a.messages || a.name.localeCompare(b.name));
+  cars.sort((a, b) => b.people + b.byContext - (a.people + a.byContext) || b.fromAd - a.fromAd || a.name.localeCompare(b.name));
 
   // ── Overall ──────────────────────────────────────────────────────────
   const topics = new Map<string, number>();
@@ -346,7 +361,7 @@ export function buildInsights(rows: InsightRows, f: InsightFilter): Insights {
     const phone = lead?.phone ? digits(lead.phone) : conv && last.channel === "whatsapp" ? digits(conv.peer_external_id) : null;
     const name = lead?.display_name?.trim() || conv?.peer_display?.trim() || (phone ? `+${phone}` : "Customer");
     const carCodes = [...new Set(sorted.flatMap((s) => s.models))];
-    const stage = furthestStage(sorted.map((s) => stageOf(s.intents, s.models)));
+    const stage = furthestStage(sorted.map((s) => stageOf(s.intents, [...s.models, ...(s.context_models ?? [])])));
     const topicsOf = [...new Set(sorted.flatMap((s) => s.intents))].map(topicLabel);
     const convIds = new Set(p.convs);
     const facts = [...convIds].flatMap((c) => factsByConv.get(c) ?? []).filter((o) => {
@@ -355,7 +370,7 @@ export function buildInsights(rows: InsightRows, f: InsightFilter): Insights {
     });
     const nameOfCar = (c: string | null) => (c ? (modelByCode(MONZA_KNOWLEDGE, c)?.displayName ?? c) : "");
     const colourLabel = (o: ObservationRow) => `${o.part === "interior" ? "interior " : ""}${o.detail ?? o.value}${o.model ? ` (${nameOfCar(o.model)})` : ""}`;
-    const coloursOf = [...new Set(facts.filter((o) => o.kind === "colour" && o.stance !== "rejects" && o.value !== "any").map(colourLabel))];
+    const coloursOf = [...new Set(facts.filter((o) => o.kind === "colour" && o.stance !== "rejects" && o.value !== "any" && o.value !== "which").map(colourLabel))];
     const rejectedColours = [...new Set(facts.filter((o) => o.kind === "colour" && o.stance === "rejects").map(colourLabel))];
     const rejectedCars = [...new Set(facts.filter((o) => o.kind === "model" && o.stance === "rejects").map((o) => nameOfCar(o.model)))];
     const byTime = [...facts].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));

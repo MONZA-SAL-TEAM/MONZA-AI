@@ -179,7 +179,7 @@ function CarCard({ car, f, stock }: { car: CarInsight; f: InsightFilter; stock: 
         <div>
           <h3 className="ins-car-name">{car.name}</h3>
           <p className="ins-car-sub">
-            {car.people} {car.people === 1 ? "person" : "people"} · {car.messages} {car.messages === 1 ? "message" : "messages"}
+            {car.people} named it · {car.byContext} asked about it by context · {car.fromAd} came from its ad
           </p>
         </div>
         <Spark values={car.weekly} />

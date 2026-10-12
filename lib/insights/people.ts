@@ -43,6 +43,21 @@ export interface PersonFacts {
   firstTouch: string | null;
   ownerId: string | null;
   waiting: boolean;
+  /** The car of the ad that brought them (a Click-to-WhatsApp headline) — acquisition, not interest. */
+  adModel: string | null;
+  /** Cars a question was about by context (the ad's car, the car being discussed) — not named by them. */
+  contextModels: string[];
+  /** Kinds of car wanted: suv, mpv, sedan, off_road, bev, erev, phev, hybrid. */
+  categories: string[];
+  /** Car names said that could be ordinary words ("dream") — never counted as interest. */
+  unresolved: string[];
+  /** HOW they named cars: "COURAGE:courage", "MHERO_1:917", "FREE_318:fuzzy" (dictionary keys). */
+  mentions: string[];
+  /** Colours they accept as a second choice: "COURAGE:grey". */
+  colourAlternatives: string[];
+  testDrivesBooked: number;
+  /** new · returning (back after 30+ days) · business (fleet / company). A CRM buyer is decided at read time. */
+  customerType: "new" | "returning" | "business";
 }
 
 export interface PeopleExtras {
@@ -50,6 +65,8 @@ export interface PeopleExtras {
   ownerByConv?: Readonly<Record<string, string>>;
   /** lead id → the first touchpoint's kind ("ad", "post", "direct"…). */
   firstTouchByLead?: Readonly<Record<string, string>>;
+  /** conversation id → test drives booked (014, status booked). */
+  bookingsByConv?: Readonly<Record<string, number>>;
 }
 
 const uniq = <T>(xs: readonly T[]) => [...new Set(xs)];
@@ -86,7 +103,10 @@ export function buildPersonFacts(rows: InsightRows, extras: PeopleExtras = {}, w
     const ranked = [...named.entries()].filter(([m]) => !rejectedModels.includes(m)).sort((a, b) => b[1] - a[1]).map(([m]) => m);
 
     const colour = (o: ObservationRow) => `${o.model ?? "ANY"}:${o.value}`;
-    const colourFacts = facts.filter((o) => o.kind === "colour" && o.value !== "any");
+    const colourFacts = facts.filter((o) => o.kind === "colour" && o.value !== "any" && o.value !== "which");
+    let returning = false;
+    for (let i = 1; i < signals.length; i++) if (Date.parse(signals[i].at) - Date.parse(signals[i - 1].at) >= 30 * 86_400_000) returning = true;
+    const purposes = values("purpose");
     const budget = latest("budget");
     const languages = new Map<string, number>();
     for (const s of signals) languages.set(s.language, (languages.get(s.language) ?? 0) + 1);
@@ -102,14 +122,14 @@ export function buildPersonFacts(rows: InsightRows, extras: PeopleExtras = {}, w
       lastAt: signals[signals.length - 1].at,
       messages: signals.length,
       activeDays: new Set(signals.map((s) => s.at.slice(0, 10))).size,
-      stage: furthestStage(signals.map((s) => stageOf(s.intents, s.models))),
+      stage: furthestStage(signals.map((s) => stageOf(s.intents, [...s.models, ...(s.context_models ?? [])]))),
       language: [...languages.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null,
       topics: uniq(signals.flatMap((s) => s.intents)).filter((i) => i !== "UNKNOWN"),
       models: uniq(signals.flatMap((s) => s.models)),
       primaryModel: ranked[0] ?? null,
       comparedModels: uniq(facts.filter((o) => o.kind === "model" && o.stance === "compared" && o.model).map((o) => o.model as string)),
       rejectedModels,
-      coloursWanted: uniq(colourFacts.filter((o) => o.stance !== "rejects" && o.part !== "interior").map(colour)),
+      coloursWanted: uniq(colourFacts.filter((o) => o.stance !== "rejects" && o.stance !== "alternative" && o.part !== "interior").map(colour)),
       coloursRejected: uniq(colourFacts.filter((o) => o.stance === "rejects").map(colour)),
       interior: uniq(colourFacts.filter((o) => o.stance !== "rejects" && o.part === "interior").map(colour)),
       budgetBand: budget?.value ?? null,
@@ -118,7 +138,7 @@ export function buildPersonFacts(rows: InsightRows, extras: PeopleExtras = {}, w
       budgetCurrency: budget?.currency ?? null,
       timeline: latest("timeline")?.value ?? null,
       city: latest("city")?.value ?? null,
-      purpose: values("purpose"),
+      purpose: purposes,
       competitors: values("competitor"),
       concerns: values("concern"),
       needs: values("need"),
@@ -127,6 +147,14 @@ export function buildPersonFacts(rows: InsightRows, extras: PeopleExtras = {}, w
       firstTouch: leadId ? (extras.firstTouchByLead?.[leadId] ?? null) : null,
       ownerId: convs.map((c) => extras.ownerByConv?.[c]).find(Boolean) ?? null,
       waiting: convs.some((c) => openAlert.has(c)),
+      adModel: signals.map((s) => s.ad_model).find((m): m is string => Boolean(m)) ?? null,
+      contextModels: uniq(signals.flatMap((s) => s.context_models ?? [])),
+      categories: values("category"),
+      unresolved: uniq(facts.filter((o) => o.kind === "unresolved" && o.model).map((o) => o.model as string)),
+      mentions: uniq(facts.filter((o) => o.kind === "mention" && o.model).map((o) => `${o.model}:${o.value}`)),
+      colourAlternatives: uniq(colourFacts.filter((o) => o.stance === "alternative").map(colour)),
+      testDrivesBooked: convs.reduce((n, c) => n + (extras.bookingsByConv?.[c] ?? 0), 0),
+      customerType: purposes.includes("fleet") || purposes.includes("business") ? "business" : returning ? "returning" : "new",
     });
   }
   return out.sort((a, b) => Date.parse(b.lastAt) - Date.parse(a.lastAt));

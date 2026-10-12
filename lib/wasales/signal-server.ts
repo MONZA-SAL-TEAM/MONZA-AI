@@ -59,6 +59,7 @@ function signalRow(r: ReadResult, source: Source) {
     needs: s.needs,
     owner_support: s.ownerSupport,
     ended: s.ended,
+    ad_model: s.adModel,
   };
 }
 
@@ -130,13 +131,31 @@ export async function saveState(sb: SupabaseClient, meta: { conversationId: stri
   );
 }
 
+/**
+ * The headline of the ad a chat came from: its lead's FIRST touchpoint with a headline (recorded by the
+ * webhook at arrival — Meta sends it once). An ad title, ours; never the customer's words. Null: no ad.
+ */
+export async function adHeadlineOf(sb: SupabaseClient, conversationId: string): Promise<string | null> {
+  try {
+    const { data: link } = await sb.from("lead_conversations").select("lead_id").eq("conversation_id", conversationId).maybeSingle();
+    const leadId = (link as { lead_id?: string } | null)?.lead_id;
+    if (!leadId) return null;
+    const { data } = await sb.from("lead_touchpoints").select("headline").eq("lead_id", leadId).not("headline", "is", null).order("occurred_at", { ascending: true }).limit(1);
+    const h = Array.isArray(data) && data.length ? (data[0] as { headline?: unknown }).headline : null;
+    return typeof h === "string" && h.trim() ? h.slice(0, 200) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Record one inbound message, read in its conversation. Never throws. */
 export async function recordSignal(sb: SupabaseClient, text: string, meta: SignalMeta): Promise<boolean> {
   try {
     if (isTestChat(meta)) return false;
     const stored = await loadState(sb, meta.conversationId);
     const turn: Turn = { author: "customer", text, hasMedia: meta.hasMedia, at: meta.at, externalMessageId: meta.externalMessageId };
-    const { result, state } = readNext(turn, stored.state, meta, deps());
+    const adHeadline = stored.state.adModel ? null : await adHeadlineOf(sb, meta.conversationId);
+    const { result, state } = readNext(turn, stored.state, { ...meta, adHeadline }, deps());
     if (!result) return false;
     const written = await writeResults(sb, [result], "webhook");
     // A message older than what was already read (a redelivery) is recorded, but the memory moves only forward.
@@ -211,7 +230,8 @@ export async function rebuildWhatsApp(budgetMs = 45_000, restart = false): Promi
           at: m.sent_at as string,
           externalMessageId: m.external_message_id as string,
         }));
-      const read = readConversation(turns, { accountId: c.account_id, brand: c.brand, channel: "whatsapp", conversationId: c.id }, d);
+      const adHeadline = await adHeadlineOf(sb, c.id);
+      const read = readConversation(turns, { accountId: c.account_id, brand: c.brand, channel: "whatsapp", conversationId: c.id, adHeadline }, d);
       const w = await writeResults(sb, read.results, "whatsapp_rebuild");
       if (w) {
         out.signals += w.signals;
