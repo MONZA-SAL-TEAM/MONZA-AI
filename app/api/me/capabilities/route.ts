@@ -13,7 +13,13 @@ export async function GET(request: Request): Promise<NextResponse> {
   const user = await requireStaff(request);
   if (!user) return NextResponse.json({ ok: false }, { status: 401, headers: { "Cache-Control": "no-store" } });
   return NextResponse.json(
-    { ok: true, insights: canSeeInsights(user, channelDb() !== null) },
+    {
+      ok: true,
+      insights: canSeeInsights(user, channelDb() !== null),
+      admin: user.access?.admin === true,
+      // The pages set for them in Team & access; null = not set (every page, as before).
+      pages: user.access?.restricted ? user.access.pages : null,
+    },
     { headers: { "Cache-Control": "no-store" } }
   );
 }

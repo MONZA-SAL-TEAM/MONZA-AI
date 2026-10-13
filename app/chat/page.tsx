@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { crmConfigured } from "@/lib/env";
+import { requireStaffForPage } from "@/lib/auth-server";
 import ChatClient from "./ChatClient";
 
 /** Server-rendered so the demo banner needs no public status endpoint: whether
@@ -8,7 +9,9 @@ import ChatClient from "./ChatClient";
  *  answer configuration questions to anonymous callers.) */
 export const dynamic = "force-dynamic";
 
-export default function ChatPage() {
+export default async function ChatPage() {
+  // Signed in, and the AI assistant open to this person in Team & access.
+  await requireStaffForPage("/chat");
   // ChatClient reads the ?ask= deep-link with useSearchParams, which Next
   // requires to sit inside a Suspense boundary — the build fails without it.
   return (

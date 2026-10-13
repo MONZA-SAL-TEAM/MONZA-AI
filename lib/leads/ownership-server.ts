@@ -13,6 +13,8 @@ import type { StaffIdentity } from "@/lib/connectors/types";
 import { decodeThreadId, encodeThreadId } from "@/lib/channels/live-map";
 import { threadPeerId } from "@/lib/channels/live";
 import { channelDb, ensureConversation, listAccounts } from "@/lib/channels/store";
+import { ownershipCapabilities } from "@/lib/access/access";
+import { accessDb } from "@/lib/access/access-server";
 import { canManage, ownershipDecision, type Actor, type Owner, type OwnerAction, type OwnershipDecision } from "@/lib/leads/ownership";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -65,6 +67,9 @@ export async function actorOf(user: StaffIdentity): Promise<Actor> {
       // The email's name is enough to show who it was.
     }
   }
+  // Someone whose MONZA AI access is set (Team & access): "take" and "assign" are what Samer ticked.
+  if (user.access?.admin) return { id: user.userId, name: name.slice(0, 120), appRole: "owner", capabilities: user.capabilities };
+  if (user.access?.restricted) return { id: user.userId, name: name.slice(0, 120), appRole: null, capabilities: ownershipCapabilities(user.access) };
   return { id: user.userId, name: name.slice(0, 120), appRole: user.appRole, capabilities: user.capabilities };
 }
 
@@ -132,8 +137,18 @@ export async function assignableStaff(viewer: StaffIdentity): Promise<Owner[]> {
   try {
     const db = makeUserClient({ user: viewer, conversationId: null, turnId: "lead-owner-staff" });
     const { data } = await db.from("profiles").select("id, full_name, email, user_role, capabilities, is_active").eq("is_active", true).limit(500);
+    // Team & access (lib/access) decides for anyone whose MONZA AI access is set: admins and people allowed to
+    // take or assign leads are on the list; blocked people and people with no lead action are not.
+    const sb = accessDb();
+    const set = new Map(
+      ((sb ? (await sb.from("staff_access").select("user_id, is_admin, blocked, actions")).data : null) ?? []).map((r: { user_id: string; is_admin: boolean; blocked: boolean; actions: string[] | null }) => [r.user_id, r])
+    );
     return ((data ?? []) as { id: string; full_name: string | null; email: string | null; user_role: string | null; capabilities: unknown }[])
-      .filter((p) => p.user_role === "owner" || (Array.isArray(p.capabilities) && (p.capabilities.includes("sales") || p.capabilities.includes("manage_team"))))
+      .filter((p) => {
+        const a = set.get(p.id);
+        if (a) return a.is_admin || (!a.blocked && (a.actions ?? []).some((x) => x === "take_leads" || x === "assign_leads"));
+        return p.user_role === "owner" || (Array.isArray(p.capabilities) && (p.capabilities.includes("sales") || p.capabilities.includes("manage_team")));
+      })
       .map((p) => ({ id: p.id, name: (p.full_name?.trim() || p.email?.split("@")[0] || "Staff").slice(0, 120) }))
       .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
   } catch {

@@ -25,7 +25,7 @@ export interface NavItem {
   /** One line for a menu or a landing page. */
   blurb: string;
   /** Shown only to staff allowed to open it (the page checks again). The key is a field of /api/me/capabilities. */
-  requires?: "insights";
+  requires?: "insights" | "admin";
 }
 
 export interface NavGroup {
@@ -118,6 +118,13 @@ export const NAV: NavGroup[] = [
         label: "Integrations",
         icon: "integrations",
         blurb: "Which systems and channels are connected.",
+      },
+      {
+        href: "/admin",
+        label: "Team & access",
+        icon: "team",
+        requires: "admin",
+        blurb: "Who may open what, who is online, and what each person did.",
       },
       {
         href: "/settings",

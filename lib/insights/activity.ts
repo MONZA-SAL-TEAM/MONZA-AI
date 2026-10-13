@@ -13,7 +13,7 @@
  */
 
 /** The app's sections a minute can be counted under (the first part of the address). Anything else: "other". */
-export const SECTIONS = ["inbox", "customers", "insights", "automations", "installments", "test_drives", "sales", "chat", "dashboard", "integrations", "settings"] as const;
+export const SECTIONS = ["inbox", "customers", "insights", "automations", "installments", "test_drives", "sales", "chat", "dashboard", "integrations", "settings", "admin"] as const;
 const SECTION_LABEL: Readonly<Record<string, string>> = {
   inbox: "Inbox",
   customers: "Customers",
@@ -26,6 +26,7 @@ const SECTION_LABEL: Readonly<Record<string, string>> = {
   dashboard: "Dashboard",
   integrations: "Integrations",
   settings: "Settings",
+  admin: "Team & access",
   other: "Other",
 };
 export const sectionLabel = (s: string) => SECTION_LABEL[s] ?? s;

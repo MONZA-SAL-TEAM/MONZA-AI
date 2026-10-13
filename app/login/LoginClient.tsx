@@ -74,6 +74,8 @@ export default function LoginClient() {
         return;
       }
       storeToken(data.session.access_token, data.session.expires_in);
+      // "Signed in" for Team & access (Samer, 2026-10-13). Best effort: never holds up the sign-in.
+      await fetch("/api/me/activity", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ signIn: true }), keepalive: true }).catch(() => undefined);
       // Return to where the visitor was headed, if the front door recorded it.
       // Relative paths only — anything else is ignored (no open redirects).
       const next = new URLSearchParams(window.location.search).get("next");

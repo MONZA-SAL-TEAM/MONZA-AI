@@ -16,5 +16,8 @@ export const INSIGHTS_CAPS: readonly string[] = Object.freeze(["manage_team", "v
 export function canSeeInsights(user: StaffIdentity | null, databaseConfigured: boolean): boolean {
   if (!user) return false;
   if (isDemoIdentity(user)) return !databaseConfigured;
+  // Access Samer has SET for this person in Team & access decides (lib/access); otherwise the CRM role.
+  if (user.access?.admin) return true;
+  if (user.access?.restricted) return !user.access.blocked && user.access.pages.includes("insights");
   return hasAnyCapability(user, INSIGHTS_CAPS);
 }

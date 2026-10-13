@@ -15,6 +15,8 @@ import { createClient } from "@supabase/supabase-js";
 import { noStoreFetch } from "@/lib/supabase-fetch";
 import type { StaffIdentity } from "@/lib/connectors/types";
 import { crmAnonKey, crmConfigured, crmUrl } from "@/lib/env";
+import { allowsRule, apiRuleOf } from "@/lib/access/access";
+import { loadAccess, recordStaffEvent } from "@/lib/access/access-server";
 
 const COOKIE_NAME = "monza-ai-token";
 
@@ -100,6 +102,38 @@ async function loadProfile(
 export async function requireStaff(
   request: Request
 ): Promise<StaffIdentity | null> {
+  const r = await resolveStaff(request);
+  return r.denied ? null : r.user;
+}
+
+/**
+ * Who is asking, and — for an API call — whether MONZA AI's own access (lib/access, Samer 2026-10-13) lets
+ * them make it. A refused call is recorded ("refused"); an allowed call that changes something is recorded
+ * as an action. Pages are checked in requireStaffForPage (lib/auth-server.ts), whose request is not /api/.
+ */
+async function resolveStaff(request: Request): Promise<{ user: StaffIdentity | null; denied: boolean; rulePage: string | null }> {
+  const user = await verifyStaff(request);
+  if (!user || isDemoIdentity(user)) return { user, denied: false, rulePage: null };
+  let pathname = "";
+  try {
+    pathname = new URL(request.url).pathname;
+  } catch {
+    // A request without a usable address is not an API call.
+  }
+  const access = await loadAccess(user.userId);
+  const withAccess: StaffIdentity = { ...user, access };
+  if (!pathname.startsWith("/api/")) return { user: withAccess, denied: false, rulePage: null };
+  const rule = apiRuleOf(pathname, request.method);
+  if (!rule) return { user: withAccess, denied: false, rulePage: null };
+  if (!allowsRule(access, rule)) {
+    await recordStaffEvent(user.userId, "refused", rule.action ?? (rule.page === "any" ? "blocked" : rule.page));
+    return { user: withAccess, denied: true, rulePage: rule.page };
+  }
+  if (rule.event) await recordStaffEvent(user.userId, "action", rule.event);
+  return { user: withAccess, denied: false, rulePage: rule.page };
+}
+
+async function verifyStaff(request: Request): Promise<StaffIdentity | null> {
   const url = crmUrl();
   const anon = crmAnonKey();
 
@@ -171,10 +205,15 @@ export async function requireRealStaff(
   request: Request,
   needsCapability?: readonly string[]
 ): Promise<StaffAccess> {
-  const user = await requireStaff(request);
+  const r = await resolveStaff(request);
+  const user = r.user;
   if (!user) return { ok: false, reason: "unauthenticated" };
   if (isDemoIdentity(user)) return { ok: false, reason: "demo_mode" };
-  if (!hasAnyCapability(user, needsCapability)) {
+  if (r.denied) return { ok: false, reason: "forbidden" };
+  // Someone whose MONZA AI access Samer has SET: the pages and actions he ticked decide (already checked above
+  // for this route), not the CRM role. Anyone else: the CRM role, as before.
+  const decided = (user.access?.restricted || user.access?.admin) && r.rulePage !== null && r.rulePage !== "any";
+  if (!decided && !hasAnyCapability(user, needsCapability)) {
     return { ok: false, reason: "forbidden" };
   }
   return { ok: true, user };

@@ -45,6 +45,7 @@ const ICONS: Record<string, string> = {
   customers:
     "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75",
   insights: "M3 3v18h18 M7 15l4-4 4 3 5-6",
+  team: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75",
   automations:
     "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
   installments: "M1 4h22v16H1z M1 10h22",
@@ -104,15 +105,20 @@ export default function SideNav() {
   // The inbox's unread count, as last seen in this browser. Updated live while
   // the inbox is open, and from the saved value on every other screen.
   const [unread, setUnread] = useState(0);
-  // What this person may open (Insights is for the owner and managers). Hidden until known.
+  // What this person may open (Insights is for the owner and managers; Team & access for admins; the pages set
+  // for them in Team & access). Hidden until known.
   const [allowed, setAllowed] = useState<Record<string, boolean>>({});
+  const [pages, setPages] = useState<string[] | null>(null);
 
   useEffect(() => {
     let alive = true;
     fetch("/api/me/capabilities", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((b: { insights?: boolean } | null) => {
-        if (alive && b) setAllowed({ insights: b.insights === true });
+      .then((b: { insights?: boolean; admin?: boolean; pages?: string[] | null } | null) => {
+        if (alive && b) {
+          setAllowed({ insights: b.insights === true, admin: b.admin === true });
+          setPages(Array.isArray(b.pages) ? b.pages : null);
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -193,7 +199,7 @@ export default function SideNav() {
           {NAV.map((group) => (
             <div className="side-group" key={group.label}>
               <div className="side-group-label">{group.label}</div>
-              {group.items.filter((item) => !item.requires || allowed[item.requires]).map((item) => {
+              {group.items.filter((item) => (!item.requires || allowed[item.requires]) && (pages === null || item.requires === "admin" || pages.includes(item.href.slice(1).replace(/-/g, "_")))).map((item) => {
                 const active = item.exact
                   ? pathname === item.href
                   : pathname.startsWith(item.href);

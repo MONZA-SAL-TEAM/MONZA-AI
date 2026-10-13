@@ -18,6 +18,8 @@
  *    later, separately-permissioned surface — not a flag on this one.
  */
 
+import type { EffectiveAccess } from "@/lib/access/access";
+
 export interface StaffIdentity {
   /** auth.users id in the CRM project — the shared staff identity. */
   userId: string;
@@ -27,6 +29,8 @@ export interface StaffIdentity {
   /** Resolved from the CRM profiles table at sign-in. */
   appRole: string | null;
   capabilities: string[];
+  /** MONZA AI's own access for this person (lib/access, migration 029); absent in demo mode and in tests. */
+  access?: EffectiveAccess;
 }
 
 export interface ExecutionContext {

@@ -884,6 +884,36 @@ about our clients." Until then the engine read every message and forgot it.
 - Seen while building: "how much is the courage in pearl black? بدي اعرف" loses PRICE to GENERAL_INFO
   (the Arabic "I want to know" wins in classify). Not fixed; the alert is still LEAD.
 
+## Team & access (`/admin`, 2026-10-13, migration 029 APPLIED)
+
+Samer: "give roles to all the accounts … pages access and everything control and full tracking to when online
+and what is doing". His choices: **MONZA AI only** (the CRM's roles are never changed), **only he is admin**
+(seeded: his `skhanji55@gmail.com` profile; he can make others admin), tracking = **pages + actions, never which
+customer**.
+
+- `lib/access/access.ts` (pure): 11 pages, 7 actions (send_messages, take_leads, assign_leads, close_alerts,
+  edit_insights, manage_test_drives, edit_sales_library), presets (full / manager / sales / viewer / custom),
+  `apiRuleOf(path, method)` — every `app/api` route maps to a page and, when it changes something, an action
+  (a test fails for a new route without one), `allowsPage` / `allowsRule`.
+- **No `staff_access` row = as before** (the CRM role decides). Admin = everything + `/admin`. Blocked = nothing.
+  A row = exactly what is ticked — it can also OPEN MONZA AI things the CRM role would not (e.g. Insights); the CRM's
+  own data stays behind the CRM's permissions. The assistant's tool kernel still uses the CRM capabilities.
+- Enforced on the SERVER: `requireStaff` / `requireRealStaff` (lib/auth.ts `resolveStaff`) check the API rule
+  (refused → 401 / 403, recorded "refused"; allowed write → recorded "action"); `requireStaffForPage` checks the
+  page (→ `/no-access`); `requireAdminForPage` the admin section; `canSeeInsights`, `actorOf` (take/assign) and
+  `assignableStaff` follow the setting. Access is cached 15 s per server instance (`lib/access/access-server.ts`);
+  an unreadable table falls back to the last known answer, else the CRM role. The side rail hides what is not
+  open (`/api/me/capabilities` returns `pages`, `admin`) — a courtesy only.
+- Guards (`saveAccess`): nobody removes their own admin or blocks themselves; at least one admin remains; every
+  change in `staff_access_log` (who, when, before, after).
+- Tracking: `staff_presence` (section now, last seen, last active, device, signed in) from `ActivityPing` (at once on
+  a section change, then each minute while visible; "active" = used in the last 2 min); `staff_events` (sign_in from
+  the login screen, page = a section opened, action = an API write by its rule name, refused). Closed vocabulary —
+  never a customer, a message or a page address. `/admin` lists everyone (CRM staff list read as the admin) with
+  online status, last seen / signed in, minutes and actions today, CRM role and MONZA AI access; `/admin/[id]` edits
+  access and shows minutes per day per section and the day-by-day record. No sign-out exists in the app, so
+  "offline" is derived from the last ping. Staff should be told this is measured.
+
 ## The customer assistant (`/care`)
 
 The only public screen. Rules that keep it safe, all enforced in `lib/care/`

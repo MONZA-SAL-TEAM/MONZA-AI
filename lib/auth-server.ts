@@ -22,6 +22,8 @@ import { requireStaff, isDemoIdentity } from "@/lib/auth";
 import { channelDb } from "@/lib/channels/store";
 import { canSeeInsights } from "@/lib/insights/access";
 import type { StaffIdentity } from "@/lib/connectors/types";
+import { allowsPage, pageKeyOf } from "@/lib/access/access";
+import { recordStaffEvent } from "@/lib/access/access-server";
 
 const COOKIE_NAME = "monza-ai-token";
 
@@ -53,6 +55,23 @@ export async function requireStaffForPage(next: string): Promise<StaffIdentity> 
   const user = await staffForPage();
   if (!user) {
     redirect(`/login?next=${encodeURIComponent(next)}`);
+  }
+  // MONZA AI's own access (Team & access, lib/access): a page Samer has not opened to this person is refused here,
+  // on the server, whatever the side rail shows.
+  const page = pageKeyOf(next.split("?")[0]);
+  if (user.access && !isDemoIdentity(user) && !allowsPage(user.access, page)) {
+    await recordStaffEvent(user.userId, "refused", page ?? "page");
+    redirect(`/no-access${page ? `?page=${page}` : ""}`);
+  }
+  return user;
+}
+
+/** Guard the admin section (Team & access): admins only — Samer, and whoever he makes admin. */
+export async function requireAdminForPage(next: string): Promise<StaffIdentity> {
+  const user = await requireStaffForPage(next.startsWith("/admin") ? next : "/admin");
+  if (!user.access?.admin) {
+    await recordStaffEvent(user.userId, "refused", "admin");
+    redirect("/no-access?page=admin");
   }
   return user;
 }

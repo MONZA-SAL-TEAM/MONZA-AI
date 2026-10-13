@@ -16,14 +16,20 @@ const DAY = 86_400_000;
 /** Names come from the CRM's staff list; kept in memory for 6 h so a minute's ping does not ask every time. */
 const names = new Map<string, { name: string; at: number }>();
 
-export async function recordActivity(user: StaffIdentity, section: string, seconds: number): Promise<boolean> {
-  const sb = channelDb();
-  if (!sb) return false;
+/** A staff member's name from the CRM's staff list (kept 6 h). */
+export async function staffName(user: StaffIdentity): Promise<string> {
   let cached = names.get(user.userId);
   if (!cached || Date.now() - cached.at > 6 * 3_600_000) {
     cached = { name: (await actorOf(user)).name, at: Date.now() };
     names.set(user.userId, cached);
   }
+  return cached.name;
+}
+
+export async function recordActivity(user: StaffIdentity, section: string, seconds: number): Promise<boolean> {
+  const sb = channelDb();
+  if (!sb) return false;
+  const cached = { name: await staffName(user) };
   const { error } = await sb.rpc("staff_activity_ping", { p_staff: user.userId, p_name: cached.name, p_day: beirutDay(new Date().toISOString()), p_seconds: Math.round(seconds), p_section: section });
   if (error) console.error(`[activity] not recorded (${(error as { code?: string }).code ?? "?"})`);
   return !error;
