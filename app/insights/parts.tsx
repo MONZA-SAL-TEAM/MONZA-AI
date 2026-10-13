@@ -6,8 +6,10 @@
 import Link from "next/link";
 import type { LinkedCount } from "@/lib/insights/analysis";
 import { labHref } from "@/lib/insights/query";
+import type { DemandLevels } from "@/lib/insights/decisions";
 
 const SECTIONS: ReadonlyArray<[string, string]> = [
+  ["/insights/decisions", "Decision Center"],
   ["/insights", "Overview"],
   ["/insights/customers", "Customers & leads"],
   ["/insights/clients", "All clients"],
@@ -20,6 +22,7 @@ const SECTIONS: ReadonlyArray<[string, string]> = [
   ["/insights/conversations", "Conversations"],
   ["/insights/channels", "Channels"],
   ["/insights/team", "Team"],
+  ["/insights/employees", "Employees"],
   ["/insights/lab", "Research Lab"],
   ["/insights/quality", "Data quality"],
   ["/insights/connections", "Connections & imports"],
@@ -127,5 +130,57 @@ export function PlainBars({ items, title, of }: { items: readonly { key: string;
         </li>
       ))}
     </ul>
+  );
+}
+
+const num = (n: number | null | undefined) => (n === null || n === undefined ? "—" : n);
+
+/** The four levels of demand per car beside CRM stock and units sold (Decision Center, Models). */
+export function DemandLevelsTable({ levels }: { levels: readonly DemandLevels[] }) {
+  return (
+    <div className="ins-table-wrap">
+      <table className="ins-table">
+        <thead>
+          <tr>
+            <th scope="col">Car</th>
+            <th scope="col" title="Came from this car's ad">Ad</th>
+            <th scope="col" title="Named the car in their own words">Named it</th>
+            <th scope="col" title="Asked about it by context only">By context</th>
+            <th scope="col" title="Named or asked about it AND asked to buy, a price, installments, availability, a test drive or a visit">Intends to buy</th>
+            <th scope="col" title="Booked a test drive, or the CRM has an order for them for this car">Committed</th>
+            <th scope="col">In stock</th>
+            <th scope="col">Reserved</th>
+            <th scope="col">On the way</th>
+            <th scope="col">At sub-dealers</th>
+            <th scope="col">Sold 30 d</th>
+            <th scope="col">Sold 90 d</th>
+            <th scope="col">Sold 12 m</th>
+            <th scope="col" title="Cars in stock ÷ the last 90 days' monthly sales">Months of stock</th>
+          </tr>
+        </thead>
+        <tbody>
+          {levels.map((l) => (
+            <tr key={l.code}>
+              <th scope="row">
+                <Link href={`/insights/models/${l.code}`}>{l.label}</Link>
+              </th>
+              <td>{l.exposure}</td>
+              <td>{l.named}</td>
+              <td>{l.context}</td>
+              <td>{l.intent}</td>
+              <td>{l.committed}</td>
+              <td>{num(l.stock?.now)}</td>
+              <td>{num(l.stock?.reserved)}</td>
+              <td>{num(l.stock?.inbound)}</td>
+              <td>{num(l.stock?.subDealer)}</td>
+              <td>{num(l.sales?.last30)}</td>
+              <td>{num(l.sales?.last90)}</td>
+              <td>{num(l.sales?.last365)}</td>
+              <td>{l.monthsOfStock === null ? "—" : l.monthsOfStock}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

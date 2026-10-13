@@ -9,7 +9,7 @@
 import { crmEnv, makeUserClient, rel } from "@/lib/connectors/crm";
 import type { StaffIdentity } from "@/lib/connectors/types";
 import { isAutoLinkable, normalizeLebanesePhone } from "@/lib/leads/phone";
-import { crmModelCode, furthestOutcome, STOCK_INBOUND, STOCK_NOW, type CrmOrderRow, type CrmPurchase, type CrmResult, type PersonCrm, type StockRow } from "@/lib/insights/crm";
+import { crmModelCode, furthestOutcome, STOCK_STATUSES, type CrmOrderRow, type CrmPurchase, type CrmResult, type CrmSaleRow, type PersonCrm, type StockRow } from "@/lib/insights/crm";
 
 const connected = (identity: StaffIdentity) => crmEnv() !== null && identity.crmAccessToken !== "demo";
 const why = (e: unknown) => (e instanceof Error ? e.message : JSON.stringify(e));
@@ -61,7 +61,7 @@ export async function readCrmPurchases(identity: StaffIdentity, phones: readonly
   }
 }
 
-/** The CRM's cars that can be sold now or are on their way: model, colours, status. No price, no VIN. */
+/** The CRM's cars that can be sold now, are reserved, at a sub-dealer or on their way: model, colours, status. No price, no VIN. */
 export async function readCrmStock(identity: StaffIdentity): Promise<CrmResult<StockRow[]>> {
   if (!connected(identity)) return { state: "not_connected" };
   try {
@@ -72,7 +72,7 @@ export async function readCrmStock(identity: StaffIdentity): Promise<CrmResult<S
         .from("cars")
         .select("model, exterior_color, interior_color, status")
         .is("deleted_at", null)
-        .in("status", [...STOCK_NOW, ...STOCK_INBOUND])
+        .in("status", [...STOCK_STATUSES])
         .range(from, from + 999);
       if (error) throw error;
       const rows = (data ?? []) as StockRow[];
@@ -129,6 +129,34 @@ export async function readCrmOutcomes(identity: StaffIdentity): Promise<CrmResul
     return { state: "ok", data: out };
   } catch (e) {
     console.error("[insights] the CRM read of sales outcomes failed:", why(e));
+    return { state: "unavailable" };
+  }
+}
+
+/** Every CRM sales order's car model, status and date, as the viewer — for units sold. No price, no customer. */
+export async function readCrmSales(identity: StaffIdentity): Promise<CrmResult<CrmSaleRow[]>> {
+  if (!connected(identity)) return { state: "not_connected" };
+  try {
+    const db = makeUserClient({ user: identity, conversationId: null, turnId: "insights-sales" });
+    const out: CrmSaleRow[] = [];
+    for (let from = 0; from < 50_000; from += 1000) {
+      const { data, error } = await db
+        .from("sales_orders")
+        .select("status, sale_date, created_at, cars!sales_orders_car_id_fkey ( model )")
+        .is("deleted_at", null)
+        .range(from, from + 999);
+      if (error) throw error;
+      const page = (data ?? []) as Record<string, unknown>[];
+      for (const o of page) {
+        const car = rel<Record<string, unknown>>(o.cars);
+        const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+        out.push({ model: str(car?.model), status: str(o.status), at: str(o.sale_date) ?? str(o.created_at) });
+      }
+      if (page.length < 1000) break;
+    }
+    return { state: "ok", data: out };
+  } catch (e) {
+    console.error("[insights] the CRM read of sales volumes failed:", why(e));
     return { state: "unavailable" };
   }
 }

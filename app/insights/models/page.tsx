@@ -2,10 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireInsightsAccess } from "@/lib/auth-server";
 import { modelsTable } from "@/lib/insights/analysis";
-import { readAnalysis } from "@/lib/insights/analysis-server";
+import { phoneOfPerson, readAnalysis } from "@/lib/insights/analysis-server";
+import { readCrmOutcomes, readCrmSales, readCrmStock } from "@/lib/insights/crm-server";
+import { salesByModel, stockByModel } from "@/lib/insights/crm";
+import { demandLevels } from "@/lib/insights/decisions";
 import { labHref } from "@/lib/insights/query";
 import NotAllowed from "../NotAllowed";
-import { InsightsNav, PeriodChips, parseDays } from "../parts";
+import { DemandLevelsTable, InsightsNav, PeriodChips, parseDays } from "../parts";
 import "../../board.css";
 import "../insights.css";
 
@@ -17,8 +20,18 @@ export default async function ModelsPage({ searchParams }: { searchParams: Promi
   const access = await requireInsightsAccess("/insights/models");
   if (!access.allowed) return <NotAllowed />;
   const days = parseDays((await searchParams).days);
-  const read = await readAnalysis(days);
+  const [read, stockRead, salesRead, outcomes] = await Promise.all([readAnalysis(days), readCrmStock(access.user), readCrmSales(access.user), readCrmOutcomes(access.user)]);
   const rows = read.state === "ok" ? modelsTable(read.people, read.nowMs) : [];
+  const phoneOf = read.state === "ok" ? phoneOfPerson(read.rows) : null;
+  const levels =
+    read.state === "ok"
+      ? demandLevels({
+          people: read.people,
+          stock: stockRead.state === "ok" ? Object.fromEntries(stockByModel(stockRead.data)) : null,
+          sales: salesRead.state === "ok" ? Object.fromEntries(salesByModel(salesRead.data, read.nowMs)) : null,
+          orderedModels: outcomes.state === "ok" && phoneOf ? (p) => outcomes.data[phoneOf(p) ?? ""]?.models ?? [] : null,
+        })
+      : [];
   const lab = (q: Parameters<typeof labHref>[0]) => labHref({ ...q, ...([30, 90, 365].includes(days) ? { days } : {}) });
 
   return (
@@ -79,6 +92,17 @@ export default async function ModelsPage({ searchParams }: { searchParams: Promi
               </tbody>
             </table>
           </div>
+        </section>
+      )}
+      {read.state === "ok" && (
+        <section className="ins-panel">
+          <h2 className="ins-h2">Four levels of demand, beside stock and sales</h2>
+          <p className="ins-known">
+            People who wrote in the period, each once per column: an ad click is exposure; naming the car is interest; asking to buy, a price,
+            installments, a test drive or a visit is intent; a booked test drive or a CRM order is commitment. Stock and units sold are the CRM&apos;s now,
+            read as you — no price. &quot;—&quot; = the CRM could not be read: unknown, not zero.
+          </p>
+          <DemandLevelsTable levels={levels} />
         </section>
       )}
     </div>

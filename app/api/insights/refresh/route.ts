@@ -5,19 +5,21 @@ import { channelDb } from "@/lib/channels/store";
 import { backfillDone, metaAccountIds, runMetaBackfill, type BackfillOutcome } from "@/lib/insights/meta-backfill";
 import { refreshInsightPeople } from "@/lib/insights/people-server";
 import { storeDemand } from "@/lib/insights/demand-server";
-import { READER_VERSION } from "@/lib/wasales/reader";
-import { rebuildWhatsApp } from "@/lib/wasales/signal-server";
+import { rereadPending } from "@/lib/wasales/signal-server";
+import { startCatchup } from "@/lib/insights/catchup-server";
 
 /**
  * GET /api/insights/refresh — the nightly insights read (vercel.json, 02:00 UTC; Samer, 2026-10-12:
  * "every night"). Inside the route's 60 s:
  *
- *   1. WhatsApp conversations still read by an OLDER reader are read again (rebuildWhatsApp).
+ *   1. WhatsApp conversations still read by an OLDER reader: the server-side re-read is started (it runs in
+ *      its own steps until finished — lib/insights/catchup-server.ts).
  *   2. Each Instagram / Facebook account: its one-time history read continues where it stopped; once
  *      done, the newest threads are read, stopping at the first one already read and unchanged.
  *      The account that starts rotates each night, so none is starved.
  *   3. The per-person summaries (insight_people) are rebuilt for the Research Lab.
- *   4. The anonymous demand record (insight_demand_daily) is stored for recent months.
+ *   4. The anonymous demand record (insight_demand_daily) is stored for recent months — not while a re-read
+ *      is pending; the re-read stores it whole when it finishes.
  *
  * Vercel Cron sends `Authorization: Bearer <CRON_SECRET>`; anybody else — and everybody while it is
  * unset — gets 401. Codes and counts only in the answer and the log.
@@ -35,14 +37,12 @@ export async function GET(request: Request): Promise<NextResponse> {
   const sb = channelDb();
   if (!sb) return NextResponse.json({ ok: false, message: "The database is not reachable here." }, { status: 503, headers: NO_STORE });
 
-  // 1. WhatsApp on an old reader version.
-  let whatsapp: { conversations: number; done: boolean } | null = null;
-  const { data: stale } = await sb.from("sales_signals").select("id").eq("channel", "whatsapp").lt("reader_version", READER_VERSION).limit(1);
-  if (Array.isArray(stale) && stale.length > 0) {
+  // 1. WhatsApp on an old reader version: the server-side re-read is started (or found already reading) and
+  //    continues in its own steps (catchup-server.ts), so the night's minute stays for Meta.
+  let whatsapp: string | null = null;
+  if ((await rereadPending()) === true) {
     const { data: run } = await sb.from("insight_backfill_runs").select("state").eq("id", "wa:rebuild").maybeSingle();
-    // A reader change re-labels everything: WhatsApp gets most of the night's minute until it is done.
-    const r = await rebuildWhatsApp(32_000, (run as { state?: string } | null)?.state === "done");
-    whatsapp = r ? { conversations: r.conversations, done: r.done } : null;
+    whatsapp = await startCatchup(new URL(request.url).origin, "wa", (run as { state?: string } | null)?.state === "done");
   }
 
   // 2. Instagram and Facebook, rotating which account goes first.
@@ -55,6 +55,12 @@ export async function GET(request: Request): Promise<NextResponse> {
     // Keep ~14 s for the per-person summaries and the demand record at the end.
     if (remaining < 22_000) break;
     const mode = (await backfillDone(id)) ? "nightly" : "backfill";
+    // A history read already running on the server for this account owns its cursor: leave it alone.
+    if (mode === "backfill") {
+      const { data: lease } = await sb.from("insight_backfill_runs").select("lease_until").eq("id", `meta:${id}`).maybeSingle();
+      const until = (lease as { lease_until?: string | null } | null)?.lease_until;
+      if (until && Date.parse(until) > Date.now()) continue;
+    }
     const r = await runMetaBackfill({ accountId: id, mode, budgetMs: Math.min(remaining - 13_000, 35_000) });
     if (!r) break;
     accounts.push({ accountId: r.accountId, mode: r.mode, state: r.state, code: r.code, threads: r.threads, signals: r.signals, calls: r.calls });

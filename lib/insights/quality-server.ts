@@ -16,6 +16,12 @@ export interface QualityExtras {
   metaRuns: MetaRunView[];
   peopleRefreshedAt: string | null;
   peopleRows: number;
+  /** The server-side WhatsApp re-read is running now (its lease is alive). */
+  rereadRunning: boolean;
+  /** Instagram customer messages recorded in the last 7 days. */
+  instagram7d: number;
+  /** When the permanent demand record was last stored; null = never. */
+  demandStoredAt: string | null;
 }
 
 async function count(build: () => PromiseLike<{ count: number | null; error: unknown }>): Promise<number> {
@@ -32,13 +38,15 @@ export async function readQualityExtras(): Promise<QualityExtras | null> {
   const readerVersions = await Promise.all(
     Array.from({ length: READER_VERSION }, (_, i) => i + 1).map(async (version) => ({ version, n: await count(() => sb.from("sales_signals").select("id", { count: "exact", head: true }).eq("reader_version", version)) }))
   );
-  const [{ data: wa }, metaRuns, { data: last }, peopleRows] = await Promise.all([
-    sb.from("insight_backfill_runs").select("state, updated_at").eq("id", "wa:rebuild").maybeSingle(),
+  const [{ data: wa }, metaRuns, { data: last }, peopleRows, instagram7d, { data: demand }] = await Promise.all([
+    sb.from("insight_backfill_runs").select("state, updated_at, lease_until").eq("id", "wa:rebuild").maybeSingle(),
     readMetaRuns().catch(() => []),
     sb.from("insight_people").select("updated_at").order("updated_at", { ascending: false }).limit(1).maybeSingle(),
     count(() => sb.from("insight_people").select("person_key", { count: "exact", head: true })),
+    count(() => sb.from("sales_signals").select("id", { count: "exact", head: true }).eq("channel", "instagram").gte("at", new Date(Date.now() - 7 * 86_400_000).toISOString())),
+    sb.from("insight_demand_daily").select("computed_at").order("computed_at", { ascending: false }).limit(1).maybeSingle(),
   ]);
-  const w = wa as { state?: string; updated_at?: string } | null;
+  const w = wa as { state?: string; updated_at?: string; lease_until?: string | null } | null;
   return {
     sources,
     readerVersions: readerVersions.filter((r) => r.n > 0),
@@ -47,5 +55,8 @@ export async function readQualityExtras(): Promise<QualityExtras | null> {
     metaRuns,
     peopleRefreshedAt: (last as { updated_at?: string } | null)?.updated_at ?? null,
     peopleRows,
+    rereadRunning: Boolean(w?.lease_until && Date.parse(w.lease_until) > Date.now()),
+    instagram7d,
+    demandStoredAt: (demand as { computed_at?: string } | null)?.computed_at ?? null,
   };
 }

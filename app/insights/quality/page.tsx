@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { requireInsightsAccess } from "@/lib/auth-server";
 import { qualityView } from "@/lib/insights/analysis";
-import { readAnalysis } from "@/lib/insights/analysis-server";
+import { phoneOfPerson, readAnalysis } from "@/lib/insights/analysis-server";
+import { readCrmOutcomes } from "@/lib/insights/crm-server";
 import { readQualityExtras } from "@/lib/insights/quality-server";
 import { longDate } from "@/lib/format";
 import NotAllowed from "../NotAllowed";
@@ -23,11 +24,19 @@ export default async function QualityPage({ searchParams }: { searchParams: Prom
   const access = await requireInsightsAccess("/insights/quality");
   if (!access.allowed) return <NotAllowed />;
   const days = parseDays((await searchParams).days, 0);
-  const [read, extras] = await Promise.all([readAnalysis(days), readQualityExtras()]);
+  const [read, extras, crm] = await Promise.all([readAnalysis(days), readQualityExtras(), readCrmOutcomes(access.user)]);
+  const phoneOf = read.state === "ok" ? phoneOfPerson(read.rows) : null;
   const q =
     read.state === "ok"
-      ? qualityView(read.people, read.rows.observations ?? [], (p) => p.channels.includes("whatsapp") || (p.leadId !== null && read.rows.leads.some((l) => l.id === p.leadId && Boolean(l.phone))))
+      ? qualityView(
+          read.people,
+          read.rows.observations ?? [],
+          (p) => p.channels.includes("whatsapp") || (p.leadId !== null && read.rows.leads.some((l) => l.id === p.leadId && Boolean(l.phone))),
+          crm.state === "ok" && phoneOf ? (p) => Boolean(crm.data[phoneOf(p) ?? ""]) : undefined
+        )
       : null;
+  const current = extras?.readerVersions.find((r) => r.version === extras.current)?.n ?? 0;
+  const allLabels = extras?.readerVersions.reduce((a, r) => a + r.n, 0) ?? 0;
 
   return (
     <div className="board">
@@ -75,8 +84,41 @@ export default async function QualityPage({ searchParams }: { searchParams: Prom
                 </tbody>
               </table>
             </div>
-            <p className="ins-known">of {q.people} people</p>
+            <p className="ins-known">
+              of {q.people} people. Each is shown on its own — never blended into one &quot;accuracy&quot; score.
+              {crm.state !== "ok" ? " CRM orders: the CRM could not be read as you, so that line is missing — unknown, not zero." : ""}
+            </p>
           </div>
+          {extras && (
+            <div className="ins-panel">
+              <h2 className="ins-h2">Processing — is everything read?</h2>
+              <div className="ins-table-wrap">
+                <table className="ins-table">
+                  <tbody>
+                    <tr>
+                      <th scope="row">Labels made by the current reader</th>
+                      <td>{allLabels ? `${Math.round((current / allLabels) * 100)}%` : "—"}</td>
+                      <td>{current} of {allLabels}{extras.rereadRunning ? " · re-reading on the server now" : ""}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Instagram messages, last 7 days</th>
+                      <td>{extras.instagram7d}</td>
+                      <td>{extras.instagram7d === 0 ? "none reach MONZA AI" : ""}</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Instagram / Facebook history imported</th>
+                      <td>{extras.metaRuns.filter((r) => r.state === "done").length} of {extras.metaRuns.length}</td>
+                      <td>accounts finished</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Demand record stored</th>
+                      <td colSpan={2}>{extras.demandStoredAt ? day(extras.demandStoredAt) : "never"}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
           <div className="ins-panel">
             <h2 className="ins-h2">How colours were tied to a car</h2>
             <div className="ins-table-wrap">

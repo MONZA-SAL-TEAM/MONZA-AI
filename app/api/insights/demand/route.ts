@@ -17,5 +17,6 @@ export async function POST(request: Request): Promise<NextResponse> {
   const scope = new URL(request.url).searchParams.get("scope") === "all" ? "all" : "recent";
   const r = await storeDemand(scope);
   if (!r) return NextResponse.json({ ok: false, message: "The demand record could not be stored just now." }, { status: 503 });
+  if ("skipped" in r) return NextResponse.json({ ok: false, message: "The WhatsApp history is still being read again; the record is stored by itself when that finishes." }, { status: 409 });
   return NextResponse.json({ ok: true, ...r }, { headers: { "Cache-Control": "no-store" } });
 }

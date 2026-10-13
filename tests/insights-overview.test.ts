@@ -38,7 +38,7 @@ const base = {
 };
 
 describe("the executive overview", () => {
-  const o = executiveOverview({ ...base, outcomeOf: (p) => (p.key === "b" ? "won" : null), stock: { COURAGE: { now: 2, inbound: 0, colours: [] } } });
+  const o = executiveOverview({ ...base, outcomeOf: (p) => (p.key === "b" ? "won" : null), stock: { COURAGE: { now: 2, inbound: 0, reserved: 0, subDealer: 0, colours: [] } } });
   const k = (key: string) => o.kpis.find((x) => x.key === key)!;
   test("people once; new is the first message EVER in the period", () => {
     assert.equal(k("people").value, 3);

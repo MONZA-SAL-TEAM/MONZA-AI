@@ -703,7 +703,7 @@ about our clients." Until then the engine read every message and forgot it.
   LISTENER (`listenerState` keeps the customer's cars, ad, trade-in; it clears what the silent bot would have
   asked, so a later "yes" / "2" / "white" is never an answer to a question nobody asked). A car a STAFF
   message names is context (`noteStaffWords`), never the customer's interest. The 72 h TTL applies to the
-  observer too. State per conversation in `insight_reader_state` (labels only). `READER_VERSION` is stored on
+  observer too. State per conversation in `insight_reader_state` (labels only). `READER_VERSION` (6 since 2026-10-13) is stored on
   every row: bump it when a rule changes and re-run the rebuild.
 - **`sales_observations`: typed facts, never words** (`lib/wasales/observe.ts`, lexicon in
   `observe-lexicon.ts`). `kind` model / colour (later budget, timeline, purpose, city, competitor, trade_in,
@@ -834,6 +834,40 @@ about our clients." Until then the engine read every message and forgot it.
   (`POST /api/insights/demand?scope=all`); a period is rewritten whole, and periods whose labels are gone are
   never touched. Page `/insights/demand` with Excel/CSV export. Monthly rows exist because adding days counts a
   person once per day.
+- **Third stage (Samer's audit and "Fixes + Decision Center", 2026-10-13; migration 028 APPLIED).**
+  - **Brand from the car** (`messageBrand` in reader.ts, READER_VERSION 6): every WhatsApp label was "monza" because
+    the shared number is Monza's, so VOYAH / MHERO showed nothing for WhatsApp. On a `monza` account the message's
+    brand is the cars' (named, context, ad) when they are all one marque; no car or both marques stay `monza`.
+    A brand account keeps its brand (rule 1). Labels only — the conversation's routing brand is unchanged.
+  - **History reads run ON THE SERVER** (`lib/insights/catchup-server.ts`, `GET /api/insights/catchup`, CRON_SECRET):
+    the browser-driven re-read had stopped at the one-hour sign-in. A step reads ~42 s, then calls its own route for
+    the next; a lease on the `insight_backfill_runs` row (`lease`, `lease_until` 90 s, `hops`) keeps one chain per job
+    (`wa`, `meta:<account>`); at most 80 steps; a resumed WhatsApp read goes round once more from the start; the last
+    step rebuilds the summaries and stores the demand record whole. Buttons: `POST /api/insights/rebuild[?job=…]`
+    starts it and returns; `GET` shows progress. The nightly job starts the WhatsApp chain and leaves an account whose
+    chain is running alone. **The demand record waits while re-readable labels (last 360 days) are on an older reader.**
+  - **CRM stock was always 0**: the CRM marks stock `inventory` (50 cars), missing from `STOCK_NOW`. Now counted, with
+    reserved, at sub-dealers and inbound/customs apart. **Units sold** per car from `sales_orders` (paid/delivered, by
+    `sale_date`; `readCrmSales`, as the viewer, no price) and months of stock at the 90-day pace (blank when nothing sold).
+  - **Decision Center `/insights/decisions`** (`decisions.ts` pure, `decisions-server.ts`): 11 fixed rules (buyer waiting
+    past 2 business hours, test drive with no booking, alert open 24 h — "answered, close it" when a person wrote after —,
+    qualified leads with no owner, buyers above stock, wanted colour not in stock, stock nobody asked about, and data
+    health: re-read pending, Instagram silent, demand not stored, CRM unlinkable). Items in `insight_decisions`: one live
+    item per rule+subject (partial unique index), refreshed on every look, CLEARED by themselves when the condition is gone
+    (only for rules actually checked — an unreadable CRM clears no stock item), a dismissed one stays away 7 days; every
+    action in `insight_decision_events`. Assigning a customer's item also makes the person the lead's owner (manage_team /
+    owner only). Five morning numbers; conversion by car is "unknown", never 0, while no chat links to a CRM sale. The
+    four demand levels (ad / named / context / intends / committed) beside stock and sales are on it and on Models.
+  - **Employees `/insights/employees`** (`activity.ts`, `activity-server.ts`, `components/ActivityPing.tsx` in the layout,
+    `POST /api/me/activity`): minutes ACTIVELY using MONZA AI (visible and used in the last 2 minutes), per section name
+    only — never a page address or a customer; `staff_activity_ping` credits at most the wall-clock time since the last
+    minute (90 s max), so two tabs never count double. Tasks from the records: replies sent from MONZA AI (staff id),
+    leads taken/assigned, alerts closed (by name), Decision Center actions, reviews, lost reasons, identity decisions.
+    Phone-app replies have no name and are shown apart. The page says time in the app is not hours worked.
+  - Data quality shows each coverage figure on its own (car named / by context, colour, budget, timeline, city, purpose,
+    owner, test drive booked, lost reason, CRM order) plus processing (current-reader share, Instagram 7 days, Meta
+    history done, demand stored). Samer: client facts are filled by the system from the chats, never typed by staff;
+    after-sales stays in the Monza S.A.L. CRM app, not here.
 - Labels are kept LONGER than the 12-month chat retention (Samer, 2026-10-12): they hold no words. Deleting
   a person still removes them (every table cascades from `channel_conversations`).
 - Plan for Phases 2–5 (profile facts, client profile + CRM car, IG/FB backfill + nightly, lead ownership,

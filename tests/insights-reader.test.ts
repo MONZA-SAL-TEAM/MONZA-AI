@@ -10,7 +10,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { listenerState, readConversation, READER_VERSION, type Turn } from "@/lib/wasales/reader";
+import { listenerState, messageBrand, readConversation, READER_VERSION, type Turn } from "@/lib/wasales/reader";
 import type { Observation } from "@/lib/wasales/observe";
 import { freshState } from "@/lib/wasales/context";
 import { MONZA_KNOWLEDGE } from "@/lib/wasales/knowledge";
@@ -67,6 +67,17 @@ describe("a conversation is read with memory", () => {
 
   test("the reader version is recorded, so old readings can be found and read again", () => {
     assert.equal(read(["courage"]).results[0].signal.readerVersion, READER_VERSION);
+  });
+
+  test("on Monza's shared number the car decides the brand; no car or both marques stay Monza (audit 2026-10-13)", () => {
+    const k = MONZA_KNOWLEDGE;
+    assert.equal(messageBrand("monza", ["COURAGE"], k), "voyah");
+    assert.equal(messageBrand("monza", ["MHERO_1", null], k), "mhero");
+    assert.equal(messageBrand("monza", [], k), "monza");
+    assert.equal(messageBrand("monza", ["COURAGE", "MHERO_2"], k), "monza");
+    assert.equal(messageBrand("voyah", ["MHERO_1"], k), "voyah", "a brand account's messages are its brand (rule 1)");
+    assert.equal(read(["courage price?"]).results[0].signal.brand, "voyah");
+    assert.equal(read(["hello"]).results[0]?.signal.brand ?? "monza", "monza");
   });
 });
 

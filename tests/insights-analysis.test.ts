@@ -114,7 +114,7 @@ describe("the analysis pages", () => {
     assert.equal(d.weekly.reduce((a, b) => a + b, 0) >= 2, true);
   });
   test("colours: the share is over people who named a colour; strict drops conversation-tied ones", () => {
-    const loose = colourMatrix(ROWS.observations!, people, personOf, false, { COURAGE: { now: 3, inbound: 1, colours: [{ key: "black", n: 2 }] } }).find((r) => r.code === "COURAGE")!;
+    const loose = colourMatrix(ROWS.observations!, people, personOf, false, { COURAGE: { now: 3, inbound: 1, reserved: 0, subDealer: 0, colours: [{ key: "black", n: 2 }] } }).find((r) => r.code === "COURAGE")!;
     assert.equal(loose.known, 2);
     assert.equal(loose.unknown, 0);
     assert.deepEqual(loose.exterior.map((c) => [c.family, c.people, c.share, c.stockNow]), [["black", 1, 0.5, 2], ["white", 1, 0.5, 0]]);

@@ -179,6 +179,21 @@ export async function recordSignal(sb: SupabaseClient, text: string, meta: Signa
   }
 }
 
+/**
+ * Is any WhatsApp label that CAN be read again still from an older reader? Null when it cannot be told.
+ * (The demand record waits.) Only the last 360 days count: the words are kept 12 months, while labels are
+ * kept longer (Samer, 2026-10-12) — an older label whose message is gone can never be read again and must
+ * not hold anything up.
+ */
+export async function rereadPending(): Promise<boolean | null> {
+  const sb = channelDb();
+  if (!sb) return null;
+  const since = new Date(Date.now() - 360 * 86_400_000).toISOString();
+  const { data, error } = await sb.from("sales_signals").select("id").eq("channel", "whatsapp").lt("reader_version", READER_VERSION).gte("at", since).limit(1);
+  if (error) return null;
+  return Array.isArray(data) && data.length > 0;
+}
+
 export interface RebuildOutcome {
   done: boolean;
   conversations: number;
@@ -205,9 +220,10 @@ export async function rebuildWhatsApp(budgetMs = 45_000, restart = false): Promi
 
   const { data: runRow } = await sb.from("insight_backfill_runs").select("cursor, state").eq("id", RUN_ID).maybeSingle();
   let cursor = restart ? null : ((runRow as { cursor?: string | null } | null)?.cursor ?? null);
-  if (restart || !runRow) await sb.from("insight_backfill_runs").upsert({ id: RUN_ID, state: "running", cursor: null, started_at: new Date().toISOString(), updated_at: new Date().toISOString(), finished_at: null }, { onConflict: "id" });
+  if (restart || !runRow) await sb.from("insight_backfill_runs").upsert({ id: RUN_ID, state: "running", cursor: null, threads_seen: 0, messages_read: 0, signals_written: 0, started_at: new Date().toISOString(), updated_at: new Date().toISOString(), finished_at: null }, { onConflict: "id" });
 
   const out: RebuildOutcome = { done: false, conversations: 0, messages: 0, signals: 0, observations: 0 };
+  let counted = { threads: 0, messages: 0, signals: 0 };
   while (Date.now() < deadline) {
     let q = sb.from("channel_conversations").select("id, account_id, brand, peer_external_id").in("account_id", waAccounts.map((a) => a.id)).order("id", { ascending: true }).limit(25);
     if (cursor) q = q.gt("id", cursor);
@@ -252,6 +268,15 @@ export async function rebuildWhatsApp(budgetMs = 45_000, restart = false): Promi
       out.messages += turns.length;
     }
     await sb.from("insight_backfill_runs").update({ cursor, updated_at: new Date().toISOString() }).eq("id", RUN_ID);
+    // Progress the Connections page can show (a restart counts again from zero).
+    // Only one reader holds the run at a time (its lease, lib/insights/catchup-server.ts), so adding here is safe.
+    const { data: before } = await sb.from("insight_backfill_runs").select("threads_seen, messages_read, signals_written").eq("id", RUN_ID).maybeSingle();
+    const b = (before ?? {}) as { threads_seen?: number; messages_read?: number; signals_written?: number };
+    await sb
+      .from("insight_backfill_runs")
+      .update({ threads_seen: (b.threads_seen ?? 0) + out.conversations - counted.threads, messages_read: (b.messages_read ?? 0) + out.messages - counted.messages, signals_written: (b.signals_written ?? 0) + out.signals - counted.signals })
+      .eq("id", RUN_ID);
+    counted = { threads: out.conversations, messages: out.messages, signals: out.signals };
     if (list.length < 25) {
       out.done = true;
       break;

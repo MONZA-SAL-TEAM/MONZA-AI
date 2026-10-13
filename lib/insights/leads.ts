@@ -106,7 +106,9 @@ export function crmOf(p: PersonFacts, input: Pick<LeadsInput, "crm" | "phoneOf">
 }
 
 const interest = (p: PersonFacts) => p.models.length > 0 || p.contextModels.length > 0 || p.categories.length > 0;
-const qualified = (p: PersonFacts) => (p.models.length > 0 || p.contextModels.length > 0) && p.topics.some((t) => QUALIFYING.has(t));
+/** Vehicle interest AND a buying question (price, installments, availability, offers, trade-in, test drive, visit, "I want to buy"). */
+export const isQualified = (p: Pick<PersonFacts, "models" | "contextModels" | "topics">) => (p.models.length > 0 || p.contextModels.length > 0) && p.topics.some((t) => QUALIFYING.has(t));
+const qualified = isQualified;
 const atLeast = (o: CrmOutcome | undefined, min: "quoted" | "reserved" | "won") => {
   const rank: Record<CrmOutcome, number> = { lost: 0, open: 1, quoted: 2, reserved: 3, won: 4 };
   const need = { quoted: 2, reserved: 3, won: 4 }[min];

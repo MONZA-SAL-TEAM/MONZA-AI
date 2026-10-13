@@ -40,7 +40,7 @@ export default async function ModelPage({ params, searchParams }: { params: Prom
   const d = modelDetail(code, read.people, read.rows.signals, read.personOf, read.nowMs);
   const its = read.people.filter((p) => p.models.includes(code) || p.contextModels.includes(code));
   const funnel = leadsView({ people: its, alerted: alertedPeople(read.rows, read.personOf), phoneOf: phoneOfPerson(read.rows), crm: crm.state === "ok" ? { state: "ok", byPhone: crm.data } : crm, sinceMs: days > 0 ? read.nowMs - days * 86_400_000 : 0, nowMs: read.nowMs });
-  const stock = stockRead.state === "ok" ? (stockByModel(stockRead.data).get(code as never) ?? { now: 0, inbound: 0, colours: [] }) : null;
+  const stock = stockRead.state === "ok" ? (stockByModel(stockRead.data).get(code as never) ?? { now: 0, inbound: 0, reserved: 0, subDealer: 0, colours: [] }) : null;
   const unavailable = stock ? d.exterior.filter((c) => !stock.colours.some((s) => s.key === c.key)) : [];
   return (
     <div className="board">

@@ -16,12 +16,12 @@ import { freshState, isExpired, type SearchEngineState } from "@/lib/wasales/con
 import { decide, engineCars, type EngineDeps } from "@/lib/wasales/engine";
 import { resolveModels } from "@/lib/wasales/entities";
 import { vocabularyWords } from "@/lib/wasales/intent";
-import { modelByCatalogueId, salesBrandOf, type ModelCode } from "@/lib/wasales/knowledge";
+import { modelByCatalogueId, salesBrandOf, type ModelCode, type SalesKnowledge } from "@/lib/wasales/knowledge";
 import { observe, type Observation } from "@/lib/wasales/observe";
 import { signalFromDecision, type Signal, type SignalMeta } from "@/lib/wasales/signal";
 
 /** Bump when a reading rule changes: stored rows on an older version are read again. */
-export const READER_VERSION = 5;
+export const READER_VERSION = 6;
 
 export interface Turn {
   author: "customer" | "staff" | "automation";
@@ -38,6 +38,18 @@ export interface ReadResult {
 }
 
 const VOCABULARY = vocabularyWords();
+
+/**
+ * The brand a message is about. A brand account's messages are its brand (rule 1). Monza's shared WhatsApp
+ * number sells both marques, so there the cars decide — named, by context or the ad's — when they are all of
+ * one marque; otherwise (no car, or both marques) it stays "monza" (Samer's audit, 2026-10-13: every
+ * WhatsApp message was "Monza S.A.L.", so VOYAH and MHERO showed nothing for WhatsApp).
+ */
+export function messageBrand(accountBrand: string, codes: readonly (string | null | undefined)[], k: SalesKnowledge): string {
+  if (accountBrand !== "monza") return accountBrand;
+  const brands = new Set(codes.map((c) => (c ? k.models.find((m) => m.code === c)?.brand : undefined)).filter((b): b is "voyah" | "mhero" => Boolean(b)));
+  return brands.size === 1 ? [...brands][0] : accountBrand;
+}
 
 /** What a listener keeps: the customer's words, never the bot's questions. */
 export function listenerState(next: SearchEngineState): SearchEngineState {
@@ -100,7 +112,7 @@ export function readNext(turn: Turn, state: SearchEngineState, meta: SignalMeta,
   const observations = observe(turn.text, d, { knowledge: deps.knowledge, cars: engineCars(deps.knowledge, deps.catalog), before });
   return {
     result: {
-      signal: { ...signal, readerVersion: READER_VERSION, contextModels, needs: observations.filter((o) => o.kind === "need").map((o) => o.value), ownerSupport: u.ownerSupport, ended: u.ended, adModel: next.adModel ?? null },
+      signal: { ...signal, brand: messageBrand(signal.brand, [...signal.models, ...contextModels, next.adModel], deps.knowledge), readerVersion: READER_VERSION, contextModels, needs: observations.filter((o) => o.kind === "need").map((o) => o.value), ownerSupport: u.ownerSupport, ended: u.ended, adModel: next.adModel ?? null },
       observations,
     },
     state: next,

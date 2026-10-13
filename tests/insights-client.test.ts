@@ -7,7 +7,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { buildClientProfile, parsePersonKey, type ProfileRows } from "@/lib/insights/profile";
-import { colourFamily, crmModelCode, stockByModel, type CrmPurchase, type CrmResult } from "@/lib/insights/crm";
+import { colourFamily, crmModelCode, monthsOfStock, salesByModel, stockByModel, type CrmPurchase, type CrmResult } from "@/lib/insights/crm";
 import { buildInsights, type ObservationRow, type SignalRow } from "@/lib/insights/insights";
 
 const C1 = "11111111-1111-4111-8111-111111111111";
@@ -114,8 +114,33 @@ describe("the CRM's own words", () => {
       { model: "courage", exterior_color: "grey", interior_color: null, status: "available" },
       { model: "courage", exterior_color: "white", interior_color: null, status: "inbound" },
       { model: "courage", exterior_color: "white", interior_color: null, status: "sold" },
+      // The CRM's own word for a car in stock (50 cars on 2026-10-13) — once missed, so stock read 0.
+      { model: "courage", exterior_color: "Pearl Black", interior_color: null, status: "inventory" },
+      { model: "courage", exterior_color: "grey", interior_color: null, status: "reserved" },
+      { model: "courage", exterior_color: "grey", interior_color: null, status: "sent_to_sub_dealer" },
+      { model: "courage", exterior_color: "grey", interior_color: null, status: "sent_to_customs" },
     ]);
-    assert.deepEqual(s.get("COURAGE"), { now: 3, inbound: 1, colours: [{ key: "black", n: 2 }, { key: "grey", n: 1 }] });
+    assert.deepEqual(s.get("COURAGE"), { now: 4, inbound: 2, reserved: 1, subDealer: 1, colours: [{ key: "black", n: 3 }, { key: "grey", n: 1 }] });
+  });
+
+  test("units sold per car: paid or delivered orders only, by age, never a price", () => {
+    const now = Date.parse("2026-10-13T12:00:00Z");
+    const s = salesByModel(
+      [
+        { model: "courage", status: "paid", at: "2026-10-01" },
+        { model: "courage", status: "delivered", at: "2026-08-01" },
+        { model: "courage", status: "paid", at: "2025-01-01" },
+        { model: "courage", status: "paid", at: null },
+        { model: "courage", status: "reserved", at: "2026-10-05" },
+        { model: "courage", status: "cancelled", at: "2026-10-05" },
+        { model: "unknown car", status: "paid", at: "2026-10-05" },
+      ],
+      now
+    ).get("COURAGE")!;
+    assert.deepEqual([s.last30, s.last90, s.last365, s.total, s.open, s.undated], [1, 2, 2, 4, 1, 1]);
+    assert.equal(s.byMonth["2026-10"], 1);
+    assert.equal(monthsOfStock(4, 3), 4);
+    assert.equal(monthsOfStock(4, 0), null, "nothing sold: unknown, never infinite");
   });
 });
 

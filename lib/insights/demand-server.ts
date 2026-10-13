@@ -9,12 +9,22 @@
  */
 
 import { channelDb } from "@/lib/channels/store";
+import { rereadPending } from "@/lib/wasales/signal-server";
 import { readInsightRows } from "@/lib/insights/insights-server";
 import { beirutDay, demandRows, type DemandRow } from "@/lib/insights/demand";
 
-export async function storeDemand(scope: "recent" | "all"): Promise<{ days: number; months: number; rows: number } | null> {
+export type StoreDemandResult = { days: number; months: number; rows: number } | { skipped: "reread" };
+
+/**
+ * While WhatsApp labels from an older reader remain, the record WAITS (Samer's audit, 2026-10-13): stored
+ * from half-read history it would keep the ad's car counted as "named" for good. The end of the server-side
+ * re-read (catchup-server.ts) stores it whole, `evenIfRereading` — labels that can no longer be read again
+ * (their messages are gone) must not hold it forever.
+ */
+export async function storeDemand(scope: "recent" | "all", opts: { evenIfRereading?: boolean } = {}): Promise<StoreDemandResult | null> {
   const sb = channelDb();
   if (!sb) return null;
+  if (!opts.evenIfRereading && (await rereadPending()) === true) return { skipped: "reread" };
   // "recent": from the first day of LAST month (Beirut), read with six hours to spare so the first Beirut
   // day is whole; that first month is then complete too.
   const now = new Date();

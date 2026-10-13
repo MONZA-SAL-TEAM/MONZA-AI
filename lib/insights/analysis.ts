@@ -208,7 +208,7 @@ export function colourMatrix(observations: readonly ObservationRow[], people: re
     const knownSet = new Set<string>();
     for (const s of e.values()) for (const w of s) knownSet.add(w);
     const its = people.filter((p) => p.models.includes(m.code)).length;
-    const st = stock ? (stock[m.code] ?? { now: 0, inbound: 0, colours: [] }) : null;
+    const st = stock ? (stock[m.code] ?? { now: 0, inbound: 0, reserved: 0, subDealer: 0, colours: [] }) : null;
     const toCounts = (mm: Map<string, Set<string>> | undefined, key: "interior" | "rejectedColour"): LinkedCount[] =>
       [...(mm ?? new Map<string, Set<string>>()).entries()].map(([fam, s]) => ({ key: fam, label: capital(fam), n: s.size, q: { anyModel: m.code, [key]: fam } as InsightQuery })).sort((a, b) => b.n - a.n);
     return {
@@ -340,7 +340,7 @@ export interface QualityView {
   linkedByPhone: number;
 }
 
-export function qualityView(people: readonly PersonFacts[], observations: readonly ObservationRow[], phoneOf: (p: PersonFacts) => boolean): QualityView {
+export function qualityView(people: readonly PersonFacts[], observations: readonly ObservationRow[], phoneOf: (p: PersonFacts) => boolean, crmOutcomeKnown?: (p: PersonFacts) => boolean): QualityView {
   const n = people.length;
   const cover = (key: string, label: string, ok: (p: PersonFacts) => boolean) => {
     const k = people.filter(ok).length;
@@ -353,13 +353,17 @@ export function qualityView(people: readonly PersonFacts[], observations: readon
   return {
     people: n,
     coverage: [
-      cover("model", "A car", (p) => p.models.length > 0),
+      cover("model", "A car they named", (p) => p.models.length > 0),
+      cover("any_model", "A car, named or by context", (p) => p.models.length > 0 || p.contextModels.length > 0),
       cover("colour", "An exterior colour", (p) => p.coloursWanted.length > 0),
       cover("budget", "A budget", (p) => p.budgetBand !== null),
       cover("timeline", "When they will buy", (p) => p.timeline !== null),
       cover("city", "Where they live", (p) => p.city !== null),
       cover("purpose", "What it's for", (p) => p.purpose.length > 0),
       cover("owner", "An owner in the team", (p) => p.ownerId !== null),
+      cover("test_drive", "A booked test drive", (p) => p.testDrivesBooked > 0),
+      cover("lost_reason", "A recorded lost reason", (p) => p.lostReason !== null),
+      ...(crmOutcomeKnown ? [cover("outcome", "A CRM order (any outcome)", crmOutcomeKnown)] : []),
     ],
     colourFacts: colours.length,
     unboundColours: binding.get("none") ?? 0,

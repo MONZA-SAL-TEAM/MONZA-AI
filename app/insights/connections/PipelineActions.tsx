@@ -3,8 +3,8 @@
 /**
  * The actions of one account on Connections & Imports. WhatsApp: read the stored history again with the
  * current reader. Instagram / Facebook: count first (reads Meta, writes nothing), read the history (labels
- * only), continue after a pause, or start again. Each call reads for under a minute and is called again
- * until it is done or Meta pushes back; the page then reloads its counts.
+ * only), continue after a pause, or start again. Reading runs ON THE SERVER until it is finished (Samer's
+ * audit, 2026-10-13) — this page only starts it and shows where it stands.
  */
 
 import { useState } from "react";
@@ -27,17 +27,27 @@ export default function PipelineActions({ accountId, channel, runState }: { acco
     return b;
   }
 
-  async function whatsapp() {
+  /** Start a history read ON THE SERVER, then show where it stands every few seconds while this page is open. */
+  async function serverRead(job: string, restart: boolean) {
     setBusy(true);
     setNote(null);
-    let total = { conversations: 0, signals: 0, observations: 0 };
     try {
-      for (let round = 0; round < 40; round++) {
-        const b = await post(`/api/insights/rebuild${round === 0 ? "?restart=1" : ""}`);
-        if (!b) break;
-        total = { conversations: total.conversations + (b.conversations ?? 0), signals: total.signals + (b.signals ?? 0), observations: total.observations + (b.observations ?? 0) };
-        setNote(`${total.conversations} conversations · ${total.signals} customer messages · ${total.observations} facts${b.done ? " — done." : " — still reading…"}`);
-        if (b.done) break;
+      const res = await fetch(`/api/insights/rebuild?job=${encodeURIComponent(job)}${restart ? "&restart=1" : ""}`, { method: "POST" });
+      const b = (await res.json().catch(() => null)) as { ok?: boolean; message?: string } | null;
+      setNote(b?.message ?? `The server answered ${res.status}.`);
+      if (!res.ok || !b?.ok) return;
+      for (let i = 0; i < 120; i++) {
+        await new Promise((r) => setTimeout(r, 5_000));
+        const st = await fetch(`/api/insights/rebuild?job=${encodeURIComponent(job)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null) as
+          | { reading?: boolean; state?: string; hops?: number; current?: number | null; total?: number | null }
+          | null;
+        if (!st) {
+          setNote("Reading on the server. (This page cannot see its progress right now — sign in again to watch it.)");
+          return;
+        }
+        const pct = st.current !== null && st.current !== undefined && st.total ? ` — ${st.current} of ${st.total} customer messages read with the current rules` : "";
+        setNote(`${st.reading ? "Reading on the server" : st.state === "done" ? "Finished" : "Stopped"}${pct}.`);
+        if (!st.reading) break;
       }
       router.refresh();
     } catch {
@@ -48,6 +58,7 @@ export default function PipelineActions({ accountId, channel, runState }: { acco
   }
 
   async function meta(mode: "dry" | "read" | "restart") {
+    if (mode !== "dry") return serverRead(`meta:${accountId}`, mode === "restart");
     setBusy(true);
     setNote(null);
     let total = { threads: 0, messages: 0, matched: 0, signals: 0 };
@@ -76,7 +87,7 @@ export default function PipelineActions({ accountId, channel, runState }: { acco
   return (
     <div className="rowcard-actions">
       {channel === "whatsapp" ? (
-        <button type="button" className="btn" disabled={busy} onClick={() => void whatsapp()}>
+        <button type="button" className="btn" disabled={busy} onClick={() => void serverRead("wa", runState === "done" || runState === null)}>
           {busy ? "Reading…" : "Read the stored history again"}
         </button>
       ) : (
