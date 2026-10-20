@@ -924,3 +924,8 @@
 /* A reply that did not go (2026-10-20) */
 .ibx-bubble-actions { display: flex; gap: 6px; margin: 6px 0 0; }
 .ibx-bubble-actions .btn { padding: 2px 10px; font-size: 12px; }
+
+/* Deleted or edited in the WhatsApp app after sending (2026-10-20) */
+.ibx-bubble-text.is-deleted { font-style: italic; opacity: .7; }
+.ibx-edited { opacity: .8; }
+.ibx-edit-hint { color: inherit; text-decoration: underline dotted; opacity: .85; }

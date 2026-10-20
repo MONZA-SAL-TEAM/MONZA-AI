@@ -1783,6 +1783,7 @@ export default function InboxClient(props: Props) {
                         {m.attachments && m.attachments.length > 0 && (
                           <Attachments items={m.attachments} onOpenImage={openImage} />
                         )}
+                        {m.deleted && <p className="ibx-bubble-text is-deleted">🚫 This message was deleted</p>}
                         {m.text !== "" && <p className="ibx-bubble-text">{m.text}</p>}
                         {m.text !== "" && <LinkEmbeds text={m.text} />}
                         {"pendingState" in m && (m as { pendingState: string }).pendingState === "failed" && (
@@ -1803,6 +1804,21 @@ export default function InboxClient(props: Props) {
                               : open.customerName}
                           {" · "}
                           {localClock(m.at)}
+                          {m.edited && <span className="ibx-edited"> · edited</span>}
+                          {live && open.channel === "whatsapp" && m.direction === "out" && !m.deleted && !("pendingState" in m) && Date.now() - Date.parse(m.at) < 48 * 3_600_000 && waWebChatLink(open.peerPhone) && (
+                            <>
+                              {" · "}
+                              <a
+                                className="ibx-edit-hint"
+                                href={waWebChatLink(open.peerPhone) ?? undefined}
+                                target="_blank"
+                                rel="noreferrer"
+                                title="Meta's API cannot delete or edit a sent message. The WhatsApp app can: edit within 15 minutes, delete for everyone within 2 days — and this chat follows."
+                              >
+                                Delete or edit in WhatsApp
+                              </a>
+                            </>
+                          )}
                           {m.direction === "out" &&
                             (live ? (
                               <>

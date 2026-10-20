@@ -34,6 +34,8 @@ import {
   whatsappMessageRow,
   whatsappSendProblem,
   whatsappSentRow,
+  parseWhatsAppRevisions,
+  quoteReplies,
 } from "@/lib/channels/whatsapp";
 import { parseInstagram } from "@/lib/channels/instagram";
 import { messengerAdapter } from "@/lib/channels/messenger";
@@ -244,6 +246,42 @@ describe("staff replies typed in the WhatsApp app (echoes)", () => {
       ],
     });
     assert.deepEqual(parseWhatsApp(d, ACCOUNTS), []);
+  });
+
+  test("…but they are REVISIONS of a message already here: the team's from the phone app, the customer's (032)", () => {
+    const team = delivery("smb_message_echoes", {
+      message_echoes: [
+        { from: "96170708585", to: CUSTOMER, id: "wamid.11", timestamp: "1757930501", type: "edit", edit: { original_message_id: "wamid.1", message: { type: "text", text: { body: "corrected words" } } } },
+        { from: "96170708585", to: CUSTOMER, id: "wamid.12", timestamp: "1757930502", type: "revoke", revoke: { original_message_id: "wamid.2" } },
+        { from: "96170708585", to: CUSTOMER, id: "wamid.13", timestamp: "1757930503", type: "edit", edit: {} },
+      ],
+    });
+    assert.deepEqual(
+      parseWhatsAppRevisions(team, ACCOUNTS).map((r) => [r.kind, r.direction, r.originalMessageId, r.text]),
+      [["edit", "out", "wamid.1", "corrected words"], ["revoke", "out", "wamid.2", null]],
+      "one without an original id changes nothing"
+    );
+    const customer = delivery("messages", {
+      messages: [
+        { from: CUSTOMER, id: "wamid.21", timestamp: "1757930601", type: "revoke", revoke: { original_message_id: "wamid.3" } },
+        { from: CUSTOMER, id: "wamid.22", timestamp: "1757930602", type: "edit", edit: { original_message_id: "wamid.4", message: { type: "image", image: { id: "m", mime_type: "image/jpeg", caption: "new caption" } } } },
+      ],
+    });
+    assert.deepEqual(
+      parseWhatsAppRevisions(customer, ACCOUNTS).map((r) => [r.kind, r.direction, r.originalMessageId, r.text]),
+      [["revoke", "in", "wamid.3", null], ["edit", "in", "wamid.4", "new caption"]]
+    );
+    assert.deepEqual(parseWhatsAppRevisions(customer, ACCOUNTS.filter((a) => a.channel !== "whatsapp")), [], "our numbers only");
+  });
+
+  test("a deleted message shows as deleted, with nothing of it left; an edited one is marked", () => {
+    const base = { id: "r", direction: "in", author: "customer", status: "received", staff_name: null, sent_at: "2026-10-20T10:00:00Z", external_message_id: "wamid.9" };
+    const gone = mapWhatsAppMessage({ ...base, body: "", attachments: [], deleted_at: "2026-10-20T10:05:00Z" }, "t");
+    assert.deepEqual([gone.deleted, gone.text, gone.attachments], [true, "", undefined]);
+    const changed = mapWhatsAppMessage({ ...base, body: "new words", attachments: [], edited_at: "2026-10-20T10:05:00Z" }, "t");
+    assert.deepEqual([changed.edited, changed.text], [true, "new words"]);
+    const quoted = quoteReplies([{ ...gone, externalId: "wamid.9" }, { id: "s", conversationId: "t", direction: "in", author: "customer", text: "?", at: "2026-10-20T10:06:00Z", status: "received", replyToId: "wamid.9" }]);
+    assert.equal(quoted[1].replyTo?.text, "This message was deleted");
   });
 
   test("other fields on the WhatsApp object are ignored", () => {

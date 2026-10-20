@@ -108,6 +108,10 @@ export interface InboxMessage {
   replyToId?: string;
   /** That message, as the thread shows it above this one (words cut short, never invented). */
   replyTo?: QuotedMessage;
+  /** Deleted for everyone in the WhatsApp app after it was sent: words and files are gone (032). */
+  deleted?: boolean;
+  /** Edited in the WhatsApp app after it was sent: `text` is the new words (032). */
+  edited?: boolean;
 }
 
 /** The ad a customer came from, shown above their first message (lib/channels/ad-creative.ts). */

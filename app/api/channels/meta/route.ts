@@ -26,9 +26,9 @@
 import { NextResponse } from "next/server";
 import { instagramAdapter } from "@/lib/channels/instagram";
 import { messengerAdapter } from "@/lib/channels/messenger";
-import { parseWhatsAppStatuses, whatsappAdapter, type WhatsAppStatusUpdate } from "@/lib/channels/whatsapp";
+import { parseWhatsAppRevisions, parseWhatsAppStatuses, whatsappAdapter, type WhatsAppStatusUpdate } from "@/lib/channels/whatsapp";
 import type { ChannelAccount, InboundEvent } from "@/lib/channels/types";
-import { applyWhatsAppStatuses, listAccounts, recordDelivery, storeInbound } from "@/lib/channels/store";
+import { applyWhatsAppRevisions, applyWhatsAppStatuses, listAccounts, recordDelivery, storeInbound } from "@/lib/channels/store";
 import { captureMedia } from "@/lib/channels/wa-media-store";
 import { runAutoreply } from "@/lib/wasales/autoreply";
 import { notifyNewMessages } from "@/lib/push/server";
@@ -149,6 +149,18 @@ export async function POST(request: Request): Promise<Response> {
     }
   } catch (e) {
     console.error("[channels/meta] receipts failed:", e);
+  }
+
+  // A message edited or deleted in the WhatsApp Business app, by the team or the customer (032): the copy
+  // here follows. Never a new message; a failure here never fails the delivery.
+  try {
+    const revisions = parseWhatsAppRevisions(body, accounts);
+    if (revisions.length > 0) {
+      const r = await applyWhatsAppRevisions(revisions);
+      console.info(`[channels/meta] revisions ${revisions.length}: deleted ${r.deleted}, edited ${r.edited}`);
+    }
+  } catch (e) {
+    console.error("[channels/meta] revisions failed:", e);
   }
 
   if (events.length === 0) {

@@ -48,7 +48,12 @@
  * backwards (parseWhatsAppStatuses, statusesBefore).
  *
  * ── Dropped ─────────────────────────────────────────────────────────────────
- * Reactions, edits, revokes and system notices carry no new message.
+ * Reactions and system notices carry no new message. Edits and revokes carry
+ * no new message EITHER — they change one already here (parseWhatsAppRevisions,
+ * 2026-10-20): Meta's API cannot delete or edit a sent message, but the
+ * WhatsApp Business app can (edit 15 min, delete 2 days), and on a
+ * Coexistence number Meta reports it, for the team's messages and the
+ * customer's. The inbox mirrors it: "This message was deleted", or the new words.
  *
  * PURE: body in, events out. The network and the database are elsewhere.
  */
@@ -357,6 +362,52 @@ export function parseWhatsAppStatuses(body: unknown, accounts: readonly ChannelA
   return out;
 }
 
+/* ── Edits and deletions made in the WhatsApp Business app ───────────────── */
+
+export interface WhatsAppRevision {
+  accountId: string;
+  /** WhatsApp's id of the message that was edited or deleted. */
+  originalMessageId: string;
+  kind: "edit" | "revoke";
+  /** "in" = the customer did it (messages); "out" = the team did it on the phone (smb_message_echoes). */
+  direction: "in" | "out";
+  at: string;
+  /** The new words (or caption) of an edit; null for a deletion. */
+  text: string | null;
+}
+
+/**
+ * Messages edited or deleted after they were sent, on OUR numbers only. A customer's edit or deletion
+ * arrives under `messages`; the team's own, done on the phone, under `smb_message_echoes`. Neither is a
+ * new message (parseWhatsApp still returns nothing for them): each names the original by id.
+ */
+export function parseWhatsAppRevisions(body: unknown, accounts: readonly ChannelAccount[], receivedAt = new Date().toISOString()): WhatsAppRevision[] {
+  const out: WhatsAppRevision[] = [];
+  for (const { field, value, account } of changesOf(body, accounts)) {
+    if (!account) continue;
+    const incoming = field === "messages";
+    if (!incoming && field !== "smb_message_echoes") continue;
+    for (const raw of incoming ? list(value.messages) : list(value.message_echoes)) {
+      const m = obj(raw);
+      const type = str(m?.type);
+      if (!m || (type !== "edit" && type !== "revoke")) continue;
+      const original = str(obj(m[type])?.original_message_id);
+      if (!original) continue;
+      // The edited content has a message's own shape (text, or a file with a caption): read it as one.
+      const edited = type === "edit" ? contentOf(obj(obj(m.edit)?.message) ?? {}) : null;
+      out.push({
+        accountId: account.id,
+        originalMessageId: original,
+        kind: type,
+        direction: incoming ? "in" : "out",
+        at: waTime(m.timestamp, receivedAt),
+        text: type === "edit" ? (edited?.text ?? "") : null,
+      });
+    }
+  }
+  return out;
+}
+
 const TICK_ORDER = ["queued", "sent", "delivered", "read"] as const;
 
 /**
@@ -462,6 +513,10 @@ export interface WhatsAppMessageRow {
   automation_id?: string | null;
   /** WhatsApp's id of the message this one answers (migration 030). */
   reply_to?: string | null;
+  /** Deleted for everyone in the WhatsApp app (032): words and files are gone from our copy. */
+  deleted_at?: string | null;
+  /** Edited in the WhatsApp app (032): `body` holds the new words. */
+  edited_at?: string | null;
 }
 
 /**
@@ -476,6 +531,7 @@ export function quoteReplies(messages: readonly InboxMessage[], older: readonly 
     if (!m.replyToId) return m;
     const target = byId.get(m.replyToId);
     if (!target) return { ...m, replyTo: { author: m.direction === "in" ? "staff" : "customer", text: "", missing: true } };
+    if (target.deleted) return { ...m, replyTo: { author: target.author, text: "This message was deleted" } };
     const first = target.attachments?.[0];
     const words = target.text === WA_ATTACHMENT_ONLY ? "" : target.text.replace(/\s+/g, " ").trim();
     const quote: QuotedMessage = {
@@ -569,9 +625,10 @@ export function mapWhatsAppMessage(
     attachments.push(shown.state === "pending" && expired ? { ...shown, state: "unavailable" } : shown);
   }
 
-  const body = row.body ?? "";
+  const deleted = Boolean(row.deleted_at);
+  const body = deleted ? "" : (row.body ?? "");
   const text =
-    body !== "" ? body : attachments.length === 0 && Array.isArray(row.attachments) && row.attachments.length > 0 ? WA_ATTACHMENT_ONLY : "";
+    body !== "" ? body : !deleted && attachments.length === 0 && Array.isArray(row.attachments) && row.attachments.length > 0 ? WA_ATTACHMENT_ONLY : "";
   const status: MessageStatus = out
     ? OUT_STATUSES.has(row.status ?? "")
       ? (row.status as MessageStatus)
@@ -590,8 +647,10 @@ export function mapWhatsAppMessage(
     status,
     ...(out ? { staffName: row.staff_name ?? WHATSAPP_STAFF_NAME } : {}),
     ...(out && row.automation_id ? { automationId: row.automation_id } : {}),
-    ...(attachments.length > 0 ? { attachments } : {}),
+    ...(attachments.length > 0 && !deleted ? { attachments } : {}),
     ...(status === "failed" && row.error ? { error: row.error } : {}),
+    ...(deleted ? { deleted: true } : {}),
+    ...(row.edited_at && !deleted ? { edited: true } : {}),
   };
 }
 

@@ -1102,10 +1102,26 @@ WhatsApp" flow again** — that is the step that locked the phone out on
 Samer's list: delete/edit messages; see the image a client refers to; mark unread; send two videos together;
 "very slow when sending"; reply after 24 hours.
 
-- **Delete / edit: NOT POSSIBLE through Meta.** WhatsApp's Cloud API documents no delete, revoke or edit for a
-  message a business sent (read 2026-10-20), and Instagram / Messenger have none either. What exists: a reply that
-  FAILED stays in the chat with "Try again" and "Delete" (it never reached the customer). Deleting a sent WhatsApp
-  message is done on the WhatsApp Business phone app (Coexistence). Do not build a "delete" that only hides it here.
+- **Delete / edit: NOT POSSIBLE through Meta — verified 2026-10-20 by a 6-agent read of Meta's own documentation
+  (Cloud API messages reference, changelog through May 2026, Graph API Message / Conversation nodes, Instagram and
+  Messenger Send APIs, webhook references) and two adversarial refuters: nothing refuted it.** The Cloud API's only
+  write is `POST /messages`; the Groups API lists "Edit message" and "Delete message" under "Non-supported actions";
+  the Graph API Message node answers "You can't perform this operation" for update and delete; the only post-send
+  change a business may make on Instagram / Messenger is its own reaction. Tools claiming otherwise use unofficial
+  gateways. Do not build a "delete" that only hides a message here.
+- **What IS possible, and now mirrored (migration 032 `deleted_at` / `edited_at`).** The WhatsApp Business APP on the
+  Coexistence number can edit a text/caption within 15 min and "delete for everyone" within 2 days, and Meta reports
+  it: `smb_message_echoes` type `edit` / `revoke` (the team, on the phone) and `messages` type `edit` / `revoke` (the
+  customer), each with `original_message_id` and, for an edit, `edit.message` in a message's own shape. They were
+  dropped until 2026-10-20 — the delivery record shows 86 team deletions, 29 team edits, 36 customer deletions and
+  19 customer edits since 2026-09-15 that the inbox never reflected (that is why "delete does not work"). Now
+  `parseWhatsAppRevisions` (whatsapp.ts) → `applyWhatsAppRevisions` (store.ts, from the webhook route after the
+  receipts): a deletion empties the words, removes the files from the bucket and sets `deleted_at` (the thread shows
+  "This message was deleted", WhatsApp's wording; a quote of it says the same); an edit replaces `body`, sets
+  `edited_at` (shown "edited"), and a customer's edited words are read again by the insights reader. Never a new
+  message. Past revisions cannot be applied: the delivery record keeps kinds, not ids. Own WhatsApp messages under
+  48 h carry a "Delete or edit in WhatsApp" link (WhatsApp Web for that chat). A reply that FAILED stays with
+  "Try again" / "Delete" (it never reached the customer).
 - **Speed:** a reply appears at once (`pending` in InboxClient — sending → ticked → replaced by the real row when the
   thread is read again; a failure keeps the words with Try again / Delete). `requireStaff` starts the CRM profile and
   MONZA AI access reads while the token is verified (`tokenSubject`: the token's CLAIMED id only starts reads; the

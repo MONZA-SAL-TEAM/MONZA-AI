@@ -56,8 +56,9 @@ import {
   type WhatsAppConversationRow,
   type WhatsAppMessageRow,
   type WhatsAppStatusUpdate,
+  type WhatsAppRevision,
 } from "@/lib/channels/whatsapp";
-import type { StoredAttachment } from "@/lib/channels/wa-media";
+import { WA_MEDIA_BUCKET, readAttachments, type StoredAttachment } from "@/lib/channels/wa-media";
 import { noteInboundLead } from "@/lib/leads/store";
 import { recordSignal } from "@/lib/wasales/signal-server";
 
@@ -387,6 +388,62 @@ export async function storeInbound(events: readonly InboundEvent[]): Promise<Sto
 }
 
 /**
+ * Mirror what the WhatsApp Business app did to a message after it was sent (032). A deletion removes the
+ * words AND the files from our copy — "delete for everyone" means gone, and a customer's file is not ours
+ * to keep — and marks the row; an edit replaces the words and marks the row. A revision for a message we
+ * do not hold changes nothing and creates nothing (rule 19). Best effort, never fails a delivery.
+ *
+ * A customer's edited words are read again by the insights reader (labels only), so the car or question
+ * they corrected is the one recorded.
+ */
+export async function applyWhatsAppRevisions(revisions: readonly WhatsAppRevision[]): Promise<{ deleted: number; edited: number }> {
+  const out = { deleted: 0, edited: 0 };
+  if (revisions.length === 0) return out;
+  const sb = client();
+  if (!sb) return out;
+  for (const r of revisions) {
+    const { data } = await sb
+      .from("channel_messages")
+      .select("id, conversation_id, direction, attachments, deleted_at")
+      .eq("account_id", r.accountId)
+      .eq("external_message_id", r.originalMessageId)
+      .maybeSingle();
+    const row = data as { id: string; conversation_id: string; direction: string; attachments: unknown; deleted_at: string | null } | null;
+    if (!row || row.deleted_at) continue;
+    if (r.kind === "revoke") {
+      const paths = readAttachments(row.attachments).map((a) => a.path).filter((p): p is string => Boolean(p));
+      if (paths.length > 0) {
+        const { error } = await sb.storage.from(WA_MEDIA_BUCKET).remove(paths);
+        if (error) console.error(`[channels/whatsapp] a deleted message's files could not be removed: ${error.message}`);
+      }
+      const { error } = await sb.from("channel_messages").update({ body: "", attachments: [], deleted_at: r.at }).eq("id", row.id);
+      if (!error) out.deleted++;
+      continue;
+    }
+    const { error } = await sb.from("channel_messages").update({ body: r.text ?? "", edited_at: r.at }).eq("id", row.id);
+    if (error) continue;
+    out.edited++;
+    if (row.direction === "in" && r.text) {
+      const { data: conv } = await sb.from("channel_conversations").select("account_id, brand, peer_external_id").eq("id", row.conversation_id).maybeSingle();
+      const c = conv as { account_id: string; brand: string; peer_external_id: string } | null;
+      if (c) {
+        await recordSignal(sb, r.text, {
+          accountId: c.account_id,
+          peerExternalId: c.peer_external_id,
+          brand: c.brand,
+          channel: "whatsapp",
+          conversationId: row.conversation_id,
+          externalMessageId: r.originalMessageId,
+          at: r.at,
+          hasMedia: readAttachments(row.attachments).length > 0,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Move the ticks of messages WE sent: sent → delivered → read, never
  * backwards, and "failed" only before delivery (statusesBefore). A receipt for
  * a message we do not hold changes nothing and creates nothing (rule 19).
@@ -465,7 +522,7 @@ export async function readWhatsAppMessages(
 
   const msgs = await sb
     .from("channel_messages")
-    .select("id, direction, author, body, attachments, status, staff_name, sent_at, external_message_id, error, automation_id, reply_to")
+    .select("id, direction, author, body, attachments, status, staff_name, sent_at, external_message_id, error, automation_id, reply_to, deleted_at, edited_at")
     .eq("conversation_id", conversationId)
     .eq("account_id", accountId)
     .order("sent_at", { ascending: false })
@@ -489,7 +546,7 @@ export async function readWhatsAppMessagesById(accountId: string, conversationId
   if (!sb) return [];
   const { data, error } = await sb
     .from("channel_messages")
-    .select("id, direction, author, body, attachments, status, staff_name, sent_at, external_message_id, error, automation_id, reply_to")
+    .select("id, direction, author, body, attachments, status, staff_name, sent_at, external_message_id, error, automation_id, reply_to, deleted_at, edited_at")
     .eq("conversation_id", conversationId)
     .eq("account_id", accountId)
     .in("external_message_id", ids.slice(0, 50));
