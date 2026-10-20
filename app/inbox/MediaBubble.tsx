@@ -270,10 +270,12 @@ export function Attachments({
           default:
             return (
               <a key={i} className="ibx-att-file" href={a.url} download={a.filename ?? true} target="_blank" rel="noreferrer">
-                <span className="ibx-att-file-icon" aria-hidden="true">📄</span>
+                <span className="ibx-att-file-icon" aria-hidden="true">{a.mime?.startsWith("video/") ? "🎬" : "📄"}</span>
                 <span className="ibx-att-file-body">
                   <span className="ibx-att-file-name">{a.filename ?? "Document"}</span>
-                  <span className="ibx-att-file-sub">{[formatBytes(a.size), "Download"].filter(Boolean).join(" · ")}</span>
+                  <span className="ibx-att-file-sub">
+                    {[a.mime?.startsWith("video/") ? "Video, sent as a file" : null, formatBytes(a.size), "Download"].filter(Boolean).join(" · ")}
+                  </span>
                 </span>
               </a>
             );

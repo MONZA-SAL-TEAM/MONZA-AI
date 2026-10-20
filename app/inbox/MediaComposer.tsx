@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatBytes, formatClock } from "@/lib/inbox/media";
-import { MAX_CAPTION, type MediaChannel } from "@/lib/channels/wa-media";
+import { MAX_CAPTION, rulesFor, type MediaChannel } from "@/lib/channels/wa-media";
 import { prepareFile, prepareRecording, recorderMimeType, sendFile, type ReadyFile } from "@/lib/inbox/send-media";
 import { enterSends, hasTouchKeyboard } from "@/lib/inbox/keys";
 
@@ -140,7 +140,7 @@ export default function MediaComposer({
           refused.push(`${f.name}: ${r.problem}`);
           continue;
         }
-        const showable = r.file.kind === "image" || r.file.kind === "video" || r.file.kind === "audio";
+        const showable = r.file.kind === "image" || r.file.kind === "video" || r.file.kind === "audio" || r.file.asFile === true;
         ready.push({ file: r.file, preview: showable ? URL.createObjectURL(r.file.blob) : null });
       }
       setStage(null);
@@ -335,7 +335,7 @@ export default function MediaComposer({
               <h3>
                 {pickedList.length > 1
                   ? `Send ${pickedList.length} files`
-                  : picked.file.kind === "document" ? "Send a document" : picked.file.kind === "audio" ? "Send audio" : picked.file.kind === "video" ? "Send a video" : "Send a photo"}
+                  : picked.file.kind === "document" && !picked.file.asFile ? "Send a document" : picked.file.kind === "audio" ? "Send audio" : picked.file.kind === "video" || picked.file.asFile ? "Send a video" : "Send a photo"}
               </h3>
               <button type="button" className="ibx-icon-btn" aria-label="Cancel" disabled={busy} onClick={close}>
                 ✕
@@ -346,9 +346,9 @@ export default function MediaComposer({
                 // eslint-disable-next-line @next/next/no-img-element -- a local preview of the picked file
                 <img src={picked.preview} alt="The photo to send" />
               )}
-              {picked.preview && picked.file.kind === "video" && <video src={picked.preview} controls playsInline />}
+              {picked.preview && (picked.file.kind === "video" || picked.file.asFile) && <video src={picked.preview} controls playsInline />}
               {picked.preview && picked.file.kind === "audio" && <audio src={picked.preview} controls />}
-              {picked.file.kind === "document" && (
+              {picked.file.kind === "document" && !picked.file.asFile && (
                 <div className="ibx-att-file is-static">
                   <span className="ibx-att-file-icon" aria-hidden="true">📄</span>
                   <span className="ibx-att-file-body">
@@ -358,6 +358,12 @@ export default function MediaComposer({
                 </div>
               )}
             </div>
+            {picked.file.asFile && (
+              <p className="ibx-sheet-note">
+                Over {formatBytes(rulesFor(channel).video.maxBytes)}, so it goes as a file: the original video, full resolution, nothing
+                re-encoded. The customer opens it in their player.
+              </p>
+            )}
             {pickedList.length > 1 && (
               <div className="ibx-sheet-strip" role="group" aria-label="Files to send">
                 {pickedList.map((p, i) => (
@@ -366,7 +372,7 @@ export default function MediaComposer({
                       // eslint-disable-next-line @next/next/no-img-element -- a local preview of a picked file
                       <img src={p.preview} alt="" />
                     ) : (
-                      <span>{p.file.kind === "video" ? "Video" : p.file.kind === "audio" ? "Audio" : "File"}</span>
+                      <span>{p.file.kind === "video" || p.file.asFile ? "Video" : p.file.kind === "audio" ? "Audio" : "File"}</span>
                     )}
                   </button>
                 ))}

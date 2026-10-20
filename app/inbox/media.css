@@ -275,6 +275,7 @@ a.ibx-att-share-label { text-decoration: underline; text-underline-offset: 2px; 
   font: inherit;
   resize: vertical;
 }
+.ibx-sheet-note { margin: 0; color: var(--ink-3); font-size: var(--t-sm); }
 .ibx-sheet-problem { margin: 0; color: var(--urgent); font-size: var(--t-sm); }
 .ibx-sheet-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .ibx-sheet-size { margin-right: auto; color: var(--ink-3); font-size: 12px; }
