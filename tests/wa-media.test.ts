@@ -80,10 +80,9 @@ describe("what can be attached", () => {
       asFile: true,
     });
     assert.equal((classifyFile({ name: "clip.3gp", type: "video/3gpp", size: 20 * MB }) as { asFile?: true }).asFile, true);
-    // Meta's "16 MB" read the small way: 16,500,000 bytes is a file, never a video message Meta might refuse.
-    assert.equal((classifyFile({ name: "walkaround.mp4", type: "video/mp4", size: 16_500_000 }) as { asFile?: true }).asFile, true);
-    assert.equal(checkOutbound("video", "video/mp4", 16_500_000).ok, false);
-    assert.match((checkOutbound("video", "video/mp4", 16_500_000) as { problem: string }).problem, /16 MB/);
+    // The limit is counted the way every size is shown (binary), so a refusal never names a size at or under it.
+    const over = checkOutbound("video", "video/mp4", 17 * MB);
+    assert.match(!over.ok ? over.problem : "", /^That file is 17 MB; WhatsApp allows 16 MB/);
     const huge = classifyFile({ name: "walkaround.mp4", type: "video/mp4", size: 120 * MB });
     assert.equal(huge.ok, false);
     assert.match(!huge.ok ? huge.problem : "", /100 MB/);

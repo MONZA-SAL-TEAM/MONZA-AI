@@ -296,19 +296,9 @@ export type OutboundKind = "image" | "video" | "audio" | "document";
 /** The three channels files can be sent on. */
 export type MediaChannel = "whatsapp" | "instagram" | "facebook";
 
-type Rule = {
-  types: Readonly<Record<string, string>>;
-  maxBytes: number;
-  words: string;
-  /** How the limit is said when `maxBytes` is not a round number of binary megabytes. */
-  limit?: string;
-};
-type Rules = Readonly<Record<OutboundKind, Rule>>;
-
-/** "16 MB" for a limit, however it is counted. */
-export function limitWords(rule: { maxBytes: number; limit?: string }): string {
-  return rule.limit ?? formatBytes(rule.maxBytes);
-}
+type Rules = Readonly<
+  Record<OutboundKind, { types: Readonly<Record<string, string>>; maxBytes: number; words: string }>
+>;
 
 const WA_VIDEO_TYPES: Readonly<Record<string, string>> = { "video/mp4": "mp4", "video/3gpp": "3gp" };
 
@@ -321,9 +311,10 @@ const WA_VIDEO_TYPES: Readonly<Record<string, string>> = { "video/mp4": "mp4", "
  */
 export const OUTBOUND: Rules = {
   image: { types: { "image/jpeg": "jpg", "image/png": "png" }, maxBytes: 5 * MB, words: "JPG or PNG photos up to 5 MB" },
-  // Meta says "16 MB" without saying which megabyte; the smaller (decimal) reading can never let
-  // through a video message Meta then refuses — one between the two readings goes as a file instead.
-  video: { types: WA_VIDEO_TYPES, maxBytes: 16_000_000, limit: "16 MB", words: "MP4 videos up to 16 MB" },
+  // Binary megabytes, like every size the inbox shows (formatBytes). Meta's "16 MB" does not say which
+  // megabyte; should it refuse a video message between the two readings, the sheet's "Send as a file" tick
+  // sends the same bytes as a document.
+  video: { types: WA_VIDEO_TYPES, maxBytes: 16 * MB, words: "MP4 videos up to 16 MB" },
   audio: { types: AUDIO_TYPES, maxBytes: 16 * MB, words: "MP3, M4A, AAC, AMR or OGG audio up to 16 MB" },
   document: {
     types: { ...DOC_TYPES, ...WA_VIDEO_TYPES },
@@ -410,7 +401,7 @@ export function checkOutbound(
   if (size > rule.maxBytes) {
     return {
       ok: false,
-      problem: `That file is ${formatBytes(size)}; ${who} allows ${limitWords(rule)} for this kind.`,
+      problem: `That file is ${formatBytes(size)}; ${who} allows ${formatBytes(rule.maxBytes)} for this kind.`,
     };
   }
   return { ok: true, kind, mime: m, ext };
@@ -508,7 +499,7 @@ export function classifyFile(
       if (file.size <= rules.document.maxBytes) return { ok: true, kind: "document", mime, convert: false, asFile: true };
       return {
         ok: false,
-        problem: `That video is ${formatBytes(file.size)} — ${who} takes up to ${limitWords(rules.document)} when a video is sent as a file.`,
+        problem: `That video is ${formatBytes(file.size)} — ${who} takes up to ${formatBytes(rules.document.maxBytes)} when a video is sent as a file.`,
       };
     }
   }

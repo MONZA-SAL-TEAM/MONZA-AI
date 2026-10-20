@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatBytes, formatClock } from "@/lib/inbox/media";
-import { limitWords, MAX_CAPTION, rulesFor, type MediaChannel } from "@/lib/channels/wa-media";
+import { MAX_CAPTION, rulesFor, type MediaChannel } from "@/lib/channels/wa-media";
 import { prepareFile, prepareRecording, recorderMimeType, sendFile, type ReadyFile } from "@/lib/inbox/send-media";
 import { enterSends, hasTouchKeyboard } from "@/lib/inbox/keys";
 
@@ -360,7 +360,7 @@ export default function MediaComposer({
             </div>
             {picked.file.asFile && picked.file.blob.size > rulesFor(channel).video.maxBytes && (
               <p className="ibx-sheet-note">
-                Over {limitWords(rulesFor(channel).video)}, so it goes as a file: the original video, full resolution, nothing
+                Over {formatBytes(rulesFor(channel).video.maxBytes)}, so it goes as a file: the original video, full resolution, nothing
                 re-encoded. The customer opens it in their player.
               </p>
             )}

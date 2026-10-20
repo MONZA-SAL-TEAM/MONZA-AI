@@ -1143,8 +1143,10 @@ Samer's list: delete/edit messages; see the image a client refers to; mark unrea
   as expected" (the client picks its icon from the filename's extension); a VIDEO message must be H.264 + AAC, and
   Android WhatsApp does not play H.264 High profile with B-frames (Main / Baseline, moov first) — a file is opened by
   the phone's player instead, so a WhatsApp video under 16 MB can also be sent as a file by a tick in the sheet.
-  Up to 71 MB PDFs have gone out through the same document path. The inbox's caps are binary (16 MiB); Meta's
-  "16 MB" may be decimal, so a video between 16,000,000 and 16,777,216 bytes is now sent as a file too.
+  Up to 71 MB PDFs have gone out through the same document path. Every inbox cap is counted in binary megabytes,
+  the way `formatBytes` shows sizes — a review caught a decimal 16,000,000-byte cap reading "Over 16 MB" beside a
+  footer saying "15 MB"; should Meta refuse a video message between the two readings of "16 MB", the tick sends it
+  as a file.
   The bot's own colour videos are a separate matter: `scripts/sales-video-prep.mjs` makes 720p copies ≤15 MB for
   videos over the limit; the original is untouched and /sales shows it.
 - **Mark as unread**: the chat header's button; kept per person in their browser (IndexedDB kv `unreadMarks`) until
