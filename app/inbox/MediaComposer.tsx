@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { formatBytes, formatClock } from "@/lib/inbox/media";
 import { MAX_CAPTION, type MediaChannel } from "@/lib/channels/wa-media";
 import { prepareFile, prepareRecording, recorderMimeType, sendFile, type ReadyFile } from "@/lib/inbox/send-media";
+import { enterSends, hasTouchKeyboard } from "@/lib/inbox/keys";
 
 /**
  * The longest recording per channel: WhatsApp's Ogg is small (15 minutes fits
@@ -105,8 +106,10 @@ export default function MediaComposer({
   // Decided after the page is in the browser, so the server's HTML and the
   // browser's first render agree.
   const [canRecord, setCanRecord] = useState(false);
+  const [touchKeyboard, setTouchKeyboard] = useState(false);
   useEffect(() => {
     setCanRecord(recorderMimeType() !== null && !!navigator.mediaDevices?.getUserMedia);
+    setTouchKeyboard(hasTouchKeyboard());
   }, []);
 
   const close = useCallback(() => {
@@ -379,7 +382,7 @@ export default function MediaComposer({
                 disabled={busy}
                 onChange={(e) => setCaption(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !busy) {
+                  if (!busy && enterSends({ key: e.key, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing }, touchKeyboard)) {
                     e.preventDefault();
                     void sendAll(caption.trim()).then((ok) => ok && close());
                   }

@@ -1150,6 +1150,9 @@ Samer's list: delete/edit messages; see the image a client refers to; mark unrea
   pick, fill the blanks, see the words, Send (`POST /api/channels/templates` → `sendTemplateOnThread`); the words that
   went are kept in the thread. MONZA AI never creates or edits a template at Meta.
 
+- **Enter sends (2026-10-20)** — `lib/inbox/keys.ts enterSends`: Enter sends, Shift+Enter a new line, Ctrl/Cmd+Enter
+  still sends; on a touch keyboard (pointer: coarse) Enter stays a new line and the button sends, as in the WhatsApp
+  app; an Enter during IME composition never sends. Used by the reply box and the file caption.
 - **The car filter under the brand tabs (2026-10-20; Samer: "when I click on VOYAH, show me a filter to choose
   which car … so I can upsell for a car I want").** `GET /api/conversations/cars` (gated like the other inbox data
   routes) returns car codes per inbox thread id from the insights labels — `lib/inbox/cars.ts` (pure:

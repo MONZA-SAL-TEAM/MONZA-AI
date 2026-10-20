@@ -40,6 +40,7 @@ import TemplatePicker from "./TemplatePicker";
 import { AdCardView, Attachments, LinkEmbeds, Lightbox, Quote, Ticks } from "./MediaBubble";
 import { carryUrls, isMetaCdn, previewText, waWebChatLink, withoutLinks } from "@/lib/inbox/media";
 import { carsForBrand, type CarChoice } from "@/lib/inbox/cars";
+import { enterSends, hasTouchKeyboard } from "@/lib/inbox/keys";
 import type { AdCard, Conversation, CustomerProfile, InboxMessage } from "@/lib/inbox/types";
 import {
   CHANNEL_LABEL,
@@ -409,6 +410,9 @@ export default function InboxClient(props: Props) {
   const [baselineAt, setBaselineAt] = useState("");
   // "Mark as unread" (Samer, 2026-10-20): kept in this person's browser until they open the chat again.
   const [markedUnread, setMarkedUnread] = useState<Set<string>>(new Set());
+  // A phone's keyboard keeps Enter as a new line; decided in the browser after the first render.
+  const [touchKeyboard, setTouchKeyboard] = useState(false);
+  useEffect(() => setTouchKeyboard(hasTouchKeyboard()), []);
   const baselineRef = useRef("");
   const [seen, setSeen] = useState<Record<string, string>>({});
   const [metas, setMetas] = useState<Record<string, AccountMeta>>({});
@@ -1955,9 +1959,10 @@ export default function InboxClient(props: Props) {
                       e.target.style.height = `${Math.min(e.target.scrollHeight, 180)}px`;
                     }}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && live) {
+                      // Enter sends (Shift+Enter: a new line; on a phone Enter stays a new line) — Samer, 2026-10-20.
+                      if (live && enterSends({ key: e.key, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing }, touchKeyboard)) {
                         e.preventDefault();
-                        void sendReply();
+                        if (composerText.trim() !== "" && thread.windowOpen) void sendReply();
                       }
                     }}
                     onPaste={(e) => {
@@ -2028,7 +2033,7 @@ export default function InboxClient(props: Props) {
                 </div>
                 <p className="ibx-compose-note" role="status">
                   {live
-                    ? sendNote ?? (thread.loading ? "Checking the conversation…" : `${thread.windowText} Ctrl+Enter sends.${canAttach ? " Drop a file here, or use 📎 and 🎤." : ""}`)
+                    ? sendNote ?? (thread.loading ? "Checking the conversation…" : `${thread.windowText} ${touchKeyboard ? "The button sends." : "Enter sends, Shift+Enter for a new line."}${canAttach ? " Drop a file here, or use 📎 and 🎤." : ""}`)
                     : open.channel === "whatsapp"
                       ? "Nothing is sent from Monza AI — opening WhatsApp fills this in and you tap send."
                       : `${CHANNEL_LABEL[open.channel]} replies are not connected yet.`}
