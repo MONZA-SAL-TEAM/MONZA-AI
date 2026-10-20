@@ -1150,6 +1150,14 @@ Samer's list: delete/edit messages; see the image a client refers to; mark unrea
   pick, fill the blanks, see the words, Send (`POST /api/channels/templates` → `sendTemplateOnThread`); the words that
   went are kept in the thread. MONZA AI never creates or edits a template at Meta.
 
+- **The insights FEED for the Monza S.A.L. app (2026-10-20; Samer: "a page called Insight in the Monza app, the
+  one from MONZA AI feeds it").** `GET /api/insights/feed?days=30|90|365|0` (`lib/insights/feed-server.ts`): the
+  overview, the funnel, the four demand levels beside CRM stock/sales, the colour matrix, the lists, the Decision
+  Center's open items (no names), coverage and data health — counts and labels only, never a name, number, chat id
+  or word. Gated like Insights (`requireRealStaff(request, INSIGHTS_CAPS)`, Team & access applies); the Monza app's
+  SERVER calls it with the signed-in person's own Supabase token as `Authorization: Bearer`, so the CRM figures are
+  read as them. Cached 2 min per person. The Monza app side: `web/src/app/(dashboard)/insights` + `web/src/lib/server/
+  monza-ai-feed.ts` in samerkhanji/MONZA-SAL-APP (env `MONZA_AI_URL`, default monza-ai.vercel.app).
 - **Enter sends (2026-10-20)** — `lib/inbox/keys.ts enterSends`: Enter sends, Shift+Enter a new line, Ctrl/Cmd+Enter
   still sends; on a touch keyboard (pointer: coarse) Enter stays a new line and the button sends, as in the WhatsApp
   app; an Enter during IME composition never sends. Used by the reply box and the file caption.
