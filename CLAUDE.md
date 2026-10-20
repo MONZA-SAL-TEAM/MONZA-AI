@@ -1136,12 +1136,15 @@ Samer's list: delete/edit messages; see the image a client refers to; mark unrea
   to 100 MB (`classifyFile` → `asFile`; `OUTBOUND.document.types` takes MP4/3GP; the thread shows "Video, sent as a
   file"; the customer opens it in their player). Instagram and Messenger allow no more for a file than for a video
   (25 MB) and Instagram takes no file but PDF, so there a larger video is still refused — Meta's limit, not ours.
-  Meta's own pages (read 2026-10-20): the Cloud API has no quality / HD field and documents no compression — the
-  "media is compressed when shared" rule is the PHONE app's, whose own answer is "send it as a document"; file types
-  outside the document list "may be sent via the API, but they are not supported and may not be handled as expected"
-  (the client picks its icon from the filename's extension); a VIDEO message must be H.264 + AAC, and Android
-  WhatsApp does not play H.264 High profile with B-frames (Main / Baseline, moov first) — a file is opened by the
-  phone's player instead. Up to 71 MB PDFs have gone out through the same document path.
+  Meta's own pages (read 2026-10-20, two refuters): the Cloud API has no quality / HD field and says nothing either
+  way about re-encoding (neither "compresses" nor "keeps the original" is documented); "media files are usually
+  compressed when shared" is the PHONE app's FAQ, which offers "Document" for longer or larger media (up to 2 GB);
+  file types outside the document list "may be sent via the API, but they are not supported and may not be handled
+  as expected" (the client picks its icon from the filename's extension); a VIDEO message must be H.264 + AAC, and
+  Android WhatsApp does not play H.264 High profile with B-frames (Main / Baseline, moov first) — a file is opened by
+  the phone's player instead, so a WhatsApp video under 16 MB can also be sent as a file by a tick in the sheet.
+  Up to 71 MB PDFs have gone out through the same document path. The inbox's caps are binary (16 MiB); Meta's
+  "16 MB" may be decimal, so a video between 16,000,000 and 16,777,216 bytes is now sent as a file too.
   The bot's own colour videos are a separate matter: `scripts/sales-video-prep.mjs` makes 720p copies ≤15 MB for
   videos over the limit; the original is untouched and /sales shows it.
 - **Mark as unread**: the chat header's button; kept per person in their browser (IndexedDB kv `unreadMarks`) until

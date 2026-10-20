@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatBytes, formatClock } from "@/lib/inbox/media";
-import { MAX_CAPTION, rulesFor, type MediaChannel } from "@/lib/channels/wa-media";
+import { limitWords, MAX_CAPTION, rulesFor, type MediaChannel } from "@/lib/channels/wa-media";
 import { prepareFile, prepareRecording, recorderMimeType, sendFile, type ReadyFile } from "@/lib/inbox/send-media";
 import { enterSends, hasTouchKeyboard } from "@/lib/inbox/keys";
 
@@ -358,11 +358,36 @@ export default function MediaComposer({
                 </div>
               )}
             </div>
-            {picked.file.asFile && (
+            {picked.file.asFile && picked.file.blob.size > rulesFor(channel).video.maxBytes && (
               <p className="ibx-sheet-note">
-                Over {formatBytes(rulesFor(channel).video.maxBytes)}, so it goes as a file: the original video, full resolution, nothing
+                Over {limitWords(rulesFor(channel).video)}, so it goes as a file: the original video, full resolution, nothing
                 re-encoded. The customer opens it in their player.
               </p>
+            )}
+            {channel === "whatsapp" && (picked.file.kind === "video" || picked.file.asFile) && picked.file.blob.size <= rulesFor(channel).video.maxBytes && (
+              <label className="ibx-sheet-check">
+                <input
+                  type="checkbox"
+                  checked={picked.file.asFile === true}
+                  disabled={busy}
+                  onChange={(e) => {
+                    // The same bytes either way; only how WhatsApp shows them. A video message plays inline
+                    // (but Android does not play H.264 High profile with B-frames — Meta's note); a file keeps
+                    // the original and opens in the customer's player.
+                    const asFile = e.target.checked;
+                    setPickedList((list) =>
+                      list.map((p, i) =>
+                        i === shown && (p.file.kind === "video" || p.file.asFile)
+                          ? { ...p, file: { ...p.file, kind: asFile ? "document" : "video", asFile: asFile || undefined } }
+                          : p
+                      )
+                    );
+                  }}
+                />
+                <span>
+                  Send as a file — the original quality on every phone (opens in the customer&apos;s player instead of playing inline)
+                </span>
+              </label>
             )}
             {pickedList.length > 1 && (
               <div className="ibx-sheet-strip" role="group" aria-label="Files to send">
