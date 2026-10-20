@@ -275,9 +275,6 @@ a.ibx-att-share-label { text-decoration: underline; text-underline-offset: 2px; 
   font: inherit;
   resize: vertical;
 }
-.ibx-sheet-note { margin: 0; color: var(--ink-3); font-size: var(--t-sm); }
-.ibx-sheet-check { display: flex; align-items: flex-start; gap: 8px; color: var(--ink-2); font-size: var(--t-sm); cursor: pointer; }
-.ibx-sheet-check input { margin: 2px 0 0; flex: none; }
 .ibx-sheet-problem { margin: 0; color: var(--urgent); font-size: var(--t-sm); }
 .ibx-sheet-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .ibx-sheet-size { margin-right: auto; color: var(--ink-3); font-size: 12px; }

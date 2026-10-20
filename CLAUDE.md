@@ -1130,35 +1130,19 @@ Samer's list: delete/edit messages; see the image a client refers to; mark unrea
   the conversation from Meta again for every send and file.
 - **Several files at once** (`MediaComposer`: `multiple`, drop and paste take all, at most 10): sent one after the
   other, the caption with the first; a failure stops there and keeps the rest in the sheet with the reason.
-- **Videos keep their resolution (Samer, 2026-10-20: "send the videos in full HD, no effect on the resolution").**
-  MONZA AI never shrinks or re-encodes a video (only photos are redrawn, only voice notes repackaged). A WhatsApp
-  video message stops at Meta's 16 MB, so a full-HD walkaround over it is sent as a DOCUMENT of the same bytes, up
-  to 100 MB (`classifyFile` → `asFile`; `OUTBOUND.document.types` takes MP4/3GP; the thread shows "Video, sent as a
-  file"; the customer opens it in their player). Instagram and Messenger allow no more for a file than for a video
-  (25 MB) and Instagram takes no file but PDF, so there a larger video is still refused — Meta's limit, not ours.
-  Meta's own pages (read 2026-10-20, two refuters): the Cloud API has no quality / HD field and says nothing either
-  way about re-encoding (neither "compresses" nor "keeps the original" is documented); "media files are usually
-  compressed when shared" is the PHONE app's FAQ, which offers "Document" for longer or larger media (up to 2 GB);
-  file types outside the document list "may be sent via the API, but they are not supported and may not be handled
-  as expected" (the client picks its icon from the filename's extension); a VIDEO message must be H.264 + AAC, and
-  Android WhatsApp does not play H.264 High profile with B-frames (Main / Baseline, moov first) — a file is opened by
-  the phone's player instead, so a WhatsApp video under 16 MB can also be sent as a file by a tick in the sheet.
-  Up to 71 MB PDFs have gone out through the same document path. Every inbox cap is counted in binary megabytes,
-  the way `formatBytes` shows sizes — a review caught a decimal 16,000,000-byte cap reading "Over 16 MB" beside a
-  footer saying "15 MB"; should Meta refuse a video message between the two readings of "16 MB", the tick sends it
-  as a file.
-  The bot's own colour videos are a separate matter: `scripts/sales-video-prep.mjs` makes 720p copies ≤15 MB for
-  videos over the limit; the original is untouched and /sales shows it.
-- **Mark as unread**: the chat header's button; kept per person in their browser (IndexedDB kv `unreadMarks`) until
-  they open the chat. The WhatsApp phone app's own unread state cannot be read or set through the API.
-- **What a reply answers**: WhatsApp `context.id` → `InboundEvent.replyTo` → `channel_messages.reply_to` (030); the
-  thread quotes it above the reply (`quoteReplies`, words cut to 140, a kept photo's thumbnail; an older message is
-  read by id; one not kept is "missing", never guessed). Only messages from 2026-10-20 on carry it.
-- **The ad a customer came from** (`lib/channels/ad-creative.ts`): the lead's first ad/post touchpoint (`raw`:
-  WhatsApp `image_url` / `thumbnail_url` / `headline` / `body` / `source_url`, Instagram `ads_context_data`) shown as a
-  card above their first message. Meta's picture link dies (`oe` expiry, ~3 weeks), so each ad's picture is copied
-  ONCE into the private bucket (`ads/<ad id>.<ext>`, `ad_creatives`, 030) from Meta's CDN only (`isMetaCdn`), at
-  most one try an hour per ad; shown by a signed link. Ads whose link already died show their words only.
+- **Videos keep their resolution (Samer, 2026-10-20: "send the videos in full HD, no effect on the resolution";
+  then: "I will not send a file or link to a customer — I want to send him the video with his original or HD
+  resolution").** MONZA AI never shrinks or re-encodes a video (only photos are redrawn, only voice notes
+  repackaged). Meta's hard limits for a VIDEO MESSAGE: WhatsApp 16 MB (MP4/3GP, H.264 + AAC), Instagram and
+  Messenger 25 MB; a larger video is refused in words. A "send it as a document up to 100 MB" path was built, pushed
+  (958322c–f16ec94) and REMOVED the same day on Samer's decision: a customer must get a playable video, never a file
+  card or a link. The only way a bigger full-HD video can arrive as a video is to fit it under the limit at the SAME
+  resolution (fewer bits per second — Meta recommends H.264 Main profile without B-frames, moov first; Android does
+  not play High profile with B-frames) — decision pending. Meta's own pages (read 2026-10-20, two refuters): the Cloud
+  API has no quality / HD field and says nothing either way about re-encoding; "media files are usually compressed
+  when shared" is the PHONE app's FAQ (720p default, "HD" toggle). The bot's colour videos: `scripts/sales-video-prep.mjs`
+  makes 720p copies ≤15 MB of originals over the limit (`-vf scale=-2:'min(720,ih)'`); /sales shows the originals.
+  The thread labels a received MP4 document "Video, sent as a file" (MediaBubble) — customers do send those.
 - **After 24 hours:** Instagram / Messenger — a PERSON's own reply (typed or a file) up to 7 days after the
   customer's last message goes with `messaging_type: MESSAGE_TAG, tag: HUMAN_AGENT` (`humanAgentWindow`,
   `OutboundMessage.humanAgent`; header pill "After 24 h — your own reply only"). **Meta must approve the Human

@@ -300,24 +300,13 @@ type Rules = Readonly<
   Record<OutboundKind, { types: Readonly<Record<string, string>>; maxBytes: number; words: string }>
 >;
 
-const WA_VIDEO_TYPES: Readonly<Record<string, string>> = { "video/mp4": "mp4", "video/3gpp": "3gp" };
-
-/**
- * WhatsApp's rules (Cloud API media reference). A video may also go as a
- * DOCUMENT: a full-HD walkaround is often over the 16 MB a video message
- * allows, and sent as a file (up to 100 MB) it arrives as the original bytes —
- * nothing here ever shrinks or re-encodes a video (Samer, 2026-10-20: "send the
- * videos in full HD, no effect on the resolution").
- */
+/** WhatsApp's rules (Cloud API media reference). */
 export const OUTBOUND: Rules = {
   image: { types: { "image/jpeg": "jpg", "image/png": "png" }, maxBytes: 5 * MB, words: "JPG or PNG photos up to 5 MB" },
-  // Binary megabytes, like every size the inbox shows (formatBytes). Meta's "16 MB" does not say which
-  // megabyte; should it refuse a video message between the two readings, the sheet's "Send as a file" tick
-  // sends the same bytes as a document.
-  video: { types: WA_VIDEO_TYPES, maxBytes: 16 * MB, words: "MP4 videos up to 16 MB" },
+  video: { types: { "video/mp4": "mp4", "video/3gpp": "3gp" }, maxBytes: 16 * MB, words: "MP4 videos up to 16 MB" },
   audio: { types: AUDIO_TYPES, maxBytes: 16 * MB, words: "MP3, M4A, AAC, AMR or OGG audio up to 16 MB" },
   document: {
-    types: { ...DOC_TYPES, ...WA_VIDEO_TYPES },
+    types: DOC_TYPES,
     maxBytes: 100 * MB,
     words: "PDF, Word, Excel, PowerPoint or text files up to 100 MB",
   },
@@ -463,10 +452,7 @@ export const MAX_IMAGE_INPUT_BYTES = 40 * MB;
 
 /**
  * What a file someone picked should be sent as, before anything is uploaded.
- * `convert` means the browser redraws it as a JPG first (lib/inbox/send-media.ts);
- * `asFile` means a video over the channel's video limit goes as a document, its
- * bytes untouched (WhatsApp only — Instagram and Messenger allow no more for a
- * file than for a video).
+ * `convert` means the browser redraws it as a JPG first (lib/inbox/send-media.ts).
  */
 export function classifyFile(
   file: {
@@ -475,7 +461,7 @@ export function classifyFile(
     size: number;
   },
   channel: unknown = "whatsapp"
-): { ok: true; kind: OutboundKind; mime: string; convert: boolean; asFile?: true } | { ok: false; problem: string } {
+): { ok: true; kind: OutboundKind; mime: string; convert: boolean } | { ok: false; problem: string } {
   const rules = rulesFor(channel);
   const who = CHANNEL_WORDS[channelOf(channel)];
   const mime = (file.type ? baseMime(file.type) : "") || mimeFromFilename(file.name) || "";
@@ -491,17 +477,6 @@ export function classifyFile(
   }
   if (mime === "video/quicktime" && !rules.video.types[mime]) {
     return { ok: false, problem: `iPhone .MOV videos cannot be sent — ${who} needs ${rules.video.words}.` };
-  }
-  if (mime.startsWith("video/") && rules.video.types[mime] && file.size > rules.video.maxBytes) {
-    // Over the video limit. Where the channel takes the same file as a document (WhatsApp, 100 MB),
-    // it goes as one: the original, never shrunk. Nothing is re-encoded in the browser, ever.
-    if (rules.document.types[mime]) {
-      if (file.size <= rules.document.maxBytes) return { ok: true, kind: "document", mime, convert: false, asFile: true };
-      return {
-        ok: false,
-        problem: `That video is ${formatBytes(file.size)} — ${who} takes up to ${formatBytes(rules.document.maxBytes)} when a video is sent as a file.`,
-      };
-    }
   }
   const kind: OutboundKind | null = mime.startsWith("video/")
     ? "video"

@@ -70,25 +70,6 @@ describe("what can be attached", () => {
     });
     const mov = classifyFile({ name: "clip.mov", type: "video/quicktime", size: MB });
     assert.match(!mov.ok ? mov.problem : "", /MP4/);
-    // A full-HD video is never shrunk: under 16 MB it is a video, over it a FILE of the same bytes (to 100 MB).
-    assert.deepEqual(classifyFile({ name: "walkaround.mp4", type: "video/mp4", size: 15 * MB }), { ok: true, kind: "video", mime: "video/mp4", convert: false });
-    assert.deepEqual(classifyFile({ name: "walkaround.mp4", type: "video/mp4", size: 40 * MB }), {
-      ok: true,
-      kind: "document",
-      mime: "video/mp4",
-      convert: false,
-      asFile: true,
-    });
-    assert.equal((classifyFile({ name: "clip.3gp", type: "video/3gpp", size: 20 * MB }) as { asFile?: true }).asFile, true);
-    // The limit is counted the way every size is shown (binary), so a refusal never names a size at or under it.
-    const over = checkOutbound("video", "video/mp4", 17 * MB);
-    assert.match(!over.ok ? over.problem : "", /^That file is 17 MB; WhatsApp allows 16 MB/);
-    const huge = classifyFile({ name: "walkaround.mp4", type: "video/mp4", size: 120 * MB });
-    assert.equal(huge.ok, false);
-    assert.match(!huge.ok ? huge.problem : "", /100 MB/);
-    // The server's own check takes that file as a document, and still refuses it as a video.
-    assert.deepEqual(checkOutbound("document", "video/mp4", 40 * MB), { ok: true, kind: "document", mime: "video/mp4", ext: "mp4" });
-    assert.equal(checkOutbound("video", "video/mp4", 40 * MB).ok, false);
     assert.equal(classifyFile({ name: "setup.exe", type: "application/x-msdownload", size: MB }).ok, false);
     assert.equal(classifyFile({ name: "x.zip", type: "application/zip", size: MB }).ok, false);
   });

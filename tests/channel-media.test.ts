@@ -59,10 +59,6 @@ describe("each channel's own rules", () => {
     });
     assert.equal((classifyFile({ name: "car.jpg", type: "image/jpeg", size: 7 * MB }) as { convert: boolean }).convert, true);
     assert.equal(classifyFile({ name: "clip.mov", type: "video/quicktime", size: MB }, "facebook").ok, true);
-    // A video over 25 MB cannot go as a file either: Instagram takes PDF only, Messenger allows no more for a file.
-    assert.equal(classifyFile({ name: "walkaround.mp4", type: "video/mp4", size: 40 * MB }, "instagram").ok, false);
-    assert.equal(classifyFile({ name: "walkaround.mp4", type: "video/mp4", size: 40 * MB }, "facebook").ok, false);
-    assert.equal(checkOutbound("document", "video/mp4", 10 * MB, "instagram").ok, false);
     assert.equal(classifyFile({ name: "clip.mov", type: "video/quicktime", size: MB }, "whatsapp").ok, false);
     assert.equal(classifyFile({ name: "files.zip", type: "application/zip", size: MB }, "facebook").ok, true);
   });

@@ -12,9 +12,7 @@
  * Before step 1 the file is made acceptable to WhatsApp where that can be done
  * without loss of meaning: a photo over 5 MB or in a format WhatsApp refuses is
  * redrawn as a JPG, and a Chrome voice recording is repackaged from WebM into
- * the Ogg WhatsApp needs for a voice note (lib/media/ogg-opus.ts). A VIDEO is
- * never touched: one over WhatsApp's 16 MB goes as a file (`asFile`), the
- * original bytes, full resolution (Samer, 2026-10-20).
+ * the Ogg WhatsApp needs for a voice note (lib/media/ogg-opus.ts).
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -30,8 +28,6 @@ export interface ReadyFile {
   filename: string;
   /** A recording made here, to be shown as a voice note. */
   voice: boolean;
-  /** A video over the channel's video limit, sent as a document so it keeps its resolution. */
-  asFile?: boolean;
 }
 
 type Prepared = { ok: true; file: ReadyFile } | { ok: false; problem: string };
@@ -75,10 +71,7 @@ export async function prepareFile(file: File, channel: MediaChannel = "whatsapp"
     if (!jpg) return { ok: false, problem: "This photo could not be prepared — save it as a JPG and try again." };
     return { ok: true, file: { blob: jpg, kind: "image", mime: "image/jpeg", filename: renamed(file.name, "jpg"), voice: false } };
   }
-  return {
-    ok: true,
-    file: { blob: file, kind: c.kind, mime: c.mime, filename: file.name || "Monza", voice: false, ...(c.asFile ? { asFile: true } : {}) },
-  };
+  return { ok: true, file: { blob: file, kind: c.kind, mime: c.mime, filename: file.name || "Monza", voice: false } };
 }
 
 /** The best recording format this browser has, WhatsApp's own first. */
