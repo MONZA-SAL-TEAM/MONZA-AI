@@ -121,9 +121,11 @@ export function apiRuleOf(pathname: string, method: string): ApiRule | null {
   const write = WRITE.has(method.toUpperCase());
   const is = (prefix: string) => p === prefix || p.startsWith(`${prefix}/`);
   if (is("/api/channels/meta") || is("/api/channels/retention") || is("/api/insights/catchup") || is("/api/insights/refresh")) return null;
+  if (is("/api/admin/templates")) return { page: "admin", ...(write ? { event: "templates_changed" } : {}) };
   if (is("/api/admin")) return { page: "admin", ...(write ? { event: "access_changed" } : {}) };
   if (is("/api/me") || is("/api/push") || is("/api/status")) return { page: "any" };
   if (is("/api/channels/send")) return { page: "inbox", action: "send_messages", event: "message_sent" };
+  if (is("/api/channels/templates")) return write ? { page: "inbox", action: "send_messages", event: "template_sent" } : { page: "inbox" };
   if (is("/api/channels/media")) return { page: "inbox", action: "send_messages", event: "file_upload" };
   if (is("/api/channels/diagnose")) return { page: "integrations" };
   if (is("/api/channels")) return { page: "inbox" };
@@ -177,6 +179,8 @@ export const EVENT_LABEL: Readonly<Record<string, string>> = {
   sales_library_changed: "Changed the sales library",
   assistant_question: "Asked the AI assistant",
   access_changed: "Changed someone's access",
+  template_sent: "Sent a WhatsApp template",
+  templates_changed: "Changed the WhatsApp templates",
 };
 
 export function eventLabel(kind: string, detail: string | null): string {

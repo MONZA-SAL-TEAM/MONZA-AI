@@ -134,7 +134,21 @@ export function channelDb(): SupabaseClient | null {
 const ACCOUNT_COLUMNS =
   "id, brand, channel, display_name, external_id, portfolio, token_env, connected_at";
 
+/**
+ * The accounts change only when one is connected; every send used to read them 2–4 times (Samer, 2026-10-20:
+ * "very slow when sending"). Kept 60 s in this server's memory; an empty or failed read is never kept.
+ */
+let accountsCache: { at: number; rows: StoredAccount[] } | null = null;
+const ACCOUNTS_TTL_MS = 60_000;
+
 export async function listAccounts(): Promise<StoredAccount[]> {
+  if (accountsCache && Date.now() - accountsCache.at < ACCOUNTS_TTL_MS) return accountsCache.rows;
+  const rows = await readAccounts();
+  if (rows.length > 0) accountsCache = { at: Date.now(), rows };
+  return rows;
+}
+
+async function readAccounts(): Promise<StoredAccount[]> {
   const sb = client();
   if (!sb) return [];
 
@@ -451,7 +465,7 @@ export async function readWhatsAppMessages(
 
   const msgs = await sb
     .from("channel_messages")
-    .select("id, direction, author, body, attachments, status, staff_name, sent_at, external_message_id, error, automation_id")
+    .select("id, direction, author, body, attachments, status, staff_name, sent_at, external_message_id, error, automation_id, reply_to")
     .eq("conversation_id", conversationId)
     .eq("account_id", accountId)
     .order("sent_at", { ascending: false })
@@ -466,6 +480,20 @@ export async function readWhatsAppMessages(
       rows: ((msgs.data ?? []) as WhatsAppMessageRow[]).reverse(),
     },
   };
+}
+
+/** Messages of one conversation by WhatsApp's own ids — the older messages a reply quotes. */
+export async function readWhatsAppMessagesById(accountId: string, conversationId: string, ids: readonly string[]): Promise<WhatsAppMessageRow[]> {
+  if (ids.length === 0 || !UUID.test(conversationId)) return [];
+  const sb = client();
+  if (!sb) return [];
+  const { data, error } = await sb
+    .from("channel_messages")
+    .select("id, direction, author, body, attachments, status, staff_name, sent_at, external_message_id, error, automation_id, reply_to")
+    .eq("conversation_id", conversationId)
+    .eq("account_id", accountId)
+    .in("external_message_id", ids.slice(0, 50));
+  return error ? [] : ((data ?? []) as WhatsAppMessageRow[]);
 }
 
 /**

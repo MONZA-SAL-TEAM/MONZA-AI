@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import type { InboxAttachment } from "@/lib/inbox/types";
+import type { AdCard, InboxAttachment, QuotedMessage } from "@/lib/inbox/types";
 import {
   embeddableLinks,
   facebookEmbedUrl,
@@ -370,4 +370,53 @@ export function Ticks({ status, error }: { status: string; error?: string }) {
     default:
       return <span className="ibx-tick" title="Sent">✓</span>;
   }
+}
+
+const QUOTE_KIND: Readonly<Record<string, string>> = { image: "Photo", sticker: "Sticker", video: "Video", audio: "Voice note or audio", document: "File", location: "Location", contact: "Contact", share: "Shared post" };
+
+/** The message a reply answers, quoted above it (WhatsApp `context`, migration 030). */
+export function Quote({ q, customerName, onOpenImage }: { q: QuotedMessage; customerName: string; onOpenImage: (url: string) => void }) {
+  const who = q.author === "customer" ? customerName : q.author === "automation" ? "Automatic reply" : "Monza";
+  const words = q.missing ? "An earlier message — older than the history kept here" : q.text || (q.kind ? QUOTE_KIND[q.kind] ?? "A file" : "A message");
+  return (
+    <div className="ibx-quote">
+      {q.thumbUrl && (
+        <button type="button" className="ibx-quote-thumb" onClick={() => onOpenImage(q.thumbUrl!)} aria-label="Open the photo this replies to">
+          {/* eslint-disable-next-line @next/next/no-img-element -- a signed link to our own copy */}
+          <img src={q.thumbUrl} alt="" />
+        </button>
+      )}
+      <span className="ibx-quote-body">
+        <span className="ibx-quote-who">{q.missing ? "Replying to" : `Replying to ${who}`}</span>
+        <span className="ibx-quote-text" dir="auto">
+          {q.kind && q.text ? `${QUOTE_KIND[q.kind] ?? "File"} · ` : ""}
+          {words}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+/** The ad the customer came from: its picture, headline and words, above their first message. */
+export function AdCardView({ ad, onOpenImage }: { ad: AdCard; onOpenImage: (url: string) => void }) {
+  return (
+    <div className="ibx-ad" role="note" aria-label="The ad the customer came from">
+      <p className="ibx-ad-label">Came from {ad.mediaType === "video" ? "a video ad" : "an ad"}</p>
+      {ad.imageUrl ? (
+        <button type="button" className="ibx-ad-img" onClick={() => onOpenImage(ad.imageUrl!)} aria-label="Open the ad's picture">
+          {/* eslint-disable-next-line @next/next/no-img-element -- our copy of the business's own ad, or Meta's link */}
+          <img src={ad.imageUrl} alt={ad.headline ?? "The ad"} referrerPolicy="no-referrer" />
+        </button>
+      ) : (
+        <p className="ibx-ad-none">The ad&apos;s picture is no longer available from Meta.</p>
+      )}
+      {ad.headline && <p className="ibx-ad-title" dir="auto">{ad.headline}</p>}
+      {ad.body && <p className="ibx-ad-body" dir="auto">{ad.body}</p>}
+      {ad.sourceUrl && /^https:\/\//.test(ad.sourceUrl) && (
+        <a className="ibx-ad-link" href={ad.sourceUrl} target="_blank" rel="noreferrer noopener">
+          See the ad
+        </a>
+      )}
+    </div>
+  );
 }

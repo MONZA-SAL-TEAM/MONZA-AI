@@ -146,6 +146,11 @@ export interface InboundEvent {
    * "in": Instagram and Messenger drop their echoes (rule 19) and never set it.
    */
   direction?: "in" | "out";
+  /**
+   * The platform's id of the message this one answers (WhatsApp `context.id`), when the customer — or staff on
+   * the phone app — replied to a specific message. The inbox shows that message quoted above it.
+   */
+  replyTo?: string | null;
 }
 
 export interface InboundAttachment {
@@ -186,6 +191,13 @@ export interface OutboundMessage {
    * message is the file alone; words go in a message of their own.
    */
   attachment?: { type: "image" | "video" | "audio" | "file"; url: string };
+  /**
+   * Sent after the 24-hour window under Meta's HUMAN_AGENT tag (Samer, 2026-10-20: "reply even after 24 hours"):
+   * Instagram and Messenger only, within 7 days of the customer's last message, and ONLY for words or a file a
+   * PERSON chose and pressed Send on — never a sales suggestion, never the autoreply. Meta must have approved
+   * the Human Agent feature for the app; until it has, Meta refuses and staff are told.
+   */
+  humanAgent?: boolean;
 }
 
 /** The `message` part of an Instagram or Messenger Send API request. */
@@ -271,6 +283,19 @@ export function replyWindow(
   return { open: true, hoursLeft: left };
 }
 
+/** Meta's Human Agent tag: a person may answer on Instagram / Messenger up to 7 days after the customer wrote. */
+export const HUMAN_AGENT_DAYS = 7;
+
+/** Past the 24 hours but within the 7 days. Pure. */
+export function humanAgentWindow(lastInboundAt: string | null, now: Date): boolean {
+  if (!lastInboundAt) return false;
+  const h = (now.getTime() - new Date(lastInboundAt).getTime()) / 3_600_000;
+  return Number.isFinite(h) && h >= REPLY_WINDOW_HOURS && h < HUMAN_AGENT_DAYS * 24;
+}
+
+export const HUMAN_AGENT_TEXT =
+  "More than 24 hours since they wrote: you can still reply yourself for up to 7 days (Meta's Human Agent tag — only for a person's own words). If Meta has not approved that feature for this app, the reply is refused and you will see why.";
+
 /** What to tell staff about a closed window, in words they can act on. */
 export function windowExplanation(w: ReplyWindow, channel: ChannelKey): string {
   if (w.open) {
@@ -284,7 +309,7 @@ export function windowExplanation(w: ReplyWindow, channel: ChannelKey): string {
   }
   return channel === "whatsapp"
     ? "More than 24 hours since they wrote, so a free reply is not allowed — only an approved template, which costs money to send."
-    : "More than 24 hours since they wrote, so Meta will not deliver a reply on this channel. Wait for them to write again.";
+    : "More than 24 hours since they wrote, so Meta will not deliver this here. A reply you type yourself can still go for up to 7 days after their last message (Meta's Human Agent tag); after that, wait for them to write again.";
 }
 
 /**

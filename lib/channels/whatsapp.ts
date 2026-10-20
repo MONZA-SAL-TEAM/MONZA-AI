@@ -61,7 +61,7 @@ import type {
   InboundReferral,
   SendResult,
 } from "@/lib/channels/types";
-import type { Conversation, ConversationStatus, InboxAttachment, InboxMessage, MessageStatus } from "@/lib/inbox/types";
+import type { Conversation, ConversationStatus, InboxAttachment, InboxMessage, MessageStatus, QuotedMessage } from "@/lib/inbox/types";
 import { encodeThreadId } from "@/lib/channels/live-map";
 import { mediaLabel } from "@/lib/inbox/media";
 import {
@@ -307,6 +307,7 @@ export function parseWhatsApp(
         attachments: content.attachments,
         referral: incoming ? referralOf(m) : null,
         direction: incoming ? "in" : "out",
+        replyTo: str(obj(m.context)?.id) ?? null,
       });
     }
   }
@@ -421,6 +422,8 @@ export function whatsappMessageRow(input: {
     status: out ? "sent" : "received",
     staff_name: out ? WHATSAPP_STAFF_NAME : null,
     sent_at: input.event.at,
+    // Which message it answers (migration 030), so the inbox can quote it.
+    ...(input.event.replyTo ? { reply_to: input.event.replyTo.slice(0, 200) } : {}),
   };
 }
 
@@ -457,6 +460,32 @@ export interface WhatsAppMessageRow {
   error?: string | null;
   /** Set on a message sent from a sales suggestion ("sales-suggestion:…"). */
   automation_id?: string | null;
+  /** WhatsApp's id of the message this one answers (migration 030). */
+  reply_to?: string | null;
+}
+
+/**
+ * Each reply gets the message it answers, quoted (Samer, 2026-10-20: "see the image a client is referring to").
+ * Looked up among the thread's own messages, then among `older` (read separately); a message that is in neither
+ * is marked missing — never guessed. PURE.
+ */
+export function quoteReplies(messages: readonly InboxMessage[], older: readonly InboxMessage[] = []): InboxMessage[] {
+  const byId = new Map<string, InboxMessage>();
+  for (const m of [...older, ...messages]) if (m.externalId) byId.set(m.externalId, m);
+  return messages.map((m) => {
+    if (!m.replyToId) return m;
+    const target = byId.get(m.replyToId);
+    if (!target) return { ...m, replyTo: { author: m.direction === "in" ? "staff" : "customer", text: "", missing: true } };
+    const first = target.attachments?.[0];
+    const words = target.text === WA_ATTACHMENT_ONLY ? "" : target.text.replace(/\s+/g, " ").trim();
+    const quote: QuotedMessage = {
+      author: target.author,
+      text: words.length > 140 ? `${words.slice(0, 139)}…` : words,
+      ...(first ? { kind: first.kind } : {}),
+      ...(first && (first.kind === "image" || first.kind === "sticker") && first.state === "ready" && first.url ? { thumbUrl: first.url } : {}),
+    };
+    return { ...m, replyTo: quote };
+  });
 }
 
 /** Shown for a message whose only content cannot be shown here. */
@@ -551,6 +580,8 @@ export function mapWhatsAppMessage(
 
   return {
     id: row.id,
+    ...(row.external_message_id ? { externalId: row.external_message_id } : {}),
+    ...(row.reply_to ? { replyToId: row.reply_to } : {}),
     conversationId: threadId,
     direction: out ? "out" : "in",
     author: row.author === "automation" ? "automation" : out ? "staff" : "customer",
@@ -680,7 +711,8 @@ export async function sendWhatsAppText(
 /**
  * An approved TEMPLATE message — the only kind WhatsApp delivers to a number that
  * has not written to the business in the last 24 hours. Used for the sales team
- * alert (lib/wasales/sales-ops.ts), never for a customer. Each body parameter is
+ * alert (lib/wasales/sales-ops.ts), and — since 2026-10-20 — for a customer when a
+ * PERSON picks a listed template and presses Send (live.ts sendTemplateOnThread). Each body parameter is
  * one line: WhatsApp refuses new lines, tabs and long runs of spaces in them.
  */
 export async function sendWhatsAppTemplate(
@@ -689,7 +721,7 @@ export async function sendWhatsAppTemplate(
   fetchFn: typeof fetch = fetch
 ): Promise<WhatsAppSendResult> {
   if (!/^[a-z0-9_]{1,512}$/.test(input.template)) {
-    return { ok: false, problem: "The alert template name is not valid.", windowClosed: false };
+    return { ok: false, problem: "The template name is not valid.", windowClosed: false };
   }
   const params = input.bodyParams.map((p) => ({
     type: "text",

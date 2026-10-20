@@ -29,16 +29,21 @@ import {
   readDeliveries,
   readWhatsAppConversations,
   readWhatsAppMessages,
+  readWhatsAppMessagesById,
   recordSentFile,
   recordStaffTurn,
   recordWhatsAppSent,
   type StoredAccount,
 } from "@/lib/channels/store";
 import type { CustomerProfile } from "@/lib/inbox/types";
+import { adForConversation, adForMetaThread, type AdCard } from "@/lib/channels/ad-creative";
+import { cleanParam, renderTemplate } from "@/lib/channels/wa-templates";
 import {
   mapWhatsAppConversation,
   mapWhatsAppMessage,
+  quoteReplies,
   sendWhatsAppMedia,
+  sendWhatsAppTemplate,
   sendWhatsAppText,
   uploadWhatsAppMedia,
 } from "@/lib/channels/whatsapp";
@@ -65,7 +70,7 @@ import {
 import { isOgg } from "@/lib/media/ogg-opus";
 import { instagramAdapter, sendInstagramLogin } from "@/lib/channels/instagram";
 import { messengerAdapter } from "@/lib/channels/messenger";
-import { replyWindow, windowExplanation, type ReplyWindow } from "@/lib/channels/types";
+import { HUMAN_AGENT_TEXT, humanAgentWindow, replyWindow, windowExplanation, type ReplyWindow } from "@/lib/channels/types";
 import type { ChannelKey } from "@/lib/domain/types";
 import type { Conversation, InboxMessage } from "@/lib/inbox/types";
 import type { SendTarget } from "@/lib/wasales/executor";
@@ -658,13 +663,19 @@ async function readWhatsAppThread(
     if (again.ok && again.value) value = again.value;
   }
 
-  const links = await signLinks(linksWanted(value.rows.flatMap((row) => readAttachments(row.attachments))));
+  // A reply to a message older than the rows read: those few are read too, so the quote can show them.
+  const have = new Set(value.rows.map((r) => r.external_message_id).filter(Boolean));
+  const wanted = [...new Set(value.rows.map((r) => r.reply_to).filter((x): x is string => Boolean(x) && !have.has(x)))];
+  const [olderRows, ad] = await Promise.all([readWhatsAppMessagesById(account.id, conversationId, wanted), adForConversation(conversationId)]);
+  const links = await signLinks(linksWanted([...value.rows, ...olderRows].flatMap((row) => readAttachments(row.attachments))));
   const threadId = encodeThreadId(account.id, conversationId);
   const window = replyWindow(value.lastInboundAt, now);
+  const older = olderRows.map((row) => mapWhatsAppMessage(row, threadId, links, now.getTime()));
   return {
     ok: true,
-    messages: value.rows.map((row) => mapWhatsAppMessage(row, threadId, links, now.getTime())),
+    messages: quoteReplies(value.rows.map((row) => mapWhatsAppMessage(row, threadId, links, now.getTime())), older),
     window: { open: window.open, text: windowExplanation(window, "whatsapp") },
+    ad,
   };
 }
 
@@ -837,12 +848,12 @@ async function prepareMetaUpload(
 ): Promise<UploadGrant> {
   const ids = decodeThreadId(threadId);
   if (!ids) return { kind: "refused", status: 400, problem: "That conversation link is not valid." };
-  const t = await openThread(threadId, new Date());
+  const t = await openThreadForSend(threadId, new Date());
   if (!t.ok) return { kind: "refused", status: t.status, problem: t.problem };
   const check = checkOutbound(file.kind, file.mime, file.size, t.account.channel);
   if (!check.ok) return { kind: "refused", status: 400, problem: check.problem };
   if (!t.peer) return { kind: "refused", status: 409, problem: "Could not tell who the customer is in this conversation." };
-  if (!t.window.open) {
+  if (!t.window.open && !humanAgentWindow(lastCustomerAt(t.messages), new Date())) {
     return { kind: "window_closed", explanation: windowExplanation(t.window, t.account.channel as ChannelKey) };
   }
   if (!live) return { kind: "switched_off" };
@@ -880,7 +891,32 @@ type OpenThread =
     }
   | { ok: false; status: number; problem: string };
 
+/**
+ * A thread read from Meta, kept 90 s in this server's memory for SENDING (Samer, 2026-10-20: "very slow when
+ * sending"): every send and every file used to read the whole conversation from Meta again just to learn who
+ * the customer is and whether the 24-hour window is open. The thread the screen just loaded is reused instead;
+ * Meta still refuses a send whose window has shut, and that refusal is shown as "window closed".
+ */
+const sendThreads = new Map<string, { at: number; thread: Extract<OpenThread, { ok: true }> }>();
+const SEND_THREAD_TTL_MS = 90_000;
+
+async function openThreadForSend(threadId: unknown, now: Date): Promise<OpenThread> {
+  const key = typeof threadId === "string" ? threadId : "";
+  const hit = sendThreads.get(key);
+  if (hit && Date.now() - hit.at < SEND_THREAD_TTL_MS) return { ...hit.thread, window: replyWindow(lastCustomerAt(hit.thread.messages), now) };
+  return openThread(threadId, now);
+}
+
 async function openThread(threadId: unknown, now: Date): Promise<OpenThread> {
+  const t = await readMetaThread(threadId, now);
+  if (t.ok && typeof threadId === "string") {
+    sendThreads.set(threadId, { at: Date.now(), thread: t });
+    if (sendThreads.size > 500) sendThreads.delete(sendThreads.keys().next().value as string);
+  }
+  return t;
+}
+
+async function readMetaThread(threadId: unknown, now: Date): Promise<OpenThread> {
   const ids = decodeThreadId(threadId);
   if (!ids) return { ok: false, status: 400, problem: "That conversation link is not valid." };
 
@@ -947,9 +983,12 @@ export type ThreadView =
   | {
       ok: true;
       messages: InboxMessage[];
-      window: { open: boolean; text: string };
+      /** `humanAgent`: past 24 h, within 7 days — a person may still reply (Instagram / Messenger). */
+      window: { open: boolean; text: string; humanAgent?: boolean };
       /** Instagram and Facebook: who the customer is, as Meta shows them. */
       profile?: CustomerProfile | null;
+      /** The ad the customer came from, shown above their first message (030). */
+      ad?: AdCard | null;
     }
   | { ok: false; status: number; problem: string };
 
@@ -1058,15 +1097,19 @@ export async function readThreadForStaff(threadId: unknown): Promise<ThreadView>
   const t = await openThread(threadId, new Date());
   if (!t.ok) return t;
   if (t.peer && typeof threadId === "string") peerMemory.set(threadId, t.peer.id);
-  const profile = t.peer ? await readProfile(t.account, t.get, t.token, t.peer.id).catch(() => null) : null;
+  const ids = decodeThreadId(threadId);
+  const [profile, ad] = await Promise.all([
+    t.peer ? readProfile(t.account, t.get, t.token, t.peer.id).catch(() => null) : Promise.resolve(null),
+    ids ? adForMetaThread(t.account.id, ids.metaConversationId) : Promise.resolve(null),
+  ]);
   return {
     ok: true,
     profile,
+    ad,
     messages: t.messages,
-    window: {
-      open: t.window.open,
-      text: windowExplanation(t.window, t.account.channel as ChannelKey),
-    },
+    window: humanAgentWindow(lastCustomerAt(t.messages), new Date()) && !t.window.open
+      ? { open: true, text: HUMAN_AGENT_TEXT, humanAgent: true }
+      : { open: t.window.open, text: windowExplanation(t.window, t.account.channel as ChannelKey) },
   };
 }
 
@@ -1531,6 +1574,45 @@ export type SendOutcome =
   | { kind: "refused"; status: number; problem: string };
 
 /**
+ * An approved WhatsApp TEMPLATE to a customer — the only thing WhatsApp delivers after the 24-hour window, and
+ * it costs money (Samer, 2026-10-20: "reply even after 24 hours"). A person picks one an admin listed
+ * (wa_reply_templates, 031), fills its blanks and presses Send. The recipient is read from OUR conversation; the
+ * send switch and the key are checked as for any reply; the words that went are kept in the thread.
+ */
+export async function sendTemplateOnThread(
+  threadId: unknown,
+  template: { name: string; language: string; body: string; params: number },
+  params: readonly string[],
+  live: boolean,
+  staffName: string,
+  staffId?: string
+): Promise<SendOutcome> {
+  const wa = await whatsappAccountOf(threadId);
+  if (!wa) return { kind: "refused", status: 400, problem: "Templates are for WhatsApp conversations." };
+  const r = await readWhatsAppMessages(wa.account.id, wa.id, 1);
+  if (!r.ok) return { kind: "refused", status: 502, problem: "Could not read this WhatsApp conversation." };
+  if (!r.value || r.value.peerExternalId === "") return { kind: "refused", status: 404, problem: "That conversation was not found." };
+  if (!live) return { kind: "switched_off" };
+  const token = channelToken(wa.account.tokenEnv);
+  if (!token) return { kind: "refused", status: 503, problem: "The WhatsApp sending key has not been added yet, so nothing was sent." };
+  const bodyParams = params.slice(0, template.params).map(cleanParam);
+  const sent = await sendWhatsAppTemplate({ phoneNumberId: wa.account.externalId, to: r.value.peerExternalId, template: template.name, language: template.language, bodyParams }, token);
+  if (!sent.ok) return { kind: "refused", status: 502, problem: `WhatsApp did not send the template: ${sent.problem}` };
+  const recorded = await recordWhatsAppSent({
+    accountId: wa.account.id,
+    brand: wa.account.brand,
+    conversationId: wa.id,
+    externalMessageId: sent.externalMessageId,
+    text: renderTemplate(template.body, bodyParams),
+    at: new Date().toISOString(),
+    staffName,
+    staffId: staffId ?? null,
+  });
+  if (!recorded) console.error("[channels/template] sent, but our copy could not be written");
+  return { kind: "sent" };
+}
+
+/**
  * Send a staff reply on a live thread.
  *
  * The recipient is read from the conversation ON META with the account's own
@@ -1550,15 +1632,19 @@ export async function sendOnThread(
 ): Promise<SendOutcome> {
   const wa = await whatsappAccountOf(threadId);
   if (wa) return sendOnWhatsApp(wa.account, wa.id, text, live, staffName, attachment, staffId);
-  const t = await openThread(threadId, new Date());
+  const t = await openThreadForSend(threadId, new Date());
   if (!t.ok) return { kind: "refused", status: t.status, problem: t.problem };
   if (!t.peer) {
     return { kind: "refused", status: 409, problem: "Could not tell who the customer is in this conversation." };
   }
-  if (!t.window.open) {
+  // Past 24 h but within 7 days: a person's own reply goes with Meta's HUMAN_AGENT tag (Samer, 2026-10-20).
+  const humanAgent = !t.window.open && humanAgentWindow(lastCustomerAt(t.messages), new Date());
+  if (!t.window.open && !humanAgent) {
     return { kind: "window_closed", explanation: windowExplanation(t.window, t.account.channel as ChannelKey) };
   }
   if (!live) return { kind: "switched_off" };
+  const tagged = (problem: string) =>
+    humanAgent ? `${problem} (Sent after 24 hours with Meta's Human Agent tag — Meta must have approved that feature for this app; if not, wait for the customer to write again.)` : problem;
 
   // A thread read through Instagram login is answered through it too: its
   // token and its customer id belong to graph.instagram.com.
@@ -1569,7 +1655,7 @@ export async function sendOnThread(
         ? sendInstagramLogin
         : instagramAdapter.send;
   if (!attachment) {
-    const result = await send({ accountId: t.account.id, toExternalId: t.peer.id, text }, t.token);
+    const result = await send({ accountId: t.account.id, toExternalId: t.peer.id, text, humanAgent }, t.token);
     if (result.ok) {
       const ids = decodeThreadId(threadId);
       if (ids) await recordStaffTurn({ accountId: t.account.id, peerExternalId: t.peer.id, metaConversationId: ids.metaConversationId, externalMessageId: result.externalMessageId, staffId: staffId ?? null, at: new Date().toISOString() });
@@ -1577,7 +1663,7 @@ export async function sendOnThread(
     }
     // Codes only in the log — never the words, never the customer.
     console.warn(`[channels/send] ${t.account.id} refused: ${result.kind ?? "unknown"} (${result.codes ?? "no code"}) via ${t.via ?? "facebook-login"}`);
-    return { kind: "refused", status: 502, problem: result.error };
+    return { kind: "refused", status: 502, problem: tagged(result.error) };
   }
 
   // A file: only one uploaded for THIS conversation, checked again against the
@@ -1605,13 +1691,14 @@ export async function sendOnThread(
       toExternalId: t.peer.id,
       text: "",
       attachment: { type: check.kind === "document" ? "file" : check.kind, url: link },
+      humanAgent,
     },
     t.token
   );
   if (!sent.ok) {
     await removeMedia([attachment.path]);
     console.warn(`[channels/send] ${t.account.id} refused a file: ${sent.kind ?? "unknown"} (${sent.codes ?? "no code"})`);
-    return { kind: "refused", status: 502, problem: `The file was not sent. ${sent.error}` };
+    return { kind: "refused", status: 502, problem: tagged(`The file was not sent. ${sent.error}`) };
   }
 
   // Kept 12 months like WhatsApp (Samer, 2026-09-15; migration 011). It WENT:
@@ -1632,7 +1719,7 @@ export async function sendOnThread(
 
   // Instagram and Messenger files carry no caption: the words follow as their own message.
   if (text !== "") {
-    const words = await send({ accountId: t.account.id, toExternalId: t.peer.id, text }, t.token);
+    const words = await send({ accountId: t.account.id, toExternalId: t.peer.id, text, humanAgent }, t.token);
     if (!words.ok) {
       return { kind: "refused", status: 502, problem: `The file was sent, but the words were not: ${words.error}` };
     }
@@ -1730,7 +1817,7 @@ export async function threadPeerId(threadId: unknown): Promise<string | null> {
     const r = await readWhatsAppMessages(wa.account.id, wa.id, 1);
     return r.ok && r.value ? r.value.peerExternalId : null;
   }
-  const t = await openThread(threadId, new Date());
+  const t = await openThreadForSend(threadId, new Date());
   return t.ok && t.peer ? t.peer.id : null;
 }
 

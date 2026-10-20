@@ -39,6 +39,8 @@ export interface CacheSnapshot {
   meta: Record<string, AccountMeta>;
   seen: Record<string, string>;
   baselineAt: string | null;
+  /** Chats this person marked "unread" again, until they open them. */
+  unreadMarks: string[];
 }
 
 export interface InboxCache {
@@ -47,6 +49,7 @@ export interface InboxCache {
   putMeta(meta: AccountMeta): Promise<void>;
   setSeen(entries: readonly (readonly [string, string])[]): Promise<void>;
   setBaseline(at: string): Promise<void>;
+  setUnreadMarks(ids: readonly string[]): Promise<void>;
   getThread(id: string): Promise<InboxMessage[] | null>;
   putThread(id: string, messages: readonly InboxMessage[]): Promise<void>;
   /** Delete everything saved for this person on this computer. */
@@ -79,7 +82,7 @@ function finished(tx: IDBTransaction): Promise<void> {
   });
 }
 
-const EMPTY_SNAPSHOT: CacheSnapshot = { conversations: [], meta: {}, seen: {}, baselineAt: null };
+const EMPTY_SNAPSHOT: CacheSnapshot = { conversations: [], meta: {}, seen: {}, baselineAt: null, unreadMarks: [] };
 
 export async function openInboxCache(viewerKey: string): Promise<InboxCache | null> {
   if (typeof indexedDB === "undefined") return null;
@@ -119,17 +122,19 @@ export async function openInboxCache(viewerKey: string): Promise<InboxCache | nu
     async load() {
       try {
         const tx = db.transaction([CONV, META, SEEN, KV], "readonly");
-        const [conversations, metas, seens, baselineAt] = await Promise.all([
+        const [conversations, metas, seens, baselineAt, marks] = await Promise.all([
           request(tx.objectStore(CONV).getAll() as IDBRequest<Conversation[]>),
           request(tx.objectStore(META).getAll() as IDBRequest<AccountMeta[]>),
           request(tx.objectStore(SEEN).getAll() as IDBRequest<{ id: string; at: string }[]>),
           request(tx.objectStore(KV).get("baselineAt") as IDBRequest<string | undefined>),
+          request(tx.objectStore(KV).get("unreadMarks") as IDBRequest<unknown>),
         ]);
         return {
           conversations,
           meta: Object.fromEntries(metas.map((m) => [m.id, m])),
           seen: Object.fromEntries(seens.map((s) => [s.id, s.at])),
           baselineAt: typeof baselineAt === "string" ? baselineAt : null,
+          unreadMarks: Array.isArray(marks) ? marks.filter((x): x is string => typeof x === "string") : [],
         };
       } catch {
         return EMPTY_SNAPSHOT;
@@ -153,6 +158,11 @@ export async function openInboxCache(viewerKey: string): Promise<InboxCache | nu
     setBaseline(at) {
       return write(KV, (s) => {
         s.put(at, "baselineAt");
+      });
+    },
+    setUnreadMarks(ids) {
+      return write(KV, (s) => {
+        s.put([...ids], "unreadMarks");
       });
     },
     async getThread(id) {

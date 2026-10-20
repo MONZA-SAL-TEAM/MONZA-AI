@@ -102,6 +102,38 @@ export interface InboxMessage {
   attachments?: InboxAttachment[];
   /** Why an outgoing message was not delivered, in WhatsApp's words. */
   error?: string;
+  /** The platform's own id of this message (WhatsApp), so a reply to it can be found. */
+  externalId?: string;
+  /** The platform's id of the message this one answers. */
+  replyToId?: string;
+  /** That message, as the thread shows it above this one (words cut short, never invented). */
+  replyTo?: QuotedMessage;
+}
+
+/** The ad a customer came from, shown above their first message (lib/channels/ad-creative.ts). */
+export interface AdCard {
+  headline: string | null;
+  body: string | null;
+  mediaType: "image" | "video" | null;
+  /** A signed link to our copy, or Meta's own link while it still works; null when neither exists. */
+  imageUrl: string | null;
+  /** The ad or post on Facebook / Instagram. */
+  sourceUrl: string | null;
+  /** When the customer arrived from it. */
+  at: string;
+}
+
+/** A message quoted above the reply that answers it. */
+export interface QuotedMessage {
+  author: MessageAuthor;
+  /** The words, cut to a line; empty for a file with no caption. */
+  text: string;
+  /** What it carried when it was not words: image, video, audio, document… */
+  kind?: string;
+  /** A photo's link, when the quoted message is a photo we kept. */
+  thumbUrl?: string;
+  /** The quoted message is too old to be in this conversation's stored history. */
+  missing?: boolean;
 }
 
 /**

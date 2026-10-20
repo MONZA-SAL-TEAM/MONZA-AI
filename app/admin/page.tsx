@@ -4,6 +4,8 @@ import { requireAdminForPage } from "@/lib/auth-server";
 import { readTeam, type TeamMember } from "@/lib/access/admin-server";
 import { PAGES, PRESETS, type PresetKey } from "@/lib/access/access";
 import { sectionLabel } from "@/lib/insights/activity";
+import { listReplyTemplates } from "@/lib/channels/wa-templates-server";
+import TemplatesAdmin from "./TemplatesAdmin";
 import "../board.css";
 import "../insights/insights.css";
 
@@ -35,7 +37,7 @@ function accessSummary(m: TeamMember): string {
 
 export default async function AdminPage() {
   const user = await requireAdminForPage("/admin");
-  const read = await readTeam(user);
+  const [read, templates] = await Promise.all([readTeam(user), listReplyTemplates(false)]);
   const now = Date.now();
   const online = read.state === "ok" ? read.members.filter((m) => m.presence !== "offline") : [];
 
@@ -126,6 +128,7 @@ export default async function AdminPage() {
               &quot;Active&quot; = the app open and used in the last 2 minutes; &quot;Open, idle&quot; = open on screen but not touched. Measured from 13 October 2026.
             </p>
           </section>
+          {templates ? <TemplatesAdmin templates={templates} /> : <p className="board-note board-warn">The WhatsApp templates could not be read just now.</p>}
         </>
       )}
     </div>

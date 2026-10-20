@@ -335,3 +335,28 @@ a.ibx-att-share-label { text-decoration: underline; text-underline-offset: 2px; 
   .ibx-att-card,
   .ibx-voice { min-width: 0; width: 100%; }
 }
+
+/* Several files in one go (2026-10-20) */
+.ibx-sheet-strip { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0; }
+.ibx-sheet-thumb { flex: none; width: 56px; height: 56px; border-radius: 8px; border: 2px solid transparent; padding: 0; overflow: hidden; background: var(--bg); color: var(--ink-2); font-size: 11px; cursor: pointer; }
+.ibx-sheet-thumb[aria-pressed="true"] { border-color: var(--accent, var(--ink)); }
+.ibx-sheet-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* What a reply answers, and the ad the customer came from (2026-10-20) */
+.ibx-quote { display: flex; gap: 8px; align-items: center; margin: 0 0 6px; padding: 6px 8px; border-left: 3px solid var(--accent, #2f6fde); border-radius: 6px; background: color-mix(in srgb, currentColor 7%, transparent); font-size: 12px; }
+.ibx-quote-thumb { flex: none; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 4px; overflow: hidden; cursor: pointer; background: none; }
+.ibx-quote-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ibx-quote-body { display: grid; min-width: 0; }
+.ibx-quote-who { font-weight: 600; opacity: .85; }
+.ibx-quote-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .8; }
+.ibx-ad { max-width: 320px; margin: 8px 0 8px; padding: 10px; border: 1px solid var(--line, #dfe5ef); border-radius: 12px; background: var(--panel, #fff); font-size: 13px; }
+.ibx-ad-label { margin: 0 0 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
+.ibx-ad-img { display: block; width: 100%; padding: 0; border: 0; border-radius: 8px; overflow: hidden; cursor: zoom-in; background: none; }
+.ibx-ad-img img { width: 100%; max-height: 320px; object-fit: cover; display: block; }
+.ibx-ad-none { margin: 0 0 6px; opacity: .7; }
+.ibx-ad-title { margin: 8px 0 2px; font-weight: 600; }
+.ibx-ad-body { margin: 0; opacity: .85; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; }
+.ibx-ad-link { display: inline-block; margin-top: 6px; font-size: 12px; }
+
+/* A WhatsApp template, filled in, before it goes (2026-10-20) */
+.ibx-sheet-preview-text { margin: 8px 0; padding: 10px; border-radius: 8px; background: var(--bg); white-space: pre-line; font-size: 13px; }

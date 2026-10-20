@@ -265,6 +265,8 @@ async function sendVia(
         recipient: { id: message.toExternalId },
         // Words, or one file Instagram fetches from a short-lived link.
         message: outboundMessagePart(message),
+        // A person's own reply between 24 hours and 7 days: Meta's HUMAN_AGENT tag (types.ts).
+        ...(message.humanAgent ? { messaging_type: "MESSAGE_TAG", tag: "HUMAN_AGENT" } : {}),
       }),
       // Instagram fetches the file before it answers; a video takes a while.
       signal: AbortSignal.timeout(message.attachment ? 90_000 : 20_000),

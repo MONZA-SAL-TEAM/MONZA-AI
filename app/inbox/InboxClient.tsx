@@ -30,15 +30,16 @@
  * Sending, the 24-hour window and the demo mode behave as before.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import DraftDock from "./DraftDock";
 import SalesSuggestion from "./SalesSuggestion";
 import SalesAlerts from "./SalesAlerts";
 import MediaComposer from "./MediaComposer";
-import { Attachments, LinkEmbeds, Lightbox, Ticks } from "./MediaBubble";
+import TemplatePicker from "./TemplatePicker";
+import { AdCardView, Attachments, LinkEmbeds, Lightbox, Quote, Ticks } from "./MediaBubble";
 import { carryUrls, isMetaCdn, previewText, waWebChatLink, withoutLinks } from "@/lib/inbox/media";
-import type { Conversation, CustomerProfile, InboxMessage } from "@/lib/inbox/types";
+import type { AdCard, Conversation, CustomerProfile, InboxMessage } from "@/lib/inbox/types";
 import {
   CHANNEL_LABEL,
   VEHICLE_STATUS_LABEL,
@@ -105,9 +106,11 @@ type ThreadResponse =
   | {
       ok: true;
       messages: InboxMessage[];
-      window: { open: boolean; text: string };
+      window: { open: boolean; text: string; humanAgent?: boolean };
       /** Instagram and Facebook: who the customer is, as Meta shows them. */
       profile?: CustomerProfile | null;
+      /** The ad the customer came from (Click-to-WhatsApp / Instagram ad). */
+      ad?: AdCard | null;
     }
   | { ok: false; message?: string };
 
@@ -117,6 +120,9 @@ interface ThreadState {
   problem: string | null;
   windowOpen: boolean;
   windowText: string;
+  /** Past 24 h, within 7 days: a person's own reply only (Instagram / Messenger). */
+  humanAgent: boolean;
+  ad: AdCard | null;
 }
 
 const EMPTY_THREAD: ThreadState = {
@@ -125,6 +131,8 @@ const EMPTY_THREAD: ThreadState = {
   problem: null,
   windowOpen: false,
   windowText: "",
+  humanAgent: false,
+  ad: null,
 };
 
 type RunState = "waiting" | "checking" | "ok" | "history" | "paused" | "error";
@@ -224,6 +232,7 @@ const I = {
   x: "M18 6L6 18 M6 6l12 12",
   chat: "M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.8-.9L3 21l1.9-5.2A8.4 8.4 0 1 1 21 11.5z",
   copy: "M9 9h11v11H9z M5 15H4V4h11v1",
+  unread: "M14 4H4v12h1.5L4 19.5 8 16h12V10 M19 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
   phone:
     "M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z",
 };
@@ -397,6 +406,8 @@ export default function InboxClient(props: Props) {
 
   const [ready, setReady] = useState(!live);
   const [baselineAt, setBaselineAt] = useState("");
+  // "Mark as unread" (Samer, 2026-10-20): kept in this person's browser until they open the chat again.
+  const [markedUnread, setMarkedUnread] = useState<Set<string>>(new Set());
   const baselineRef = useRef("");
   const [seen, setSeen] = useState<Record<string, string>>({});
   const [metas, setMetas] = useState<Record<string, AccountMeta>>({});
@@ -423,16 +434,19 @@ export default function InboxClient(props: Props) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [thread, setThread] = useState<ThreadState>(EMPTY_THREAD);
-  const reloadThread = useRef<(() => void) | null>(null);
+  const reloadThread = useRef<(() => Promise<void>) | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const scrolledFor = useRef<string | null>(null);
 
   const [composerText, setComposerText] = useState("");
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const [sending, setSending] = useState(false);
+  // Replies on their way (Samer, 2026-10-20: "very slow when sending"): shown at once, ticked when Meta took
+  // them; one that failed stays with "Try again" and "Delete" — and is never sent twice by itself.
+  const [pending, setPending] = useState<(InboxMessage & { pendingState: "sending" | "sent" | "failed" })[]>([]);
   const [sendNote, setSendNote] = useState<string | null>(null);
   /** A file dropped or pasted into a WhatsApp conversation, for the attach sheet. */
-  const [dropped, setDropped] = useState<File | null>(null);
+  const [dropped, setDropped] = useState<File[] | null>(null);
   /** The thread's photos, open full screen. */
   const [viewer, setViewer] = useState<{ images: string[]; index: number } | null>(null);
   /**
@@ -676,6 +690,7 @@ export default function InboxClient(props: Props) {
       metasRef.current = snap?.meta ?? {};
       setMetas(metasRef.current);
       setSeen(snap?.seen ?? {});
+      setMarkedUnread(new Set(snap?.unreadMarks ?? []));
       const base = snap?.baselineAt ?? new Date().toISOString();
       if (!snap?.baselineAt) void cache?.setBaseline(base);
       baselineRef.current = base;
@@ -716,11 +731,23 @@ export default function InboxClient(props: Props) {
   // for this visit (nothing is saved in demo mode).
   const unreadOf = useCallback(
     (c: Conversation) =>
-      live
+      markedUnread.has(c.id) ||
+      (live
         ? isUnread(c, seen[c.id], baselineAt)
-        : c.unreadCount > 0 && (seen[c.id] ?? "") < c.lastMessage.at,
-    [live, seen, baselineAt]
+        : c.unreadCount > 0 && (seen[c.id] ?? "") < c.lastMessage.at),
+    [live, seen, baselineAt, markedUnread]
   );
+
+  const setUnreadMark = useCallback((id: string, on: boolean) => {
+    setMarkedUnread((prev) => {
+      if (prev.has(id) === on) return prev;
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      void cacheRef.current?.setUnreadMarks([...next]);
+      return next;
+    });
+  }, []);
 
   const brands = useMemo(() => orderBrands(accounts.map((a) => a.brand)), [accounts]);
 
@@ -780,8 +807,9 @@ export default function InboxClient(props: Props) {
         dayOf: localDay,
         owners: owners.map,
         me: owners.me,
+        markedUnread,
       }),
-    [all, view, accounts, seen, baselineAt, live, owners]
+    [all, view, accounts, seen, baselineAt, live, owners, markedUnread]
   );
 
   useEffect(() => setRenderCount(RENDER_STEP), [view]);
@@ -836,8 +864,9 @@ export default function InboxClient(props: Props) {
     (c: Conversation) => {
       setOpenId(c.id);
       markSeen([[c.id, c.lastMessage.at]]);
+      setUnreadMark(c.id, false);
     },
-    [markSeen]
+    [markSeen, setUnreadMark]
   );
 
   // "Open chat" from the test-drive calendar: /inbox?open=<thread id>.
@@ -877,6 +906,8 @@ export default function InboxClient(props: Props) {
             problem: null,
             windowOpen: json.window.open,
             windowText: json.window.text,
+            humanAgent: json.window.humanAgent === true,
+            ad: json.ad ?? null,
           }));
           // Links expire; the saved copy keeps everything else.
           void cacheRef.current?.putThread(id, withoutLinks(json.messages));
@@ -923,7 +954,7 @@ export default function InboxClient(props: Props) {
         }
       }
     };
-    reloadThread.current = () => void load();
+    reloadThread.current = () => load();
     void load();
     const t = setInterval(() => void load(), THREAD_REFRESH_MS);
     return () => {
@@ -936,8 +967,17 @@ export default function InboxClient(props: Props) {
 
   const messages = useMemo(() => {
     if (!open) return [];
-    return live ? thread.messages : props.messages.filter((m) => m.conversationId === open.id);
-  }, [live, thread.messages, props.messages, open]);
+    const mine = pending.filter((p) => p.conversationId === open.id);
+    return live ? [...thread.messages, ...mine] : props.messages.filter((m) => m.conversationId === open.id);
+  }, [live, thread.messages, props.messages, open, pending]);
+
+  // The ad the customer came from sits just above their first message from that moment (or the first shown).
+  const adBefore = useMemo(() => {
+    const ad = live ? thread.ad : null;
+    if (!ad) return null;
+    const from = Date.parse(ad.at) - 120_000;
+    return (messages.find((m) => m.direction === "in" && Date.parse(m.at) >= from) ?? messages[0])?.id ?? null;
+  }, [live, thread.ad, messages]);
 
   const messageGroups = useMemo(
     () => (mounted ? groupByDay(messages, (m) => m.at, localDay, today) : []),
@@ -963,7 +1003,8 @@ export default function InboxClient(props: Props) {
   const openImage = useCallback(
     (url: string) => {
       const i = threadImages.indexOf(url);
-      setViewer({ images: threadImages, index: i >= 0 ? i : 0 });
+      // A picture outside the thread's own (an ad, an older quoted photo) opens on its own.
+      setViewer(i >= 0 ? { images: threadImages, index: i } : { images: [url], index: 0 });
     },
     [threadImages]
   );
@@ -1061,34 +1102,44 @@ export default function InboxClient(props: Props) {
     [vehicles, open]
   );
 
-  async function sendReply() {
-    if (!open || sending) return;
-    const text = composerText.trim();
+  async function sendReply(retry?: { id: string; text: string; conversationId: string }) {
+    if (!open && !retry) return;
+    const conversationId = retry?.conversationId ?? open!.id;
+    const text = (retry?.text ?? composerText).trim();
     if (text === "") return;
-    setSending(true);
+    const id = retry?.id ?? `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const draft = { id, conversationId, direction: "out" as const, author: "staff" as const, text, at: new Date().toISOString(), status: "queued" as const, staffName: "You", pendingState: "sending" as const };
+    // On the screen at once; the box is free for the next message straight away.
+    setPending((list) => [...list.filter((p) => p.id !== id), draft]);
+    if (!retry) {
+      setComposerText("");
+      if (composerRef.current) composerRef.current.style.height = "";
+    }
     setSendNote(null);
+    scrolledFor.current = null; // show the reply that is going out
+    const fail = (why: string) => setPending((list) => list.map((p) => (p.id === id ? { ...p, status: "failed", error: why, pendingState: "failed" } : p)));
     try {
       const res = await fetch("/api/channels/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId: open.id, text }),
+        body: JSON.stringify({ conversationId, text }),
       });
       const json = (await res.json().catch(() => null)) as { delivered?: boolean; message?: string } | null;
       if (res.ok && json?.delivered) {
-        setComposerText("");
-        if (composerRef.current) composerRef.current.style.height = "";
-        setSendNote("Sent.");
-        scrolledFor.current = null; // show the reply that just went out
-        reloadThread.current?.();
+        setPending((list) => list.map((p) => (p.id === id ? { ...p, status: "sent", pendingState: "sent" } : p)));
+        // The real message replaces the stand-in once the conversation is read again.
+        await reloadThread.current?.();
+        setPending((list) => list.filter((p) => p.id !== id));
       } else {
-        // Not sent: the text stays in the box so nothing is lost.
-        setSendNote(json?.message ?? "It was not sent.");
+        fail(json?.message ?? "It was not sent.");
       }
     } catch {
-      setSendNote("Could not reach Monza AI — nothing was sent.");
-    } finally {
-      setSending(false);
+      fail("Could not reach Monza AI — nothing was sent.");
     }
+  }
+
+  function dropPending(id: string) {
+    setPending((list) => list.filter((p) => p.id !== id));
   }
 
   /* ── Actions ────────────────────────────────────────────────────────── */
@@ -1589,10 +1640,10 @@ export default function InboxClient(props: Props) {
               onDrop={
                 canAttach
                   ? (e) => {
-                      const f = e.dataTransfer.files?.[0];
-                      if (f) {
+                      const files = Array.from(e.dataTransfer.files ?? []);
+                      if (files.length) {
                         e.preventDefault();
-                        setDropped(f);
+                        setDropped(files);
                       }
                     }
                   : undefined
@@ -1651,9 +1702,11 @@ export default function InboxClient(props: Props) {
                   >
                     {thread.loading && thread.messages.length === 0
                       ? "Checking…"
-                      : thread.windowOpen
-                        ? "Reply window open"
-                        : "Reply window closed"}
+                      : thread.humanAgent
+                        ? "After 24 h — your own reply only"
+                        : thread.windowOpen
+                          ? "Reply window open"
+                          : "Reply window closed"}
                   </span>
                 )}
                 {open.channel === "whatsapp" && waWebChatLink(open.peerPhone) && (
@@ -1671,6 +1724,18 @@ export default function InboxClient(props: Props) {
                     <Icon d={I.phone} />
                   </a>
                 )}
+                <button
+                  type="button"
+                  className="ibx-icon-btn"
+                  title="Mark as unread — it stays bold in your list until you open it again"
+                  aria-label="Mark as unread"
+                  onClick={() => {
+                    setUnreadMark(open.id, true);
+                    setOpenId(null);
+                  }}
+                >
+                  <Icon d={I.unread} />
+                </button>
                 {live && (
                   <OwnerChip
                     threadId={open.id}
@@ -1707,17 +1772,29 @@ export default function InboxClient(props: Props) {
                       <span>{g.label}</span>
                     </div>
                     {g.items.map((m) => (
+                      <Fragment key={m.id}>
+                      {m.id === adBefore && thread.ad && <AdCardView ad={thread.ad} onOpenImage={openImage} />}
                       <div
-                        key={m.id}
                         className={`ibx-bubble ibx-bubble-${m.direction}`}
                         data-author={m.author}
                         data-media={m.attachments && m.attachments.length > 0 ? "true" : undefined}
                       >
+                        {m.replyTo && <Quote q={m.replyTo} customerName={open.customerName} onOpenImage={openImage} />}
                         {m.attachments && m.attachments.length > 0 && (
                           <Attachments items={m.attachments} onOpenImage={openImage} />
                         )}
                         {m.text !== "" && <p className="ibx-bubble-text">{m.text}</p>}
                         {m.text !== "" && <LinkEmbeds text={m.text} />}
+                        {"pendingState" in m && (m as { pendingState: string }).pendingState === "failed" && (
+                          <p className="ibx-bubble-actions">
+                            <button type="button" className="btn quiet" onClick={() => void sendReply({ id: m.id, text: m.text, conversationId: m.conversationId })}>
+                              Try again
+                            </button>
+                            <button type="button" className="btn quiet" onClick={() => dropPending(m.id)}>
+                              Delete
+                            </button>
+                          </p>
+                        )}
                         <p className="ibx-bubble-meta">
                           {m.author === "automation"
                             ? `Automatic · ${m.automationId ?? ""}`
@@ -1739,6 +1816,7 @@ export default function InboxClient(props: Props) {
                             ))}
                         </p>
                       </div>
+                      </Fragment>
                     ))}
                   </section>
                 ))}
@@ -1806,10 +1884,10 @@ export default function InboxClient(props: Props) {
                     }}
                     onPaste={(e) => {
                       // A pasted screenshot or photo opens the attach sheet, like WhatsApp.
-                      const f = canAttach ? e.clipboardData?.files?.[0] : undefined;
-                      if (f) {
+                      const files = canAttach ? Array.from(e.clipboardData?.files ?? []) : [];
+                      if (files.length) {
                         e.preventDefault();
-                        setDropped(f);
+                        setDropped(files);
                       }
                     }}
                     aria-label="Your reply"
@@ -1841,6 +1919,9 @@ export default function InboxClient(props: Props) {
                     >
                       <Icon d={I.copy} size={16} />
                     </button>
+                    {live && open.channel === "whatsapp" && !thread.loading && !thread.windowOpen && (
+                      <TemplatePicker conversationId={open.id} onSent={mediaSent} onNote={setSendNote} />
+                    )}
                     {live ? (
                       <button
                         type="button"

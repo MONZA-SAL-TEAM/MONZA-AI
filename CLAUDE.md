@@ -1097,6 +1097,43 @@ WhatsApp" flow again** — that is the step that locked the phone out on
   database or the browser's saved copy (picture links expire in days); list
   pictures are fetched only for rows scrolled into view, a dozen at a time.
 
+## Inbox batch (2026-10-20, migrations 030–031 APPLIED)
+
+Samer's list: delete/edit messages; see the image a client refers to; mark unread; send two videos together;
+"very slow when sending"; reply after 24 hours.
+
+- **Delete / edit: NOT POSSIBLE through Meta.** WhatsApp's Cloud API documents no delete, revoke or edit for a
+  message a business sent (read 2026-10-20), and Instagram / Messenger have none either. What exists: a reply that
+  FAILED stays in the chat with "Try again" and "Delete" (it never reached the customer). Deleting a sent WhatsApp
+  message is done on the WhatsApp Business phone app (Coexistence). Do not build a "delete" that only hides it here.
+- **Speed:** a reply appears at once (`pending` in InboxClient — sending → ticked → replaced by the real row when the
+  thread is read again; a failure keeps the words with Try again / Delete). `requireStaff` starts the CRM profile and
+  MONZA AI access reads while the token is verified (`tokenSubject`: the token's CLAIMED id only starts reads; the
+  verified id must match or they are redone). `listAccounts` is cached 60 s. Instagram / Messenger sends reuse the
+  thread the screen just read (`openThreadForSend`, 90 s; the open chat refreshes it every 15 s) instead of reading
+  the conversation from Meta again for every send and file.
+- **Several files at once** (`MediaComposer`: `multiple`, drop and paste take all, at most 10): sent one after the
+  other, the caption with the first; a failure stops there and keeps the rest in the sheet with the reason.
+- **Mark as unread**: the chat header's button; kept per person in their browser (IndexedDB kv `unreadMarks`) until
+  they open the chat. The WhatsApp phone app's own unread state cannot be read or set through the API.
+- **What a reply answers**: WhatsApp `context.id` → `InboundEvent.replyTo` → `channel_messages.reply_to` (030); the
+  thread quotes it above the reply (`quoteReplies`, words cut to 140, a kept photo's thumbnail; an older message is
+  read by id; one not kept is "missing", never guessed). Only messages from 2026-10-20 on carry it.
+- **The ad a customer came from** (`lib/channels/ad-creative.ts`): the lead's first ad/post touchpoint (`raw`:
+  WhatsApp `image_url` / `thumbnail_url` / `headline` / `body` / `source_url`, Instagram `ads_context_data`) shown as a
+  card above their first message. Meta's picture link dies (`oe` expiry, ~3 weeks), so each ad's picture is copied
+  ONCE into the private bucket (`ads/<ad id>.<ext>`, `ad_creatives`, 030) from Meta's CDN only (`isMetaCdn`), at
+  most one try an hour per ad; shown by a signed link. Ads whose link already died show their words only.
+- **After 24 hours:** Instagram / Messenger — a PERSON's own reply (typed or a file) up to 7 days after the
+  customer's last message goes with `messaging_type: MESSAGE_TAG, tag: HUMAN_AGENT` (`humanAgentWindow`,
+  `OutboundMessage.humanAgent`; header pill "After 24 h — your own reply only"). **Meta must approve the Human
+  Agent feature for each app (App Review); until it does, Meta refuses and the refusal says so.** Never used by
+  sales suggestions, the autoreply or `meta-send.ts` (a test scans them). WhatsApp — an APPROVED TEMPLATE only, paid:
+  admins list templates in `/admin` (WhatsApp templates: exact name, language, words with {{1}}…; `wa_reply_templates`,
+  031) after approving them in WhatsApp Manager; in a closed chat the composer offers "Send a template (paid)" —
+  pick, fill the blanks, see the words, Send (`POST /api/channels/templates` → `sendTemplateOnThread`); the words that
+  went are kept in the thread. MONZA AI never creates or edits a template at Meta.
+
 ## The sales Search Engine (`lib/wasales/`)
 
 Added 2026-09-14. Reads Instagram, Messenger and WhatsApp enquiries and decides

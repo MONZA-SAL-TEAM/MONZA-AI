@@ -224,6 +224,8 @@ export async function sendMessenger(
         // product does — anything else needs a message tag and a policy
         // review, and must not be reachable by accident.
         messaging_type: "RESPONSE",
+        // …except a person's own reply between 24 hours and 7 days: Meta's HUMAN_AGENT tag (types.ts).
+        ...(message.humanAgent ? { messaging_type: "MESSAGE_TAG", tag: "HUMAN_AGENT" } : {}),
       }),
     });
 

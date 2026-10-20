@@ -3,8 +3,10 @@
 /**
  * Attach and record, like WhatsApp (Samer, 2026-09-15):
  *
- *   📎  pick a photo, video, audio file or document — or drop / paste one into
- *       the conversation — see it, add a caption, press Send;
+ *   📎  pick photos, videos, audio files or documents — several at once (Samer,
+ *       2026-10-20: "send two videos together"), or drop / paste them into the
+ *       conversation — see them, add a caption, press Send: they go one after
+ *       the other, in order;
  *   🎤  record a voice note; stop sends it, the bin throws it away.
  *
  * A person always presses Send (rule 24). Nothing is uploaded until they do,
@@ -46,8 +48,8 @@ interface Props {
   enabled: boolean;
   /** Why it is not, in words, for the buttons' titles. */
   disabledReason: string;
-  /** A file dropped or pasted into the conversation. */
-  dropped: File | null;
+  /** Files dropped or pasted into the conversation. */
+  dropped: File[] | null;
   onDroppedTaken: () => void;
   onSent: () => void;
   onNote: (text: string) => void;
@@ -67,6 +69,8 @@ const CLIP = "M21.4 11.6l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9
 const MIC = "M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z M19 10v2a7 7 0 0 1-14 0v-2 M12 19v3";
 const BIN = "M3 6h18 M8 6V4h8v2 M19 6l-1 14H6L5 6";
 const SEND = "M22 2L11 13 M22 2l-7 20-4-9-9-4z";
+/** At most this many files in one go. */
+const MAX_FILES = 10;
 
 export default function MediaComposer({
   conversationId,
@@ -80,7 +84,14 @@ export default function MediaComposer({
 }: Props) {
   const channel = mediaChannel(channelName);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [picked, setPicked] = useState<{ file: ReadyFile; preview: string | null } | null>(null);
+  const [pickedList, setPickedList] = useState<{ file: ReadyFile; preview: string | null }[]>([]);
+  const [shown, setShown] = useState(0);
+  const [progress, setProgress] = useState<string | null>(null);
+  const picked = pickedList[Math.min(shown, pickedList.length - 1)] ?? null;
+  const setPicked = (one: { file: ReadyFile; preview: string | null } | null) => {
+    setPickedList(one ? [one] : []);
+    setShown(0);
+  };
   const [caption, setCaption] = useState("");
   const [stage, setStage] = useState<Stage>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -99,38 +110,49 @@ export default function MediaComposer({
   }, []);
 
   const close = useCallback(() => {
-    setPicked((p) => {
-      if (p?.preview) URL.revokeObjectURL(p.preview);
-      return null;
+    setPickedList((list) => {
+      for (const p of list) if (p.preview) URL.revokeObjectURL(p.preview);
+      return [];
     });
+    setShown(0);
+    setProgress(null);
     setCaption("");
     setProblem(null);
     setStage(null);
   }, []);
 
   const take = useCallback(
-    async (file: File) => {
+    async (files: File[]) => {
       if (!enabled) {
         onNote(disabledReason);
         return;
       }
+      if (files.length > MAX_FILES) onNote(`Up to ${MAX_FILES} files at once — the first ${MAX_FILES} are ready to send.`);
       setStage("preparing");
-      const r = await prepareFile(file, channel);
-      setStage(null);
-      if (!r.ok) {
-        onNote(r.problem);
-        return;
+      const ready: { file: ReadyFile; preview: string | null }[] = [];
+      const refused: string[] = [];
+      for (const f of files.slice(0, MAX_FILES)) {
+        const r = await prepareFile(f, channel);
+        if (!r.ok) {
+          refused.push(`${f.name}: ${r.problem}`);
+          continue;
+        }
+        const showable = r.file.kind === "image" || r.file.kind === "video" || r.file.kind === "audio";
+        ready.push({ file: r.file, preview: showable ? URL.createObjectURL(r.file.blob) : null });
       }
-      const showable = r.file.kind === "image" || r.file.kind === "video" || r.file.kind === "audio";
-      setPicked({ file: r.file, preview: showable ? URL.createObjectURL(r.file.blob) : null });
+      setStage(null);
+      if (refused.length) onNote(refused.join(" · "));
+      if (ready.length === 0) return;
+      setPickedList(ready);
+      setShown(0);
       setCaption("");
-      setProblem(null);
+      setProblem(refused.length ? `Not added: ${refused.join(" · ")}` : null);
     },
     [enabled, disabledReason, onNote, channel]
   );
 
   useEffect(() => {
-    if (!dropped) return;
+    if (!dropped || dropped.length === 0) return;
     onDroppedTaken();
     void take(dropped);
   }, [dropped, onDroppedTaken, take]);
@@ -148,6 +170,26 @@ export default function MediaComposer({
       return false;
     }
     onSent();
+    return true;
+  }
+
+  /** Every picked file, in order; the caption goes with the first. A failure stops there and keeps the rest. */
+  async function sendAll(words: string): Promise<boolean> {
+    const list = pickedList;
+    for (let i = 0; i < list.length; i++) {
+      if (list.length > 1) setProgress(`${i + 1} of ${list.length}`);
+      const ok = await send(list[i].file, i === 0 ? words : "");
+      if (!ok) {
+        // What went is gone from the sheet; what did not stays, with the reason.
+        for (const p of list.slice(0, i)) if (p.preview) URL.revokeObjectURL(p.preview);
+        setPickedList(list.slice(i));
+        setShown(0);
+        setProgress(null);
+        if (i > 0) setCaption("");
+        return false;
+      }
+    }
+    setProgress(null);
     return true;
   }
 
@@ -242,10 +284,11 @@ export default function MediaComposer({
         type="file"
         hidden
         accept={ACCEPT[channel]}
+        multiple
         onChange={(e) => {
-          const f = e.target.files?.[0];
+          const files = Array.from(e.target.files ?? []);
           e.target.value = "";
-          if (f) void take(f);
+          if (files.length) void take(files);
         }}
       />
       {canRecord && (
@@ -286,7 +329,11 @@ export default function MediaComposer({
         <div className="ibx-sheet" role="dialog" aria-modal="true" aria-label="Send a file" onClick={() => !busy && close()}>
           <div className="ibx-sheet-card" onClick={(e) => e.stopPropagation()}>
             <div className="ibx-sheet-head">
-              <h3>{picked.file.kind === "document" ? "Send a document" : picked.file.kind === "audio" ? "Send audio" : picked.file.kind === "video" ? "Send a video" : "Send a photo"}</h3>
+              <h3>
+                {pickedList.length > 1
+                  ? `Send ${pickedList.length} files`
+                  : picked.file.kind === "document" ? "Send a document" : picked.file.kind === "audio" ? "Send audio" : picked.file.kind === "video" ? "Send a video" : "Send a photo"}
+              </h3>
               <button type="button" className="ibx-icon-btn" aria-label="Cancel" disabled={busy} onClick={close}>
                 ✕
               </button>
@@ -308,6 +355,20 @@ export default function MediaComposer({
                 </div>
               )}
             </div>
+            {pickedList.length > 1 && (
+              <div className="ibx-sheet-strip" role="group" aria-label="Files to send">
+                {pickedList.map((p, i) => (
+                  <button key={i} type="button" className="ibx-sheet-thumb" aria-pressed={i === shown} title={p.file.filename} onClick={() => setShown(i)}>
+                    {p.preview && p.file.kind === "image" ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- a local preview of a picked file
+                      <img src={p.preview} alt="" />
+                    ) : (
+                      <span>{p.file.kind === "video" ? "Video" : p.file.kind === "audio" ? "Audio" : "File"}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
             {picked.file.kind !== "audio" && (
               <textarea
                 className="ibx-sheet-caption"
@@ -320,7 +381,7 @@ export default function MediaComposer({
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !busy) {
                     e.preventDefault();
-                    void send(picked.file, caption.trim()).then((ok) => ok && close());
+                    void sendAll(caption.trim()).then((ok) => ok && close());
                   }
                 }}
                 aria-label="Caption"
@@ -328,7 +389,9 @@ export default function MediaComposer({
             )}
             {problem && <p className="ibx-sheet-problem" role="alert">{problem}</p>}
             <div className="ibx-sheet-actions">
-              <span className="ibx-sheet-size">{formatBytes(picked.file.blob.size)}</span>
+              <span className="ibx-sheet-size">
+                {pickedList.length > 1 ? `${pickedList.length} files · ${formatBytes(pickedList.reduce((a, p) => a + p.file.blob.size, 0))}` : formatBytes(picked.file.blob.size)}
+              </span>
               <button type="button" className="ibx-btn" disabled={busy} onClick={close}>
                 Cancel
               </button>
@@ -336,10 +399,10 @@ export default function MediaComposer({
                 type="button"
                 className="ibx-send"
                 disabled={busy || !enabled}
-                onClick={() => void send(picked.file, caption.trim()).then((ok) => ok && close())}
+                onClick={() => void sendAll(caption.trim()).then((ok) => ok && close())}
               >
                 <Svg d={SEND} />
-                {busy ? stageWords : "Send"}
+                {busy ? `${progress ? `${progress} · ` : ""}${stageWords}` : pickedList.length > 1 ? `Send ${pickedList.length}` : "Send"}
               </button>
             </div>
           </div>

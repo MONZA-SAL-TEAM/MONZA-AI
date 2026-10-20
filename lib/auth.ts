@@ -35,6 +35,21 @@ export function isDemoIdentity(user: StaffIdentity): boolean {
   return user.userId === "demo" && user.crmAccessToken === "demo";
 }
 
+/**
+ * The user id a token CLAIMS (its `sub`), read without verifying it — only to start reads early. Nothing is
+ * decided on it: every read made with it is used only when the verified id is the same.
+ */
+function tokenSubject(token: string): string | null {
+  try {
+    const part = token.split(".")[1];
+    if (!part) return null;
+    const json = JSON.parse(Buffer.from(part.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")) as { sub?: unknown };
+    return typeof json.sub === "string" && /^[0-9a-f-]{36}$/i.test(json.sub) ? json.sub : null;
+  } catch {
+    return null;
+  }
+}
+
 function tokenFromRequest(request: Request): string | null {
   const auth = request.headers.get("authorization");
   if (auth && auth.toLowerCase().startsWith("bearer ")) {
@@ -112,6 +127,10 @@ export async function requireStaff(
  * as an action. Pages are checked in requireStaffForPage (lib/auth-server.ts), whose request is not /api/.
  */
 async function resolveStaff(request: Request): Promise<{ user: StaffIdentity | null; denied: boolean; rulePage: string | null }> {
+  // MONZA AI's access is read while the token is verified (it is cached 15 s); used only if the ids match.
+  const token = tokenFromRequest(request);
+  const claimed = token ? tokenSubject(token) : null;
+  const earlyAccess = claimed && crmUrl() ? loadAccess(claimed) : null;
   const user = await verifyStaff(request);
   if (!user || isDemoIdentity(user)) return { user, denied: false, rulePage: null };
   let pathname = "";
@@ -120,7 +139,7 @@ async function resolveStaff(request: Request): Promise<{ user: StaffIdentity | n
   } catch {
     // A request without a usable address is not an API call.
   }
-  const access = await loadAccess(user.userId);
+  const access = earlyAccess && claimed === user.userId ? await earlyAccess : await loadAccess(user.userId);
   const withAccess: StaffIdentity = { ...user, access };
   if (!pathname.startsWith("/api/")) return { user: withAccess, denied: false, rulePage: null };
   const rule = apiRuleOf(pathname, request.method);
@@ -149,10 +168,14 @@ async function verifyStaff(request: Request): Promise<StaffIdentity | null> {
       auth: { persistSession: false, autoRefreshToken: false },
       global: { fetch: noStoreFetch },
     });
+    // The profile is asked for at the same time as the token is verified (one round trip instead of two):
+    // the id is read from the token now and must equal the verified one, or the profile is read again.
+    const claimed = tokenSubject(token);
+    const early = claimed ? loadProfile(url, anon, token, claimed) : null;
     const { data, error } = await crm.auth.getUser(token);
     if (error || !data?.user) return null;
 
-    const profile = await loadProfile(url, anon, token, data.user.id);
+    const profile = early && claimed === data.user.id ? await early : await loadProfile(url, anon, token, data.user.id);
 
     return {
       userId: data.user.id,

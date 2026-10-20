@@ -252,12 +252,14 @@ export interface ViewContext {
   /** Owned leads by thread id (GET /api/conversations/owners), and who is looking. */
   owners?: Readonly<Record<string, { id: string }>>;
   me?: string | null;
+  /** Chats the person marked "unread" again (until they open them). */
+  markedUnread?: ReadonlySet<string>;
 }
 
 export function matchesView(c: Conversation, v: ViewFilter, ctx: ViewContext): boolean {
   if (v.brand !== "all" && brandOf(c, ctx.accounts) !== v.brand) return false;
   if (v.channel !== "all" && c.channel !== v.channel) return false;
-  if (v.show === "unread" && !isUnread(c, ctx.seen[c.id], ctx.baselineAt)) return false;
+  if (v.show === "unread" && !(ctx.markedUnread?.has(c.id) || isUnread(c, ctx.seen[c.id], ctx.baselineAt))) return false;
   if (v.show === "needs_reply" && !(c.lastMessage.direction === "in" && c.lastMessage.text !== "")) {
     return false;
   }
