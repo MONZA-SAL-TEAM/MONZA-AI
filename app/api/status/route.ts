@@ -40,6 +40,9 @@ export async function GET(request: Request) {
   const settings = await loadSettings();
   return NextResponse.json({
     status: "ok",
+    // Which commit is live (Vercel sets it at build time) — so "is my change deployed?" has a plain answer.
+    // Staff only: the anonymous answer stays bare on purpose.
+    commit: (process.env.VERCEL_GIT_COMMIT_SHA ?? "").slice(0, 7) || null,
     crmConfigured: crmConfigured(),
     aiDbConfigured: aiDbConfigured(),
     brainConfigured: brainConfigured(),
