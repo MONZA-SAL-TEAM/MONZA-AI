@@ -929,3 +929,8 @@
 .ibx-bubble-text.is-deleted { font-style: italic; opacity: .7; }
 .ibx-edited { opacity: .8; }
 .ibx-edit-hint { color: inherit; text-decoration: underline dotted; opacity: .85; }
+
+/* The car filter under the brand tabs (2026-10-20) */
+.ibx-cars { flex-wrap: wrap; }
+.ibx-cars .ibx-chip[disabled] { opacity: .45; cursor: default; }
+.ibx-chip-count { margin-left: 6px; font-size: 11px; opacity: .75; font-variant-numeric: tabular-nums; }

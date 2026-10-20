@@ -1150,6 +1150,17 @@ Samer's list: delete/edit messages; see the image a client refers to; mark unrea
   pick, fill the blanks, see the words, Send (`POST /api/channels/templates` → `sendTemplateOnThread`); the words that
   went are kept in the thread. MONZA AI never creates or edits a template at Meta.
 
+- **The car filter under the brand tabs (2026-10-20; Samer: "when I click on VOYAH, show me a filter to choose
+  which car … so I can upsell for a car I want").** `GET /api/conversations/cars` (gated like the other inbox data
+  routes) returns car codes per inbox thread id from the insights labels — `lib/inbox/cars.ts` (pure:
+  `carsOfSignals` keeps named / by-context / from-the-ad apart; `anyCar` is what the filter uses), `cars-server.ts`
+  (ordered paged read of `sales_signals`, conversation rows → thread ids, 2-minute server memory, any failed read →
+  503 so the inbox keeps its last good map). Never a word or a name. `ViewFilter.car` (a view saved before it has
+  none = "all", never "nothing"); chips show every car of the brand tab with its count of the brand's chats (on the
+  chosen channel), never greyed out; switching brand anywhere (`pickBrand`) keeps the car only if the new brand
+  offers it. WhatsApp chats are fully covered; Instagram / Facebook only where a conversation row carries Meta's
+  thread id — and their history is not imported yet, so their counts are near zero until it is.
+
 ## The sales Search Engine (`lib/wasales/`)
 
 Added 2026-09-14. Reads Instagram, Messenger and WhatsApp enquiries and decides

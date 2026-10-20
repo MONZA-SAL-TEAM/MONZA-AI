@@ -74,6 +74,20 @@ const ctx = (over: Partial<ViewContext> = {}): ViewContext => ({
   ...over,
 });
 
+describe("the car filter (2026-10-20)", () => {
+  test("only chats about that car; 'all' keeps everything; a chat with no labels never matches a car", () => {
+    const a = conv("ig-voyah~a", "2026-09-12T10:00:00.000Z");
+    const b = conv("ig-voyah~b", "2026-09-12T11:00:00.000Z");
+    const c = ctx({ cars: { "ig-voyah~a": ["COURAGE", "FREE_318"], "ig-voyah~b": ["DREAM"] } });
+    const v = (car: string) => ({ ...EMPTY_VIEW, car });
+    assert.deepEqual(filterView([a, b], v("COURAGE"), c).map((x) => x.id), ["ig-voyah~a"]);
+    assert.deepEqual(filterView([a, b], v("all"), c).map((x) => x.id), ["ig-voyah~b", "ig-voyah~a"]);
+    assert.deepEqual(filterView([a, b], v("TAISHAN"), c), []);
+    assert.deepEqual(filterView([a, b], v("COURAGE"), ctx()), [], "no car data at all: nothing matches, never everything");
+    assert.equal(isFiltered(v("COURAGE")), true);
+  });
+});
+
 describe("merging a page into the saved copy", () => {
   test("a newer row replaces the saved one", () => {
     const old = conv("ig-voyah~a", "2026-09-10T10:00:00.000Z", { text: "old" });

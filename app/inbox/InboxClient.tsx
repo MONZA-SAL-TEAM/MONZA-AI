@@ -39,6 +39,7 @@ import MediaComposer from "./MediaComposer";
 import TemplatePicker from "./TemplatePicker";
 import { AdCardView, Attachments, LinkEmbeds, Lightbox, Quote, Ticks } from "./MediaBubble";
 import { carryUrls, isMetaCdn, previewText, waWebChatLink, withoutLinks } from "@/lib/inbox/media";
+import { carsForBrand, type CarChoice } from "@/lib/inbox/cars";
 import type { AdCard, Conversation, CustomerProfile, InboxMessage } from "@/lib/inbox/types";
 import {
   CHANNEL_LABEL,
@@ -774,6 +775,27 @@ export default function InboxClient(props: Props) {
   // Who owns which lead (Samer, 2026-10-12: "Take this lead"): read now and every minute, for the
   // "My leads" / "Unassigned" filters and the name on each row.
   const [owners, setOwners] = useState<{ map: Record<string, { id: string; name: string | null }>; me: string | null }>({ map: {}, me: null });
+  // Which car each chat is about (the insights labels), for the car filter under the brand tabs (Samer, 2026-10-20).
+  const [cars, setCars] = useState<{ list: CarChoice[]; byThread: Record<string, string[]> }>({ list: [], byThread: {} });
+  useEffect(() => {
+    if (!live) return;
+    let alive = true;
+    const load = () =>
+      document.visibilityState === "hidden"
+        ? Promise.resolve()
+        : fetch("/api/conversations/cars", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b: { ok?: boolean; cars?: CarChoice[]; byThread?: Record<string, string[]> } | null) => {
+          if (alive && b?.ok && b.cars && b.byThread) setCars({ list: b.cars, byThread: b.byThread });
+        })
+        .catch(() => undefined);
+    void load();
+    const t = setInterval(() => void load(), 5 * 60_000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [live]);
   useEffect(() => {
     if (!live) return;
     let alive = true;
@@ -808,8 +830,28 @@ export default function InboxClient(props: Props) {
         owners: owners.map,
         me: owners.me,
         markedUnread,
+        cars: cars.byThread,
       }),
-    [all, view, accounts, seen, baselineAt, live, owners, markedUnread]
+    [all, view, accounts, seen, baselineAt, live, owners, markedUnread, cars]
+  );
+
+  // The cars offered under the brand tab, each with how many of the brand's chats (on the chosen channel) are
+  // about it — whatever else is filtered, so a car is always there to pick.
+  const carChoices = useMemo(() => carsForBrand(cars.list, view.brand), [cars.list, view.brand]);
+  const carCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    if (!live || cars.list.length === 0) return counts;
+    for (const c of all) {
+      if (view.brand !== "all" && brandOf(c, accounts) !== view.brand) continue;
+      if (view.channel !== "all" && c.channel !== view.channel) continue;
+      for (const code of cars.byThread[c.id] ?? []) counts.set(code, (counts.get(code) ?? 0) + 1);
+    }
+    return counts;
+  }, [all, view.brand, view.channel, accounts, live, cars]);
+  // Switching brand (the tabs, or the welcome pane) keeps the chosen car only if the new brand offers it.
+  const pickBrand = useCallback(
+    (b: string, show?: ShowFilter) => setView((v) => ({ ...v, brand: b, ...(show ? { show } : {}), car: carsForBrand(cars.list, b).some((c) => c.code === v.car) ? v.car : "all" })),
+    [cars.list]
   );
 
   useEffect(() => setRenderCount(RENDER_STEP), [view]);
@@ -1360,7 +1402,7 @@ export default function InboxClient(props: Props) {
                     className="ibx-brand"
                     data-brand={b}
                     aria-pressed={view.brand === b}
-                    onClick={() => setView((v) => ({ ...v, brand: b }))}
+                    onClick={() => pickBrand(b)}
                   >
                     {b !== "all" && <span className="ibx-dot" data-brand={b} aria-hidden="true" />}
                     <span className="ibx-brand-name">{b === "all" ? "All" : brandLabel(b)}</span>
@@ -1375,6 +1417,26 @@ export default function InboxClient(props: Props) {
                 );
               })}
             </nav>
+          )}
+
+          {live && carChoices.length > 0 && (
+            <div className="ibx-chips ibx-cars" role="group" aria-label="Car" title="Chats where the customer named the car, asked about it, or came from its ad — from Monza AI's reading of the messages">
+              <button type="button" className="ibx-chip" aria-pressed={view.car === "all"} onClick={() => setView((v) => ({ ...v, car: "all" }))}>
+                All cars
+              </button>
+              {carChoices.map((c) => (
+                <button
+                  key={c.code}
+                  type="button"
+                  className="ibx-chip"
+                  aria-pressed={view.car === c.code}
+                  onClick={() => setView((v) => ({ ...v, car: v.car === c.code ? "all" : c.code }))}
+                >
+                  {c.label}
+                  <span className="ibx-chip-count">{carCounts.get(c.code) ?? 0}</span>
+                </button>
+              ))}
+            </div>
           )}
 
           <label className="ibx-search">
@@ -1613,7 +1675,7 @@ export default function InboxClient(props: Props) {
                         type="button"
                         className="ibx-welcome-brand"
                         data-brand={b}
-                        onClick={() => setView((v) => ({ ...v, brand: b, show: s.unread > 0 ? "unread" : "all" }))}
+                        onClick={() => pickBrand(b, s.unread > 0 ? "unread" : "all")}
                       >
                         <span className="ibx-dot" data-brand={b} aria-hidden="true" />
                         <span className="ibx-welcome-brand-name">{brandLabel(b)}</span>

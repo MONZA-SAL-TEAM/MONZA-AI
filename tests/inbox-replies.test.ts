@@ -13,7 +13,7 @@ import { sendMessenger } from "@/lib/channels/messenger";
 import { humanAgentWindow, windowExplanation, type ChannelAccount } from "@/lib/channels/types";
 import { adOfRaw, metaLinkAlive } from "@/lib/channels/ad-creative";
 import { blanksOf, paramsProblem, renderTemplate, templateProblem } from "@/lib/channels/wa-templates";
-import { matchesView, type ViewContext } from "@/lib/inbox/sync";
+import { EMPTY_VIEW, matchesView, type ViewContext } from "@/lib/inbox/sync";
 import { apiRuleOf } from "@/lib/access/access";
 import type { Conversation, InboxMessage } from "@/lib/inbox/types";
 
@@ -63,7 +63,7 @@ describe("the ad a customer came from", () => {
 describe("mark as unread", () => {
   const c = (id: string): Conversation => ({ id, customerId: "", customerName: "x", channel: "instagram", channelAddress: "", assignedTo: null, assignedToName: null, status: "open", unreadCount: 0, lastMessage: { text: "hi", at: "2026-09-01T00:00:00Z", direction: "in", author: "customer" }, hasAutomatedMessage: false, accountId: "ig-voyah" });
   const ctx: ViewContext = { accounts: [], seen: { a: "2026-10-01T00:00:00Z" }, baselineAt: "2026-10-01T00:00:00Z", dayOf: (iso) => iso.slice(0, 10) };
-  const unread = { brand: "all", channel: "all", show: "unread" } as unknown as Parameters<typeof matchesView>[1];
+  const unread = { ...EMPTY_VIEW, show: "unread" as const };
   test("a read chat marked unread shows under Unread until opened", () => {
     assert.equal(matchesView(c("a"), unread, ctx), false);
     assert.equal(matchesView(c("a"), unread, { ...ctx, markedUnread: new Set(["a"]) }), true);

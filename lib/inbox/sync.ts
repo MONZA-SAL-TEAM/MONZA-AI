@@ -216,6 +216,8 @@ export interface ViewFilter {
   brand: string;
   /** A channel, or "all". */
   channel: string;
+  /** A car code (the chats about that car — named, by context or from its ad), or "all". */
+  car: string;
   show: ShowFilter;
   /** Inclusive local days, "YYYY-MM-DD", or "" for open-ended. */
   from: string;
@@ -226,6 +228,7 @@ export interface ViewFilter {
 export const EMPTY_VIEW: ViewFilter = {
   brand: "all",
   channel: "all",
+  car: "all",
   show: "all",
   from: "",
   to: "",
@@ -236,6 +239,7 @@ export function isFiltered(v: ViewFilter): boolean {
   return (
     v.brand !== EMPTY_VIEW.brand ||
     v.channel !== EMPTY_VIEW.channel ||
+    (v.car ?? "all") !== EMPTY_VIEW.car ||
     v.show !== EMPTY_VIEW.show ||
     v.from !== "" ||
     v.to !== "" ||
@@ -254,11 +258,15 @@ export interface ViewContext {
   me?: string | null;
   /** Chats the person marked "unread" again (until they open them). */
   markedUnread?: ReadonlySet<string>;
+  /** Thread id → the cars the chat is about (GET /api/conversations/cars). */
+  cars?: Readonly<Record<string, readonly string[]>>;
 }
 
 export function matchesView(c: Conversation, v: ViewFilter, ctx: ViewContext): boolean {
   if (v.brand !== "all" && brandOf(c, ctx.accounts) !== v.brand) return false;
   if (v.channel !== "all" && c.channel !== v.channel) return false;
+  // A view from before the car filter existed has no `car`: that means "all", never "nothing".
+  if (v.car && v.car !== "all" && !ctx.cars?.[c.id]?.includes(v.car)) return false;
   if (v.show === "unread" && !(ctx.markedUnread?.has(c.id) || isUnread(c, ctx.seen[c.id], ctx.baselineAt))) return false;
   if (v.show === "needs_reply" && !(c.lastMessage.direction === "in" && c.lastMessage.text !== "")) {
     return false;
