@@ -12,13 +12,18 @@
  * Before step 1 the file is made acceptable to WhatsApp where that can be done
  * without loss of meaning: a photo over 5 MB or in a format WhatsApp refuses is
  * redrawn as a JPG, and a Chrome voice recording is repackaged from WebM into
- * the Ogg WhatsApp needs for a voice note (lib/media/ogg-opus.ts).
+ * the Ogg WhatsApp needs for a voice note (lib/media/ogg-opus.ts). A VIDEO the
+ * channel would refuse — over its limit, H.265, a MOV — is re-made under the
+ * limit AT THE SAME RESOLUTION (lib/media/video-fit.ts; Samer, 2026-10-22: the
+ * customer must get a playable video, full HD, never a file or a link). One
+ * that already fits goes byte for byte.
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { AI_ANON_KEY, AI_URL } from "@/lib/env-public";
-import { classifyFile, rulesFor, type MediaChannel, type OutboundKind } from "@/lib/channels/wa-media";
+import { checkOutbound, classifyFile, rulesFor, type MediaChannel, type OutboundKind } from "@/lib/channels/wa-media";
 import { isOgg, webmToOgg } from "@/lib/media/ogg-opus";
+import { fitVideo, inspectVideo, needsFit } from "@/lib/media/video-fit";
 import { voiceWav } from "@/lib/media/wav";
 
 export interface ReadyFile {
@@ -28,6 +33,8 @@ export interface ReadyFile {
   filename: string;
   /** A recording made here, to be shown as a voice note. */
   voice: boolean;
+  /** A video re-made under the channel's limit: what was kept and how it will look. */
+  fitted?: string;
 }
 
 type Prepared = { ok: true; file: ReadyFile } | { ok: false; problem: string };
@@ -58,12 +65,20 @@ async function toJpeg(file: Blob, maxBytes: number): Promise<Blob | null> {
 }
 
 function renamed(name: string, ext: string): string {
-  const base = name.replace(/\.[A-Za-z0-9]{1,5}$/, "") || "Photo";
+  const base = name.replace(/\.[A-Za-z0-9]{1,5}$/, "") || (ext === "mp4" ? "Video" : "Photo");
   return `${base}.${ext}`;
 }
 
-/** A file somebody picked, dropped or pasted, made ready for that channel — or why it cannot go. */
-export async function prepareFile(file: File, channel: MediaChannel = "whatsapp"): Promise<Prepared> {
+/**
+ * A file somebody picked, dropped or pasted, made ready for that channel — or why
+ * it cannot go. `onProgress` carries the words while a video is being fitted.
+ */
+export async function prepareFile(
+  file: File,
+  channel: MediaChannel = "whatsapp",
+  onProgress: (words: string) => void = () => {},
+  cancelled: () => boolean = () => false
+): Promise<Prepared> {
   const c = classifyFile(file, channel);
   if (!c.ok) return c;
   if (c.convert) {
@@ -71,7 +86,51 @@ export async function prepareFile(file: File, channel: MediaChannel = "whatsapp"
     if (!jpg) return { ok: false, problem: "This photo could not be prepared — save it as a JPG and try again." };
     return { ok: true, file: { blob: jpg, kind: "image", mime: "image/jpeg", filename: renamed(file.name, "jpg"), voice: false } };
   }
+  if (c.kind === "video") return prepareVideo(file, c.mime, channel, onProgress, cancelled);
   return { ok: true, file: { blob: file, kind: c.kind, mime: c.mime, filename: file.name || "Monza", voice: false } };
+}
+
+/**
+ * A video goes as it is when the channel takes it as it is; otherwise it is
+ * fitted. When the browser cannot even read it, the plain rules decide (an MP4
+ * under the limit still goes), so a reading failure never blocks what used to work.
+ */
+const CONTAINER_EXT: Readonly<Record<string, string>> = {
+  "video/mp4": "mp4",
+  "video/3gpp": "3gp",
+  "video/quicktime": "mov",
+  "video/webm": "webm",
+};
+
+async function prepareVideo(
+  file: File,
+  mime: string,
+  channel: MediaChannel,
+  onProgress: (words: string) => void,
+  cancelled: () => boolean
+): Promise<Prepared> {
+  const cap = rulesFor(channel).video.maxBytes;
+  // What the file IS decides, not what the browser or its name said: a ".mov" whose bytes are an MP4 goes as one.
+  const asIs = (container: string | null): Prepared => {
+    const real = container && CONTAINER_EXT[container] ? container : mime;
+    const plain = checkOutbound("video", real, file.size, channel);
+    if (!plain.ok) return plain;
+    const name = real !== mime && CONTAINER_EXT[real] ? renamed(file.name, CONTAINER_EXT[real]) : file.name || "Monza";
+    return { ok: true, file: { blob: file, kind: "video", mime: plain.mime, filename: name, voice: false } };
+  };
+  const looked = await inspectVideo(file);
+  if (!looked.ok) {
+    const plain = asIs(null);
+    return plain.ok ? plain : { ok: false, problem: looked.problem };
+  }
+  if (!needsFit(looked.facts, cap, channel).fit) return asIs(looked.facts.container);
+  onProgress(`Reading the video…`);
+  const fitted = await fitVideo(file, cap, channel, onProgress, cancelled);
+  if (!fitted.ok) return fitted;
+  return {
+    ok: true,
+    file: { blob: fitted.blob, kind: "video", mime: "video/mp4", filename: renamed(file.name, "mp4"), voice: false, fitted: fitted.words },
+  };
 }
 
 /** The best recording format this browser has, WhatsApp's own first. */

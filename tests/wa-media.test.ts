@@ -68,8 +68,13 @@ describe("what can be attached", () => {
       mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       convert: false,
     });
-    const mov = classifyFile({ name: "clip.mov", type: "video/quicktime", size: MB });
-    assert.match(!mov.ok ? mov.problem : "", /MP4/);
+    // A video is never refused for its size or box here: the browser fits it (lib/media/video-fit.ts).
+    assert.deepEqual(classifyFile({ name: "clip.mov", type: "video/quicktime", size: MB }), { ok: true, kind: "video", mime: "video/quicktime", convert: false });
+    assert.deepEqual(classifyFile({ name: "walkaround.mp4", type: "video/mp4", size: 117 * MB }), { ok: true, kind: "video", mime: "video/mp4", convert: false });
+    assert.equal(classifyFile({ name: "raw.mp4", type: "video/mp4", size: 1025 * MB }).ok, false);
+    // The server's own check is unchanged: what reaches it must already fit.
+    assert.equal(checkOutbound("video", "video/quicktime", MB).ok, false);
+    assert.equal(checkOutbound("video", "video/mp4", 17 * MB).ok, false);
     assert.equal(classifyFile({ name: "setup.exe", type: "application/x-msdownload", size: MB }).ok, false);
     assert.equal(classifyFile({ name: "x.zip", type: "application/zip", size: MB }).ok, false);
   });

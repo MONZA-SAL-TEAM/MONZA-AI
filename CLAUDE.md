@@ -1131,18 +1131,36 @@ Samer's list: delete/edit messages; see the image a client refers to; mark unrea
 - **Several files at once** (`MediaComposer`: `multiple`, drop and paste take all, at most 10): sent one after the
   other, the caption with the first; a failure stops there and keeps the rest in the sheet with the reason.
 - **Videos keep their resolution (Samer, 2026-10-20: "send the videos in full HD, no effect on the resolution";
-  then: "I will not send a file or link to a customer — I want to send him the video with his original or HD
-  resolution").** MONZA AI never shrinks or re-encodes a video (only photos are redrawn, only voice notes
-  repackaged). Meta's hard limits for a VIDEO MESSAGE: WhatsApp 16 MB (MP4/3GP, H.264 + AAC), Instagram and
-  Messenger 25 MB; a larger video is refused in words. A "send it as a document up to 100 MB" path was built, pushed
-  (958322c–f16ec94) and REMOVED the same day on Samer's decision: a customer must get a playable video, never a file
-  card or a link. The only way a bigger full-HD video can arrive as a video is to fit it under the limit at the SAME
-  resolution (fewer bits per second — Meta recommends H.264 Main profile without B-frames, moov first; Android does
-  not play High profile with B-frames) — decision pending. Meta's own pages (read 2026-10-20, two refuters): the Cloud
-  API has no quality / HD field and says nothing either way about re-encoding; "media files are usually compressed
-  when shared" is the PHONE app's FAQ (720p default, "HD" toggle). The bot's colour videos: `scripts/sales-video-prep.mjs`
-  makes 720p copies ≤15 MB of originals over the limit (`-vf scale=-2:'min(720,ih)'`); /sales shows the originals.
-  The thread labels a received MP4 document "Video, sent as a file" (MediaBubble) — customers do send those.
+  2026-10-22: "I will not send a file or link to a customer — I want to send him the video with his original or HD
+  resolution").** Meta's hard limits for a VIDEO MESSAGE: WhatsApp 16 MB (MP4/3GP, H.264 + AAC, one sound track —
+  H.265 and MOV are refused), Instagram and Messenger 25 MB. A video the channel takes as it is goes BYTE FOR BYTE
+  (never touched). One it would refuse is FITTED IN THE BROWSER at the SAME resolution (`lib/media/video-fit.ts`,
+  WebCodecs through `mediabunny` — the one library in lib/media/, loaded only then): `inspectVideo` reads the file's own
+  boxes, `needsFit` says why (size / codec / container / tracks / audio — Instagram and Messenger only by size),
+  `planFit` picks the bitrate that lands under the limit (never above the original's; AAC sound copied, other sound
+  re-encoded at 128 kbps; a video so long the picture would get under 250 kbps is refused with the length that would
+  work), `fitVideo` re-encodes H.264 at a CONSTANT bitrate with 8% margin (a variable pass landed ~15% over), keyframe
+  every 2 s, index first, and goes again lower (max 3 passes) if it still overshoots. The sheet shows the progress and
+  then "Fitted for WhatsApp: 1920×1080 kept, 20 s at 6 Mbps (15 MB) — it will look sharp / fine / a little soft /
+  blocky" (bits per pixel per frame). Measured 2026-10-22 in Chromium: 31 MB 1080p High-profile → 15.6 MB in one pass
+  (22 s); 19 MB H.265 → H.264 14.8 MB; 22 MB MOV → MP4 at 720p kept; a 3 MB MP4 untouched. The server's own check
+  (`checkOutbound`) is unchanged — what reaches it must already fit. Pure parts tested in `tests/video-fit.test.ts`.
+  Found by a 2-lens review with refuters the same day and fixed: the picture's rate is the WHOLE file's (size minus
+  sound over length — `computePacketStats(200)` reads the first ~7 s only, and a quiet title card would have starved
+  the clip); a fit belongs to the chat it was started in (`generation` in MediaComposer: switching chats or Cancel
+  throws a late result away and cancels the conversion — else Send would deliver it to the OTHER customer); odd
+  widths/heights are made even (`evenSize`, cropped never stretched); a sound track the reader cannot name is fitted,
+  not treated as silence; the as-is path sends the container the reader FOUND (a ".mov" whose bytes are an MP4 goes
+  as video/mp4); Instagram/Messenger fit anything but MP4/MOV/WEBM; a failed library download forgets itself and
+  never leaves "Preparing…" stuck.
+  **(#100) Invalid parameter** on a video send, 2026-10-22: that day's live build sent a video over 16 MB as a
+  DOCUMENT (958322c–f16ec94, removed in 6dc80d1 on Samer's decision) and Meta refused the MP4 in that role; videos
+  under 16 MB had been going fine (155 since 2026-10-19). `whatsappSendProblem` now shows Meta's `error_data.details`
+  before the generic message. Meta's own pages (read 2026-10-20, two refuters): the Cloud API has no quality / HD field
+  and says nothing either way about re-encoding; "media files are usually compressed when shared" is the PHONE app's
+  FAQ; Android does not play H.264 High profile with B-frames (WebCodecs encoders write none). The bot's colour videos
+  are a separate matter: `scripts/sales-video-prep.mjs` makes 720p copies ≤15 MB of originals over the limit; /sales
+  shows the originals. The thread labels a received MP4 document "Video, sent as a file" — customers do send those.
 - **After 24 hours:** Instagram / Messenger — a PERSON's own reply (typed or a file) up to 7 days after the
   customer's last message goes with `messaging_type: MESSAGE_TAG, tag: HUMAN_AGENT` (`humanAgentWindow`,
   `OutboundMessage.humanAgent`; header pill "After 24 h — your own reply only"). **Meta must approve the Human

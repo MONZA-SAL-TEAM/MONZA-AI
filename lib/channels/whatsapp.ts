@@ -696,11 +696,13 @@ export function whatsappSendProblem(
   if (code === 130429 || code === 131056 || code === 80007 || httpStatus === 429) {
     return { problem: "WhatsApp is limiting messages for a moment — try again shortly.", windowClosed: false };
   }
+  // Meta's actionable sentence is in error_data.details ("Unsupported video format…"); message is the generic
+  // "(#100) Invalid parameter". Both are shown, details first, so a refused video says WHY.
   const message = str(e?.message);
+  const details = str(obj(e?.error_data)?.details);
+  const said = details && message ? `${details} (${message})` : (details ?? message);
   return {
-    problem: message
-      ? `WhatsApp said: ${message.slice(0, 200)}`
-      : `WhatsApp answered with an error (HTTP ${httpStatus}).`,
+    problem: said ? `WhatsApp said: ${said.slice(0, 300)}` : `WhatsApp answered with an error (HTTP ${httpStatus}).`,
     windowClosed: false,
   };
 }

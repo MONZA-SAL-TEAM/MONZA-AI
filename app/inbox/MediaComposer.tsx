@@ -31,7 +31,7 @@ const MAX_RECORDING_MS: Readonly<Record<MediaChannel, number>> = {
 
 /** What the file picker offers, per channel's own rules (lib/channels/wa-media.ts). */
 const ACCEPT: Readonly<Record<MediaChannel, string>> = {
-  whatsapp: "image/*,video/mp4,video/3gpp,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,application/pdf",
+  whatsapp: "image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,application/pdf",
   instagram: "image/*,video/mp4,video/quicktime,video/webm,audio/aac,audio/mp4,audio/x-m4a,audio/wav,.m4a,.aac,.wav,.pdf,application/pdf",
   facebook:
     "image/*,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/aac,audio/wav,.mp3,.m4a,.wav,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip",
@@ -95,6 +95,14 @@ export default function MediaComposer({
   };
   const [caption, setCaption] = useState("");
   const [stage, setStage] = useState<Stage>(null);
+  /** What the preparing stage is doing right now (a video being fitted). */
+  const [prepWords, setPrepWords] = useState<string | null>(null);
+  /**
+   * Which take() is current. Switching chats, or closing the sheet, moves it on: a fit that
+   * finishes afterwards (they take tens of seconds) throws its result away instead of opening
+   * the sheet in ANOTHER customer's chat, where Send would deliver it to them.
+   */
+  const generation = useRef(0);
   const [problem, setProblem] = useState<string | null>(null);
 
   const [recording, setRecording] = useState<number | null>(null); // started at
@@ -113,6 +121,7 @@ export default function MediaComposer({
   }, []);
 
   const close = useCallback(() => {
+    generation.current += 1;
     setPickedList((list) => {
       for (const p of list) if (p.preview) URL.revokeObjectURL(p.preview);
       return [];
@@ -131,11 +140,24 @@ export default function MediaComposer({
         return;
       }
       if (files.length > MAX_FILES) onNote(`Up to ${MAX_FILES} files at once — the first ${MAX_FILES} are ready to send.`);
+      const mine = ++generation.current;
+      const stale = () => generation.current !== mine;
       setStage("preparing");
+      setPrepWords(null);
       const ready: { file: ReadyFile; preview: string | null }[] = [];
       const refused: string[] = [];
       for (const f of files.slice(0, MAX_FILES)) {
-        const r = await prepareFile(f, channel);
+        let r: Awaited<ReturnType<typeof prepareFile>>;
+        try {
+          r = await prepareFile(f, channel, (w) => !stale() && setPrepWords(w), stale);
+        } catch {
+          r = { ok: false, problem: "could not be prepared." };
+        }
+        if (stale()) {
+          for (const p of ready) if (p.preview) URL.revokeObjectURL(p.preview);
+          return; // another chat, or Cancel: close() already reset the screen
+        }
+        setPrepWords(null);
         if (!r.ok) {
           refused.push(`${f.name}: ${r.problem}`);
           continue;
@@ -268,7 +290,7 @@ export default function MediaComposer({
   useEffect(() => () => finish(false), [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const busy = stage !== null;
-  const stageWords = stage === "preparing" ? "Preparing…" : stage === "uploading" ? "Uploading…" : stage === "sending" ? "Sending…" : "";
+  const stageWords = stage === "preparing" ? (prepWords ?? "Preparing…") : stage === "uploading" ? "Uploading…" : stage === "sending" ? "Sending…" : "";
 
   return (
     <>
@@ -358,6 +380,7 @@ export default function MediaComposer({
                 </div>
               )}
             </div>
+            {picked.file.fitted && <p className="ibx-sheet-note">{picked.file.fitted}</p>}
             {pickedList.length > 1 && (
               <div className="ibx-sheet-strip" role="group" aria-label="Files to send">
                 {pickedList.map((p, i) => (

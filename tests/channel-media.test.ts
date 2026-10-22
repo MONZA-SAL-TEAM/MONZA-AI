@@ -59,7 +59,7 @@ describe("each channel's own rules", () => {
     });
     assert.equal((classifyFile({ name: "car.jpg", type: "image/jpeg", size: 7 * MB }) as { convert: boolean }).convert, true);
     assert.equal(classifyFile({ name: "clip.mov", type: "video/quicktime", size: MB }, "facebook").ok, true);
-    assert.equal(classifyFile({ name: "clip.mov", type: "video/quicktime", size: MB }, "whatsapp").ok, false);
+    assert.equal(classifyFile({ name: "clip.mov", type: "video/quicktime", size: MB }, "whatsapp").ok, true, "fitted in the browser");
     assert.equal(classifyFile({ name: "files.zip", type: "application/zip", size: MB }, "facebook").ok, true);
   });
 

@@ -449,10 +449,15 @@ const CONVERTIBLE_IMAGES: ReadonlySet<string> = new Set([
 
 /** The largest photo worth trying to shrink in the browser. */
 export const MAX_IMAGE_INPUT_BYTES = 40 * MB;
+/** The largest video the browser is asked to read and fit (lib/media/video-fit.ts). */
+export const MAX_VIDEO_INPUT_BYTES = 1024 * MB;
 
 /**
  * What a file someone picked should be sent as, before anything is uploaded.
  * `convert` means the browser redraws it as a JPG first (lib/inbox/send-media.ts).
+ * A VIDEO is accepted whatever its size or box: the browser reads it and, when the
+ * channel would refuse it (too big, H.265, MOV…), re-makes it under the limit at
+ * the same resolution (lib/media/video-fit.ts) — never a refusal for size alone.
  */
 export function classifyFile(
   file: {
@@ -475,8 +480,11 @@ export function classifyFile(
     const asIs = rules.image.types[mime] !== undefined && file.size <= rules.image.maxBytes;
     return { ok: true, kind: "image", mime: asIs ? mime : "image/jpeg", convert: !asIs };
   }
-  if (mime === "video/quicktime" && !rules.video.types[mime]) {
-    return { ok: false, problem: `iPhone .MOV videos cannot be sent — ${who} needs ${rules.video.words}.` };
+  if (mime.startsWith("video/")) {
+    if (file.size > MAX_VIDEO_INPUT_BYTES) {
+      return { ok: false, problem: `That video is ${formatBytes(file.size)} — too large to read here.` };
+    }
+    return { ok: true, kind: "video", mime, convert: false };
   }
   const kind: OutboundKind | null = mime.startsWith("video/")
     ? "video"
