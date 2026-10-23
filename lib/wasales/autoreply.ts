@@ -27,7 +27,7 @@ import { folderMedia, loadCatalog } from "@/lib/wasales/catalog";
 import { MONZA_KNOWLEDGE } from "@/lib/wasales/knowledge";
 import { recordAlert } from "@/lib/wasales/sales-ops";
 import { triageInbound, type Triage } from "@/lib/wasales/triage";
-import { NO_TEXT } from "@/lib/channels/live-map";
+import { isNoContent } from "@/lib/inbox/no-content";
 import { WA_ATTACHMENT_ONLY } from "@/lib/channels/whatsapp";
 
 export interface AutoreplyIo {
@@ -110,7 +110,7 @@ async function latestWhatsAppInbound(f: FreshInbound): Promise<{ text: string; h
   const row = read.value.rows.find((r) => r.direction === "in");
   if (!row) return null;
   const text = (row.body ?? "").trim();
-  const placeholder = text === NO_TEXT || text === WA_ATTACHMENT_ONLY;
+  const placeholder = isNoContent(text) || text === WA_ATTACHMENT_ONLY;
   return {
     text: placeholder ? "" : text,
     hasMedia: placeholder || (Array.isArray(row.attachments) && row.attachments.length > 0),

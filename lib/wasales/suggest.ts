@@ -25,7 +25,7 @@ import { freshState, type SearchEngineState } from "@/lib/wasales/context";
 import type { EngineDeps } from "@/lib/wasales/engine";
 import type { SalesChannel } from "@/lib/wasales/knowledge";
 import type { InboxMessage } from "@/lib/inbox/types";
-import { NO_TEXT } from "@/lib/channels/live-map";
+import { isNoContent } from "@/lib/inbox/no-content";
 import { WA_ATTACHMENT_ONLY } from "@/lib/channels/whatsapp";
 
 /** The automation id a suggestion's WhatsApp messages are recorded with. */
@@ -127,12 +127,12 @@ export function isOurs(m: InboxMessage, saved: SavedSuggestion): boolean {
 /** The customer's own words — the inbox's "open the app to see it" is ours, not theirs. */
 function customerWords(m: InboxMessage): string {
   const t = m.text.trim();
-  return t === NO_TEXT || t === WA_ATTACHMENT_ONLY ? "" : t;
+  return isNoContent(t) || t === WA_ATTACHMENT_ONLY ? "" : t;
 }
 
 function carriesMedia(m: InboxMessage): boolean {
   const t = m.text.trim();
-  return (m.attachments?.length ?? 0) > 0 || t === NO_TEXT || t === WA_ATTACHMENT_ONLY;
+  return (m.attachments?.length ?? 0) > 0 || isNoContent(t) || t === WA_ATTACHMENT_ONLY;
 }
 
 /** FNV-1a, 32 bits: a short, stable fingerprint — not a secret. */

@@ -38,7 +38,8 @@ import SalesAlerts from "./SalesAlerts";
 import MediaComposer from "./MediaComposer";
 import TemplatePicker from "./TemplatePicker";
 import { AdCardView, Attachments, LinkEmbeds, Lightbox, Quote, Ticks } from "./MediaBubble";
-import { carryUrls, isMetaCdn, previewText, waWebChatLink, withoutLinks } from "@/lib/inbox/media";
+import { carryUrls, isMetaCdn, keepOlder, keepRicher, previewText, waWebChatLink, withoutLinks } from "@/lib/inbox/media";
+
 import { carsForBrand, type CarChoice } from "@/lib/inbox/cars";
 import { enterSends, hasTouchKeyboard } from "@/lib/inbox/keys";
 import type { AdCard, Conversation, CustomerProfile, InboxMessage } from "@/lib/inbox/types";
@@ -113,6 +114,11 @@ type ThreadResponse =
       profile?: CustomerProfile | null;
       /** The ad the customer came from (Click-to-WhatsApp / Instagram ad). */
       ad?: AdCard | null;
+      /** Instagram / Facebook: false when this read came without its files. */
+      attachmentsRead?: boolean;
+      attachmentsNote?: string | null;
+      /** Instagram / Facebook: fewer messages than the full page — merged into what is shown, never replacing it. */
+      partial?: boolean;
     }
   | { ok: false; message?: string };
 
@@ -120,6 +126,8 @@ interface ThreadState {
   messages: InboxMessage[];
   loading: boolean;
   problem: string | null;
+  /** Instagram / Facebook: the files could not be read this time; what was shown before is kept. */
+  note: string | null;
   windowOpen: boolean;
   windowText: string;
   /** Past 24 h, within 7 days: a person's own reply only (Instagram / Messenger). */
@@ -131,6 +139,7 @@ const EMPTY_THREAD: ThreadState = {
   messages: [],
   loading: true,
   problem: null,
+  note: null,
   windowOpen: false,
   windowText: "",
   humanAgent: false,
@@ -439,6 +448,11 @@ export default function InboxClient(props: Props) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [thread, setThread] = useState<ThreadState>(EMPTY_THREAD);
+  /** The messages on screen, for a refresh that must merge rather than replace. */
+  const threadRef = useRef<InboxMessage[]>([]);
+  useEffect(() => {
+    threadRef.current = thread.messages;
+  }, [thread.messages]);
   const reloadThread = useRef<(() => Promise<void>) | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const scrolledFor = useRef<string | null>(null);
@@ -945,24 +959,33 @@ export default function InboxClient(props: Props) {
         const json = (await res.json().catch(() => null)) as ThreadResponse | null;
         if (!alive) return;
         if (res.ok && json && json.ok) {
+          // A read that came WITHOUT its files (Meta slow or refusing) keeps the files and
+          // words the screen already had for the same messages — never "open the app" over a
+          // photo that was showing a moment ago.
+          const needsBase = json.attachmentsRead === false || json.partial === true;
+          const base = !needsBase ? [] : threadRef.current.length > 0 ? threadRef.current : ((await cacheRef.current?.getThread(id)) ?? []);
+          if (!alive) return;
+          const richer = json.attachmentsRead === false ? keepRicher(base, json.messages) : json.messages;
+          const fresh = json.partial === true ? keepOlder(base, richer) : richer;
           // A photo's link is kept while fresh, so the 15-second refresh does not reload it.
           setThread((t) => ({
-            messages: carryUrls(t.messages, json.messages, Date.now()),
+            messages: carryUrls(t.messages, fresh, Date.now()),
             loading: false,
             problem: null,
+            note: json.attachmentsRead === false ? (json.attachmentsNote ?? "Photos and files could not be read this time.") : null,
             windowOpen: json.window.open,
             windowText: json.window.text,
             humanAgent: json.window.humanAgent === true,
             ad: json.ad ?? null,
           }));
           // Links expire; the saved copy keeps everything else.
-          void cacheRef.current?.putThread(id, withoutLinks(json.messages));
+          void cacheRef.current?.putThread(id, withoutLinks(fresh));
           if (json.profile !== undefined) {
             profilesAsked.current.add(id);
             setProfiles((p) => ({ ...p, [id]: json.profile ?? null }));
           }
           // The thread is newer news than the list row: bring the row up to date.
-          const last = json.messages[json.messages.length - 1];
+          const last = fresh[fresh.length - 1];
           const row = convRef.current.get(id);
           if (last && row && last.at >= row.lastMessage.at) {
             commit(
@@ -1832,6 +1855,7 @@ export default function InboxClient(props: Props) {
                   <p className="ibx-conv-note">Loading the conversation from Meta…</p>
                 )}
                 {live && thread.problem && <p className="ibx-conv-note is-urgent">{thread.problem}</p>}
+                {live && !thread.problem && thread.note && <p className="ibx-conv-note">{thread.note}</p>}
                 {messageGroups.map((g) => (
                   <section key={g.day} className="ibx-msg-day" aria-label={g.label}>
                     <div className="ibx-msg-sep">

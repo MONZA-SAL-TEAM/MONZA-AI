@@ -1161,6 +1161,44 @@ Samer's list: delete/edit messages; see the image a client refers to; mark unrea
   FAQ; Android does not play H.264 High profile with B-frames (WebCodecs encoders write none). The bot's colour videos
   are a separate matter: `scripts/sales-video-prep.mjs` makes 720p copies ≤15 MB of originals over the limit; /sales
   shows the originals. The thread labels a received MP4 document "Video, sent as a file" — customers do send those.
+- **"Photo, video or attachment — open the app to see it" on messages the customer sent (Samer, 2026-10-23, "not
+  just Instagram").** That sentence (`NO_TEXT`, now in `lib/inbox/no-content.ts`) is only ever written by
+  `mapMessage` for an Instagram / Facebook message with no words and nothing the inbox could draw. Found by two
+  investigators (Meta's Message reference v26; every code path) and two refuters:
+  - **The thread read dropped to words only far too easily, and the words-only read overwrote the screen.** One slow
+    rich ask (over 20 s, or "reduce the amount of data") went straight to `id,created_time,from,message` — no
+    attachment at all — and the client replaced the thread AND its saved copy with that, so every photo in the chat
+    read "open the app" until a later refresh happened to be rich. A refused rich ask was remembered 10 min and
+    re-armed on every 15-second refresh (a sliding lock-in). Now `askThread` (live.ts): the named fields at 20, the
+    same at 8 when Meta was slow, the bare edges when the named fields were refused, words only last, all within a
+    40 s budget (the route stops at 60 s); Meta's rate limit (`isThrottled`: 4/17/32/613/429 and the Business Use
+    Case codes 80001/80002/80006/80007) stops the read and remembers nothing; Meta's own hiccups (`isTransient`: codes
+    1/2, a 5xx, no JSON, no answer) count as slow, never as a refusal; only an answer NAMING the fields is a refusal,
+    the bare edges are remembered only after such a refusal, and only two outright refusals remember words-only, for
+    a fixed 10 min WITH the reason (the note then says "words only until HH:MM"). A read that came without its files
+    says so (`attachmentsRead: false`, `attachmentsNote`), one of the smaller page says so (`partial`), and the screen
+    KEEPS the files and words it already had for the same messages (`keepRicher`) and the older messages above a
+    smaller page (`keepOlder`, both in lib/inbox/media.ts), showing one line under the chat — never "open the app"
+    over a photo that was showing a moment ago, never a thread cut to 8. `askThread` is exported and its ladder is
+    tested with a scripted Meta (tests/channel-media.test.ts). Found by a second review with refuters the same day.
+  - **The fields themselves, against Meta's Message reference (2026-10-23):** `shares` returns NOTHING unless its
+    sub-fields are named ("you need to request the sub-fields also") — now `shares{link,name,description,id}` at the
+    named level; there is NO `sticker` field on the Message node (a sticker is an image with `render_as_sticker`), and
+    an unknown field fails the WHOLE read with #100 — so Messenger threads were very likely refused on both rich
+    levels since 2026-09-15 and read words only; `is_unsupported` ("only returned when true") is asked at the named
+    level. `message` may be "" or absent when there are no words; Instagram details only the 20 most recent messages
+    (older ids error "deleted"); no `audio_data` exists anywhere — a voice note can only arrive as `file_url` (shown as
+    a file); view-once media comes with no link; a GIF / sticker DM fires no webhook at all.
+  - **The stand-in says WHY, as far as Meta said it** (`lib/inbox/no-content.ts`): `UNSUPPORTED_TEXT` when Meta marked
+    the message unsupported, `UNSHOWN_TEXT` when Meta listed a photo / share / story but gave no link, `NO_TEXT` only
+    when nothing was described (the read came without the fields). `isNoContent` is the ONE predicate the sales
+    engine (`autoreply`, `suggest`), the insights reader (`meta-backfill-rules`) and the inbox use; the list shows
+    "📎 Photo, video or file" instead of the sentence.
+  - **Staff-only diagnosis of ONE thread:** `GET /api/channels/diagnose?thread=<inbox thread id>` (`diagnoseThread`)
+    — every ask made (level, size, ms, ok / slow / refused / throttled, Meta's code), what the inbox remembers for
+    the account, and the SHAPE of each message as Meta returned it (`messageShape`: keys, each attachment's keys and
+    MIME type, shares / story / unsupported flags, what the inbox showed) — never a word, never a link. Run it on an
+    affected chat before guessing.
 - **After 24 hours:** Instagram / Messenger — a PERSON's own reply (typed or a file) up to 7 days after the
   customer's last message goes with `messaging_type: MESSAGE_TAG, tag: HUMAN_AGENT` (`humanAgentWindow`,
   `OutboundMessage.humanAgent`; header pill "After 24 h — your own reply only"). **Meta must approve the Human

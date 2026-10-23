@@ -34,7 +34,7 @@ import {
   toInboxAttachment,
   verifiedType,
 } from "@/lib/channels/wa-media";
-import { carryUrls, formatClock, mediaLabel, previewText, waWebChatLink, withoutLinks } from "@/lib/inbox/media";
+import { carryUrls, formatClock, keepOlder, keepRicher, mediaLabel, previewText, waWebChatLink, withoutLinks } from "@/lib/inbox/media";
 import type { InboxMessage } from "@/lib/inbox/types";
 
 const MB = 1024 * 1024;
@@ -299,6 +299,25 @@ describe("the inbox's side", () => {
     const fresh = msg({ attachments: [{ kind: "image", state: "ready", url: "NEW", urlExpiresAt: "2026-09-15T11:00:00.000Z" }] });
     assert.equal(carryUrls([old], [fresh], now)[0].attachments?.[0].url, "OLD");
     assert.equal(carryUrls([old], [fresh], Date.parse("2026-09-15T10:45:00.000Z"))[0].attachments?.[0].url, "NEW", "…but not in its last minutes");
+
+    // A read that came without its files keeps the photo and the words the screen already had (2026-10-23).
+    const PH = "Photo, video or attachment — open the app to see it.";
+    const shown = { ...old, text: "" };
+    const wordsOnly = { ...fresh, text: PH, attachments: undefined };
+    const kept = keepRicher([shown], [wordsOnly, { ...fresh, id: "m2", text: "new words", attachments: undefined }]);
+    assert.equal(kept[0].attachments?.[0].url, "OLD");
+    assert.equal(kept[0].text, "");
+    assert.equal(kept[1].text, "new words", "a message the screen never had comes through as read");
+    assert.equal(kept[1].attachments, undefined);
+    // With files present in the fresh read, nothing is taken from the old copy.
+    assert.equal(keepRicher([shown], [fresh])[0].attachments?.[0].url, "NEW");
+    assert.equal(previewText({ text: PH }), "📎 Photo, video or file", "the list never shows the long stand-in");
+    // A smaller page (Meta was slow) never shortens the thread: the older messages shown stay in front of it.
+    const older = { ...shown, id: "m0", at: "2026-09-15T09:00:00.000Z" };
+    const merged = keepOlder([older, shown], [{ ...fresh, text: "again" }, { ...fresh, id: "m3", at: "2026-09-15T11:00:00.000Z" }]);
+    assert.deepEqual(merged.map((m) => m.id), ["m0", fresh.id, "m3"]);
+    assert.equal(merged[1].text, "again", "the fresh copy of a shown message wins");
+    assert.deepEqual(keepOlder([older], []).map((m) => m.id), ["m0"]);
     assert.equal(carryUrls([], [fresh], now)[0].attachments?.[0].url, "NEW");
   });
 

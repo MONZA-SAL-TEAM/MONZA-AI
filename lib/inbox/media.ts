@@ -7,6 +7,7 @@
  */
 
 import type { AttachmentKind, InboxAttachment, InboxMessage } from "@/lib/inbox/types";
+import { isNoContent } from "@/lib/inbox/no-content";
 
 /** How a message with no words reads in the conversation list. */
 export function mediaLabel(kind: AttachmentKind, filename?: string): string {
@@ -49,6 +50,8 @@ export function isMetaCdn(url: string | undefined): boolean {
 
 /** The words of a message, or what it carries when it has none. */
 export function previewText(m: Pick<InboxMessage, "text" | "attachments">): string {
+  // A stand-in sentence is not words the customer wrote: the list says what it is, briefly.
+  if (isNoContent(m.text)) return "📎 Photo, video or file";
   if (m.text.trim() !== "") return m.text;
   const a = m.attachments?.[0];
   return a ? mediaLabel(a.kind, a.filename) : "";
@@ -87,6 +90,37 @@ export function carryUrls(
     });
     return changed ? { ...m, attachments } : m;
   });
+}
+
+/**
+ * A thread read WITHOUT its files (Meta was slow or refused the attachment
+ * fields this time) keeps, message by message, the files and words the screen
+ * already had for the same message — the fresh read only adds what is new.
+ * Until 2026-10-23 such a read replaced the saved copy and every photo in the
+ * chat read "open the app to see it" (Samer).
+ */
+export function keepRicher(prev: readonly InboxMessage[], next: readonly InboxMessage[], standIn: (text: string) => boolean = isNoContent): InboxMessage[] {
+  const before = new Map(prev.map((m) => [m.id, m]));
+  return next.map((m) => {
+    const old = before.get(m.id);
+    if (!old) return m;
+    const poorer = (!m.attachments || m.attachments.length === 0) && (old.attachments?.length ?? 0) > 0;
+    const blank = standIn(m.text) && !standIn(old.text);
+    if (!poorer && !blank) return m;
+    return { ...m, ...(poorer ? { attachments: old.attachments } : {}), ...(blank ? { text: old.text } : {}) };
+  });
+}
+
+/**
+ * A read of fewer messages than the screen shows (Meta was slow, so the smaller
+ * page was asked) must not shorten the thread: everything shown that is older
+ * than the fresh page's first message stays, the fresh page follows.
+ */
+export function keepOlder(shown: readonly InboxMessage[], fresh: readonly InboxMessage[]): InboxMessage[] {
+  if (fresh.length === 0) return [...shown];
+  const first = fresh[0].at;
+  const ids = new Set(fresh.map((m) => m.id));
+  return [...shown.filter((m) => m.at < first && !ids.has(m.id)), ...fresh];
 }
 
 /** What the browser's saved copy keeps: everything but the links, which expire. */

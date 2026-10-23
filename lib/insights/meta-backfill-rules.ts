@@ -4,7 +4,7 @@
  */
 
 import type { InboxMessage } from "@/lib/inbox/types";
-import { NO_TEXT } from "@/lib/channels/live-map";
+import { isNoContent } from "@/lib/inbox/no-content";
 import type { Turn } from "@/lib/wasales/reader";
 
 /** Above this share of Meta's rate limit the read stops for the day: the inbox shares that limit. */
@@ -33,7 +33,7 @@ export function unchanged(known: { meta_updated_at: string | null } | null, upda
 /** Meta's messages as reader turns: the customer's are read, ours are context. Words stay in memory. */
 export function turnsOf(messages: readonly InboxMessage[]): Turn[] {
   return messages.map((m) => {
-    const placeholder = m.text === NO_TEXT;
+    const placeholder = isNoContent(m.text);
     return {
       author: m.direction === "in" ? "customer" : "staff",
       text: placeholder ? "" : m.text,

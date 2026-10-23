@@ -109,6 +109,10 @@ import {
   type AccountStatus,
   type Peer,
   type ScopeWant,
+  isThrottled,
+  isTransient,
+  messageShapes,
+  type MessageShape,
 } from "@/lib/channels/live-map";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
@@ -159,23 +163,157 @@ const THREAD_LIMITS = [20, 8] as const;
  * the bare edge; if Meta refuses both, the thread is read exactly as before —
  * words only — so asking for more can never cost the thread itself.
  */
+/**
+ * Read against Meta's Message reference (v26, 2026-10-23): `shares` returns
+ * nothing unless its sub-fields are named; there is NO `sticker` field on the
+ * node (a sticker is an image with `render_as_sticker`), and asking for an
+ * unknown field fails the whole read with #100 — so `sticker` is gone;
+ * `is_unsupported` is the node's own flag for a message Meta passes nothing
+ * on for, and `story` holds mentions and replies. The explicit level names
+ * everything; the bare level asks the edges plainly, for a route that refuses
+ * a sub-field.
+ */
 function richMessageFields(channel: string, explicit: boolean): string {
   const attachments = explicit ? "attachments{id,mime_type,name,size,image_data,video_data,file_url}" : "attachments";
+  const shares = explicit ? "shares{link,name,description,id}" : "shares";
+  const flag = explicit ? ",is_unsupported" : "";
   return channel === "instagram"
-    ? `${MESSAGE_FIELDS},${attachments},shares,story`
-    : `${MESSAGE_FIELDS},${attachments},shares,sticker`;
+    ? `${MESSAGE_FIELDS}${flag},${attachments},${shares},story`
+    : `${MESSAGE_FIELDS}${flag},${attachments},${shares}`;
 }
 
 /** Which richer ask last worked per account and route, so a refused one is not
- *  repeated on every 15-second refresh. Memory only, a few minutes. */
-const richFieldsWorks = new Map<string, { level: number; until: number }>();
+ *  repeated on every 15-second refresh. Memory only, a few minutes. `detail`
+ *  is Meta's refusal, kept so the screen can say why words only. */
+const richFieldsWorks = new Map<string, { level: number; until: number; detail?: string | null }>();
 const RICH_FIELDS_MEMORY_MS = 10 * 60_000;
+/** All the asks for one thread share this; the route itself stops at 60 s (two words-only asks may follow). */
+const THREAD_BUDGET_MS = 40_000;
+/** The least a words-only ask is given, so a slow Meta still answers the thread. */
+const THREAD_LAST_ASK_MS = 5_000;
+
+/** Level 0: what the messages carry, named field by field. 1: the bare attachment edge. 2: words only. */
+type ThreadLevel = 0 | 1 | 2;
+const WORDS_ONLY: ThreadLevel = 2;
+
+export function threadFields(channel: string, level: ThreadLevel): string {
+  return level === 0 ? richMessageFields(channel, true) : level === 1 ? richMessageFields(channel, false) : MESSAGE_FIELDS;
+}
+
+/** One ask of Meta for a thread, as the diagnosis reports it: never a key, never a word. */
+export interface ThreadAskRecord {
+  level: ThreadLevel;
+  limit: number;
+  ms: number;
+  status: "ok" | "slow" | "refused" | "throttled" | "transient";
+  /** Meta's code / subcode / message on a refusal (metaErrorDetail), else the plain problem. */
+  detail: string | null;
+}
+
+/**
+ * The asks for one thread, in order, within THREAD_BUDGET_MS: what the messages
+ * carry at the full size; the same at the smaller size when Meta was slow; the
+ * bare attachment edge when the named fields were refused; words only last.
+ * Until 2026-10-23 one slow answer dropped straight to words only, and the
+ * screen then showed "open the app to see it" under every photo and file in
+ * the chat (Samer) — now the smaller rich ask comes first, and a thread read
+ * without its files says so (`level`), so the screen keeps what it had.
+ */
+export interface ThreadAsked {
+  r: GraphResult;
+  level: ThreadLevel;
+  /** How many messages the answer holds at most — fewer than the full page means the screen must MERGE, not replace. */
+  limit: number;
+  /** Meta's answer to the last rich ask that failed (codes and words, never a key). */
+  richProblem: string | null;
+  /** When words-only is remembered for the account: until when, and why. */
+  rememberedUntil: number | null;
+}
+
+/** Exported for its tests, which hand it a scripted route; production calls it through readMetaThread and diagnoseThread. */
+export async function askThread(
+  route: { get: GraphFn; token: string },
+  conversationId: string,
+  channel: string,
+  memoryKey: string,
+  record: (ask: ThreadAskRecord) => void = () => {}
+): Promise<ThreadAsked> {
+  const started = Date.now();
+  const remembered = richFieldsWorks.get(memoryKey);
+  const live = remembered && remembered.until > started ? remembered : null;
+  let level: ThreadLevel = live ? (live.level as ThreadLevel) : 0;
+  let r: GraphResult = { ok: false, problem: "Nothing was asked.", retryLighter: false };
+  let limit: number = THREAD_LIMITS[0];
+  let richProblem: string | null = live?.level === WORDS_ONLY ? (live.detail ?? null) : null;
+  let refusedRich = 0;
+  while (level <= WORDS_ONLY) {
+    let refused = false;
+    for (const size of THREAD_LIMITS) {
+      const left = THREAD_BUDGET_MS - (Date.now() - started);
+      // Out of budget: a richer ask waits for the next refresh; a SECOND words-only ask is not made either.
+      if (left < THREAD_LAST_ASK_MS && (level < WORDS_ONLY || size !== THREAD_LIMITS[0])) break;
+      limit = size;
+      const t0 = Date.now();
+      r = await route.get(
+        conversationId,
+        { fields: `participants,messages.limit(${size}){${threadFields(channel, level)}}` },
+        route.token,
+        Math.max(THREAD_LAST_ASK_MS, Math.min(THREAD_TIMEOUT_MS, left))
+      );
+      record({
+        level,
+        limit: size,
+        ms: Date.now() - t0,
+        status: r.ok ? "ok" : r.throttled ? "throttled" : r.retryLighter ? "slow" : r.transient ? "transient" : "refused",
+        detail: r.ok ? null : (r.meta ?? r.problem),
+      });
+      if (r.ok) {
+        if (level < WORDS_ONLY) {
+          // Remembered only when the richer ask was REFUSED, so a hiccup never fixes the account below its best.
+          if (level === 0 || refusedRich > 0) richFieldsWorks.set(memoryKey, { level, until: Date.now() + RICH_FIELDS_MEMORY_MS });
+          return { r, level, limit: size, richProblem, rememberedUntil: null };
+        }
+        if (refusedRich >= 2) {
+          // Both rich asks refused outright: words only for a while, not on every 15-second refresh.
+          console.warn(`[channels/thread] ${memoryKey}: Meta refused the attachment fields; reading words only`);
+          const until = Date.now() + RICH_FIELDS_MEMORY_MS;
+          richFieldsWorks.set(memoryKey, { level: WORDS_ONLY, until, detail: richProblem });
+          return { r, level, limit: size, richProblem, rememberedUntil: until };
+        }
+        return { r, level, limit: size, richProblem, rememberedUntil: live?.level === WORDS_ONLY ? live.until : null };
+      }
+      // Meta's rate limit refuses every ask for a moment: stop here, remember nothing, keep the screen.
+      if (r.throttled) return { r, level: WORDS_ONLY, limit: size, richProblem, rememberedUntil: null };
+      if (level < WORDS_ONLY) richProblem = r.meta ?? r.problem;
+      // Slow or a hiccup: the smaller size next. Only an answer naming the fields is a refusal.
+      if (!r.retryLighter && !r.transient) {
+        refused = true;
+        break;
+      }
+    }
+    if (refused && level < WORDS_ONLY) refusedRich++;
+    level = (level + 1) as ThreadLevel;
+  }
+  return { r, level: WORDS_ONLY, limit, richProblem, rememberedUntil: null };
+}
+
+/** The short sentence under a thread whose files could not be read this time. */
+export function attachmentsNote(channel: string, richProblem: string | null, rememberedUntil: number | null): string {
+  const who = channel === "instagram" ? "Instagram" : "Facebook";
+  const why = richProblem ? ` (${richProblem.slice(0, 120)})` : "";
+  if (rememberedUntil !== null) {
+    const at = new Date(rememberedUntil).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Beirut" });
+    return `${who} refused the attachment fields${why} — words only until ${at}; what was shown before is kept.`;
+  }
+  return `Photos and files could not be read from ${who} this time${why} — what was shown before is kept, and the next refresh tries again.`;
+}
 
 type GraphResult =
   /** usage: Meta's rate-limit use in percent, from its headers (metaUsagePercent), when it sent any. */
   | { ok: true; json: unknown; usage?: number | null }
-  /** meta: Meta's own code/subcode/message, for the staff-only diagnosis. */
-  | { ok: false; problem: string; retryLighter: boolean; meta?: string | null };
+  /** meta: Meta's own code/subcode/message, for the staff-only diagnosis. throttled: Meta's rate limit, a moment's
+   *  wait. transient: Meta's own hiccup or no answer at all — says nothing about what was asked. */
+  | { ok: false; problem: string; retryLighter: boolean; meta?: string | null; throttled?: boolean; transient?: boolean };
 
 /** One call to Meta. Named so the diagnosis can be handed a fake one in a test
  *  without the production path gaining an injection point it never uses. */
@@ -238,6 +376,8 @@ async function fetchMeta(
           problem: graphProblem(json, res.status),
           retryLighter: isTooMuchData(json),
           meta: metaErrorDetail(json),
+          throttled: isThrottled(json, res.status),
+          transient: isTransient(json, res.status),
         }
       : { ok: true, json, usage: metaUsagePercent((name) => res.headers.get(name)) };
   } catch (e) {
@@ -252,6 +392,7 @@ async function fetchMeta(
         : "Could not reach Meta just now.",
       retryLighter: timedOut,
       meta: null,
+      transient: !timedOut,
     };
   }
 }
@@ -888,6 +1029,11 @@ type OpenThread =
       messages: InboxMessage[];
       peer: Peer | null;
       window: ReplyWindow;
+      /** False when Meta answered words only this time: the screen keeps the files it already had. */
+      attachmentsRead: boolean;
+      attachmentsNote: string | null;
+      /** True when fewer than the full page was asked (Meta was slow): the screen merges, never replaces. */
+      partial: boolean;
     }
   | { ok: false; status: number; problem: string };
 
@@ -929,44 +1075,13 @@ async function readMetaThread(threadId: unknown, now: Date): Promise<OpenThread>
   const route = await readRoute(account, all);
   if (!route.ok) return { ok: false, status: 503, problem: route.problem };
 
-  let r: GraphResult = { ok: false, problem: "Nothing was asked.", retryLighter: false };
-
-  // First what the messages carry, then — if Meta refuses — words only, as before.
-  const rich = [richMessageFields(account.channel, true), richMessageFields(account.channel, false)];
-  const memoryKey = `${account.id}:${route.via}`;
-  const remembered = richFieldsWorks.get(memoryKey);
-  for (let level = remembered && remembered.until > Date.now() ? remembered.level : 0; level < rich.length; level++) {
-    r = await route.get(
-      ids.metaConversationId,
-      { fields: `participants,messages.limit(${THREAD_LIMITS[0]}){${rich[level]}}` },
-      route.token,
-      THREAD_TIMEOUT_MS
-    );
-    if (r.ok) {
-      richFieldsWorks.set(memoryKey, { level, until: Date.now() + RICH_FIELDS_MEMORY_MS });
-      break;
-    }
-    if (r.retryLighter) break; // too slow or too much: straight to the lighter asks
-  }
-  if (!r.ok) {
-    if (!r.retryLighter) {
-      console.warn(`[channels/thread] ${account.id}: Meta refused the attachment fields; reading words only`);
-      richFieldsWorks.set(memoryKey, { level: rich.length, until: Date.now() + RICH_FIELDS_MEMORY_MS });
-    }
-    for (const limit of THREAD_LIMITS) {
-      r = await route.get(
-        ids.metaConversationId,
-        { fields: `participants,messages.limit(${limit}){${MESSAGE_FIELDS}}` },
-        route.token,
-        THREAD_TIMEOUT_MS
-      );
-      if (r.ok || !r.retryLighter) break;
-    }
-  }
+  // What the messages carry first; words only as the last resort (askThread).
+  const { r, level, limit, richProblem, rememberedUntil } = await askThread(route, ids.metaConversationId, account.channel, `${account.id}:${route.via}`);
   if (!r.ok) return { ok: false, status: 502, problem: r.problem };
 
   const threadId_ = `${ids.accountId}~${ids.metaConversationId}`;
   const messages = mapThread(r.json, threadId_, route.selfIds);
+  const attachmentsRead = level < WORDS_ONLY;
   return {
     ok: true,
     account,
@@ -976,6 +1091,52 @@ async function readMetaThread(threadId: unknown, now: Date): Promise<OpenThread>
     messages,
     peer: peerOf(r.json, route.selfIds),
     window: replyWindow(lastCustomerAt(messages), now),
+    attachmentsRead,
+    attachmentsNote: attachmentsRead ? null : attachmentsNote(account.channel, richProblem, rememberedUntil),
+    partial: limit < THREAD_LIMITS[0],
+  };
+}
+
+/**
+ * STAFF-ONLY DIAGNOSIS of one Instagram / Facebook thread (Samer, 2026-10-23:
+ * "a message the client sent says photo, video or attachment — open the app to
+ * see it"): every ask made, how long each took and what Meta answered, then
+ * the SHAPE of each message as Meta returned it — which keys, which attachment
+ * kinds and MIME types, whether Meta marked it unsupported — and what the inbox
+ * made of it. Never a word of the message, never a link, never a key. Runs its
+ * own asks (a scratch memory key), so it neither uses nor changes what the
+ * inbox remembers about the account.
+ */
+export async function diagnoseThread(threadId: unknown): Promise<
+  | { ok: true; thread: string; channel: string; via: string; remembered: string; asks: ThreadAskRecord[]; messages: MessageShape[] }
+  | { ok: false; status: number; problem: string }
+> {
+  const ids = decodeThreadId(threadId);
+  if (!ids) return { ok: false, status: 400, problem: "That conversation link is not valid." };
+  const all = await listAccounts();
+  const account = all.find((a) => a.id === ids.accountId);
+  if (!account || !isMetaChannel(account)) return { ok: false, status: 404, problem: "That account is not connected." };
+  const route = await readRoute(account, all);
+  if (!route.ok) return { ok: false, status: 503, problem: route.problem };
+
+  const memoryKey = `${account.id}:${route.via}`;
+  const remembered = richFieldsWorks.get(memoryKey);
+  const asks: ThreadAskRecord[] = [];
+  const scratch = `diagnose:${memoryKey}:${Date.now()}`;
+  const { r } = await askThread(route, ids.metaConversationId, account.channel, scratch, (a) => asks.push(a));
+  richFieldsWorks.delete(scratch);
+  const messages = r.ok ? messageShapes(r.json, `${ids.accountId}~${ids.metaConversationId}`, route.selfIds) : [];
+  return {
+    ok: true,
+    thread: `${ids.accountId}~${ids.metaConversationId.slice(-6)}`,
+    channel: account.channel,
+    via: route.via,
+    remembered:
+      remembered && remembered.until > Date.now()
+        ? `level ${remembered.level} until ${new Date(remembered.until).toISOString()}${remembered.detail ? ` (${remembered.detail})` : ""}`
+        : "nothing",
+    asks,
+    messages,
   };
 }
 
@@ -989,6 +1150,11 @@ export type ThreadView =
       profile?: CustomerProfile | null;
       /** The ad the customer came from, shown above their first message (030). */
       ad?: AdCard | null;
+      /** Instagram / Facebook: false when this read came without its files (the screen keeps what it had). */
+      attachmentsRead?: boolean;
+      attachmentsNote?: string | null;
+      /** Instagram / Facebook: fewer messages than the full page were asked — the screen merges, never replaces. */
+      partial?: boolean;
     }
   | { ok: false; status: number; problem: string };
 
@@ -1110,6 +1276,9 @@ export async function readThreadForStaff(threadId: unknown): Promise<ThreadView>
     window: humanAgentWindow(lastCustomerAt(t.messages), new Date()) && !t.window.open
       ? { open: true, text: HUMAN_AGENT_TEXT, humanAgent: true }
       : { open: t.window.open, text: windowExplanation(t.window, t.account.channel as ChannelKey) },
+    attachmentsRead: t.attachmentsRead,
+    attachmentsNote: t.attachmentsNote,
+    partial: t.partial,
   };
 }
 

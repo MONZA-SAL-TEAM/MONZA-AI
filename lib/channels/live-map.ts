@@ -18,6 +18,10 @@
 
 import type { ChannelKey } from "@/lib/domain/types";
 import type { Conversation, CustomerProfile, InboxAttachment, InboxMessage } from "@/lib/inbox/types";
+import { isNoContent, NO_TEXT, UNSHOWN_TEXT, UNSUPPORTED_TEXT } from "@/lib/inbox/no-content";
+import { previewText } from "@/lib/inbox/media";
+
+export { NO_TEXT };
 
 /** What the live layer needs to know about a connected account. */
 export interface LiveAccount {
@@ -223,8 +227,63 @@ export function peerOf(conversation: unknown, selfIds: readonly string[]): Peer 
   return null;
 }
 
-/** Shown for a message whose content Meta did not describe. */
-export const NO_TEXT = "Photo, video or attachment — open the app to see it.";
+/**
+ * What one message LOOKS like as Meta returned it, for the staff-only thread
+ * diagnosis: the keys present, each attachment's keys and MIME type, whether
+ * Meta marked it unsupported, and what the inbox made of it. No words, no
+ * links, no ids beyond the last characters of the message's own.
+ */
+export interface MessageShape {
+  id: string;
+  ours: boolean;
+  hasWords: boolean;
+  keys: string[];
+  attachments: { keys: string[]; mime: string | null }[];
+  shares: number;
+  story: string[] | null;
+  sticker: boolean;
+  unsupported: boolean | null;
+  deleted: boolean | null;
+  /** What the inbox shows: the attachment kinds it recognised, or "placeholder". */
+  shown: string[];
+}
+
+const PLAIN_KEYS: ReadonlySet<string> = new Set(["id", "created_time", "from", "to", "message"]);
+
+export function messageShape(raw: unknown, threadId: string, selfIds: readonly string[]): MessageShape | null {
+  const m = obj(raw);
+  const id = str(m?.id);
+  if (!m || !id) return null;
+  const mapped = mapMessage(raw, threadId, selfIds);
+  const flag = (v: unknown) => (typeof v === "boolean" ? v : null);
+  const story = obj(m.story);
+  return {
+    id: id.slice(-8),
+    ours: selfIds.includes(str(obj(m.from)?.id) ?? ""),
+    hasWords: str(m.message) !== null,
+    keys: Object.keys(m).filter((k) => !PLAIN_KEYS.has(k)).sort(),
+    attachments: edgeRows(m.attachments).map((a) => {
+      const o = obj(a);
+      return { keys: o ? Object.keys(o).sort() : [], mime: str(o?.mime_type) };
+    }),
+    shares: edgeRows(m.shares).length,
+    story: story ? Object.keys(story).sort() : null,
+    sticker: str(m.sticker) !== null,
+    unsupported: flag(m.is_unsupported),
+    deleted: flag(m.is_deleted),
+    shown: mapped ? (mapped.attachments?.map((a) => a.kind) ?? (isNoContent(mapped.text) ? ["placeholder"] : [])) : ["(unreadable)"],
+  };
+}
+
+/** Every message of a thread's JSON, shaped (see messageShape). */
+export function messageShapes(json: unknown, threadId: string, selfIds: readonly string[]): MessageShape[] {
+  const out: MessageShape[] = [];
+  for (const raw of edgeRows(obj(json)?.messages)) {
+    const s = messageShape(raw, threadId, selfIds);
+    if (s) out.push(s);
+  }
+  return out;
+}
 
 /** How long the screen treats one of Meta's picture links as fresh (lib/inbox/media.ts carryUrls). */
 const META_LINK_FRESH_MS = 55 * 60_000;
@@ -341,13 +400,17 @@ function mapMessage(
   const ours = selfIds.includes(from);
   const attachments = metaAttachmentsOf(m);
   const words = str(m?.message);
+  // With nothing to draw, say WHY as far as Meta said it: a type it does not pass on, a
+  // listed photo / share / story without a link, or — the read came without the attachment
+  // fields — nothing described at all (2026-10-23; before, every case read the same).
+  const described = edgeRows(m?.attachments).length > 0 || edgeRows(m?.shares).length > 0 || obj(m?.story) !== null;
+  const standIn = m?.is_unsupported === true ? UNSUPPORTED_TEXT : described ? UNSHOWN_TEXT : NO_TEXT;
   return {
     id,
     conversationId: threadId,
     direction: ours ? "out" : "in",
     author: ours ? "staff" : "customer",
-    // With nothing described, say so plainly rather than show an empty bubble.
-    text: words ?? (attachments.length > 0 ? "" : NO_TEXT),
+    text: words ?? (attachments.length > 0 ? "" : standIn),
     at,
     status: ours ? "sent" : "received",
     ...(attachments.length > 0 ? { attachments } : {}),
@@ -404,7 +467,8 @@ export function mapConversations(
       status: last?.direction === "out" ? "waiting_reply" : "open",
       unreadCount: 0,
       lastMessage: {
-        text: last?.text ?? "",
+        // The row says what a stand-in is, briefly — never the long sentence.
+        text: last ? previewText(last) : "",
         at: last?.at ?? updated ?? new Date(0).toISOString(),
         direction: last?.direction ?? "in",
         author: last?.author ?? "customer",
@@ -445,13 +509,39 @@ export function graphProblem(payload: unknown, httpStatus: number): string {
   if (code === 10 || code === 3 || (code !== null && code >= 200 && code < 300)) {
     return "Meta has not yet given the app permission to read these messages (this needs Meta's approval).";
   }
-  if (code === 4 || code === 17 || code === 32 || code === 613 || httpStatus === 429) {
+  if (isThrottled(payload, httpStatus)) {
     return "Meta is limiting requests for a moment. It will retry shortly.";
   }
   const message = str(e?.message);
   return message
     ? `Meta said: ${message.slice(0, 200)}`
     : `Meta answered with an error (HTTP ${httpStatus}).`;
+}
+
+/**
+ * Meta's rate limit (codes 4, 17, 32, 613, HTTP 429): not a refusal of what was
+ * asked — the same question passes a moment later. A thread read must not
+ * remember it as "the attachment fields are refused".
+ */
+export function isThrottled(payload: unknown, httpStatus: number): boolean {
+  const code = obj(obj(payload)?.error)?.code;
+  return httpStatus === 429 || (typeof code === "number" && THROTTLE_CODES.has(code));
+}
+
+/** Meta's rate limits: the app-level ones and the Business Use Case ones (Pages 80001, Instagram 80002, Messenger 80006, WhatsApp 80007). */
+const THROTTLE_CODES: ReadonlySet<number> = new Set([4, 17, 32, 613, 80001, 80002, 80006, 80007]);
+
+/**
+ * Meta's own hiccup — "an unknown error" (1), "service temporarily unavailable"
+ * (2), a 5xx or a page that is not JSON at all: nothing about WHAT was asked. A
+ * thread read tries on and remembers nothing from it; only an answer that names
+ * the fields or the permission is a refusal.
+ */
+export function isTransient(payload: unknown, httpStatus: number): boolean {
+  if (httpStatus >= 500) return true;
+  const e = obj(obj(payload)?.error);
+  if (!e) return true; // an error status with no Meta error body
+  return e.code === 1 || e.code === 2;
 }
 
 /**

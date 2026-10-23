@@ -7,7 +7,7 @@
 import { NextResponse } from "next/server";
 import { requireRealStaff } from "@/lib/auth";
 import { MEDIA_CAPABILITIES } from "@/lib/permissions/media";
-import { diagnoseAccount, diagnoseInstagramLogin } from "@/lib/channels/live";
+import { diagnoseAccount, diagnoseInstagramLogin, diagnoseThread } from "@/lib/channels/live";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -21,10 +21,14 @@ export async function GET(request: Request): Promise<NextResponse> {
     return NextResponse.json({ ok: false, message: "Staff only." }, { status, headers: NO_STORE });
   }
   const params = new URL(request.url).searchParams;
-  // ?route=instagram-login runs the opt-in Instagram-login experiment; without
-  // it the standard diagnosis runs exactly as before.
-  const result =
-    params.get("route") === "instagram-login"
+  // ?thread=<inbox thread id> explains ONE Instagram / Facebook thread: every ask
+  // made and the shape of each message (never a word). ?route=instagram-login
+  // runs the opt-in Instagram-login experiment; without either the standard
+  // diagnosis runs exactly as before.
+  const thread = params.get("thread");
+  const result = thread
+    ? await diagnoseThread(thread)
+    : params.get("route") === "instagram-login"
       ? await diagnoseInstagramLogin(params.get("account"))
       : await diagnoseAccount(params.get("account"));
   if (!result.ok) {
