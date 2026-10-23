@@ -119,6 +119,8 @@ type ThreadResponse =
       attachmentsNote?: string | null;
       /** Instagram / Facebook: fewer messages than the full page — merged into what is shown, never replacing it. */
       partial?: boolean;
+      /** WhatsApp: Meta has locked the business account; every send fails until its review. */
+      sendLock?: { since: string; note: string } | null;
     }
   | { ok: false; message?: string };
 
@@ -128,6 +130,8 @@ interface ThreadState {
   problem: string | null;
   /** Instagram / Facebook: the files could not be read this time; what was shown before is kept. */
   note: string | null;
+  /** WhatsApp: Meta has locked the business account (the red line, and the composer's words). */
+  blocked: string | null;
   windowOpen: boolean;
   windowText: string;
   /** Past 24 h, within 7 days: a person's own reply only (Instagram / Messenger). */
@@ -140,6 +144,7 @@ const EMPTY_THREAD: ThreadState = {
   loading: true,
   problem: null,
   note: null,
+  blocked: null,
   windowOpen: false,
   windowText: "",
   humanAgent: false,
@@ -973,6 +978,7 @@ export default function InboxClient(props: Props) {
             loading: false,
             problem: null,
             note: json.attachmentsRead === false ? (json.attachmentsNote ?? "Photos and files could not be read this time.") : null,
+            blocked: json.sendLock?.note ?? null,
             windowOpen: json.window.open,
             windowText: json.window.text,
             humanAgent: json.window.humanAgent === true,
@@ -1856,6 +1862,7 @@ export default function InboxClient(props: Props) {
                 )}
                 {live && thread.problem && <p className="ibx-conv-note is-urgent">{thread.problem}</p>}
                 {live && !thread.problem && thread.note && <p className="ibx-conv-note">{thread.note}</p>}
+                {live && thread.blocked && <p className="ibx-conv-note is-urgent">{thread.blocked}</p>}
                 {messageGroups.map((g) => (
                   <section key={g.day} className="ibx-msg-day" aria-label={g.label}>
                     <div className="ibx-msg-sep">

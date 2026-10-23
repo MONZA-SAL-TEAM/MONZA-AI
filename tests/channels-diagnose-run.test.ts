@@ -62,6 +62,100 @@ function io(over: Partial<DiagnoseIO> = {}): DiagnoseIO {
 const named = (steps: DiagnoseStep[], name: string) => steps.find((s) => s.step === name);
 const names = (steps: DiagnoseStep[]) => steps.map((s) => s.step);
 
+const WA = base({ id: "wa-monza", brand: "monza", channel: "whatsapp", displayName: "+961 70 708 585", externalId: "984244264767607", tokenEnv: "META_TOKEN_WHATSAPP" });
+
+describe("diagnoseAccount on the WhatsApp number: our record first, then Meta's health status", () => {
+  const LOCK = "Business account has been locked.";
+  test("a locked account: the record says since when, Meta says which entity and why", async () => {
+    const d = await diagnoseAccount(
+      "wa-monza",
+      io({
+        accounts: async () => [WA],
+        now: () => Date.parse("2026-10-23T08:00:00Z"),
+        recentOutbound: async () => [
+          { at: "2026-10-23T07:11:02Z", status: "failed", error: LOCK, direction: "out" },
+          { at: "2026-10-23T05:25:27Z", status: "failed", error: LOCK, direction: "out" },
+          { at: "2026-10-22T16:57:15Z", status: "read", error: null, direction: "out" },
+        ],
+        graph: async (path, params) => {
+          assert.equal(path, "984244264767607");
+          assert.equal(params.fields, "health_status");
+          return {
+            ok: true,
+            json: {
+              health_status: {
+                can_send_message: "BLOCKED",
+                entities: [{ entity_type: "WABA", id: "1", can_send_message: "BLOCKED", errors: [{ error_code: 131031, error_description: LOCK, possible_solution: "Appeal in Business Support Home." }] }],
+              },
+            },
+          };
+        },
+      })
+    );
+    assert.equal(d.ok, true);
+    if (!d.ok) return;
+    assert.deepEqual(names(d.steps), ["Our record of recent sends", "Meta's health status for the number"]);
+    assert.equal(named(d.steps, "Our record of recent sends")?.status, "fail");
+    assert.match(named(d.steps, "Our record of recent sends")?.detail ?? "", /^The newest send \(2026-10-23T07:11:02Z\) failed with "Business account has been locked\.", as did 2 since 2026-10-23T05:25:27Z; nothing of ours went out after it\.$/);
+    assert.equal(named(d.steps, "Meta's health status for the number")?.status, "fail");
+    assert.match(named(d.steps, "Meta's health status for the number")?.detail ?? "", /^BLOCKED\. WABA BLOCKED · 131031: Business account has been locked\. — Appeal in Business Support Home\.$/);
+    assert.ok(!JSON.stringify(d).includes(TOKEN), "the key never appears");
+  });
+
+  test("a healthy account; a missing key is skipped, never failed; a refused read is unknown", async () => {
+    const healthy = await diagnoseAccount(
+      "wa-monza",
+      io({
+        accounts: async () => [WA],
+        recentOutbound: async () => [{ at: "2026-10-23T09:00:00Z", status: "delivered", error: null, direction: "out" }],
+        graph: async () => ({ ok: true, json: { health_status: { can_send_message: "AVAILABLE", entities: [{ entity_type: "WABA", id: "1", can_send_message: "AVAILABLE" }] } } }),
+      })
+    );
+    assert.ok(healthy.ok && healthy.steps.every((s) => s.status === "pass"));
+    // A lock lifted after an appeal: a later send got through, and the record says so.
+    const lifted = await diagnoseAccount(
+      "wa-monza",
+      io({
+        accounts: async () => [WA],
+        now: () => Date.parse("2026-10-27T08:00:00Z"),
+        recentOutbound: async () => [
+          { at: "2026-10-26T10:00:00Z", status: "delivered", error: null, direction: "out" },
+          { at: "2026-10-23T05:25:27Z", status: "failed", error: LOCK, direction: "out" },
+        ],
+      })
+    );
+    assert.ok(lifted.ok);
+    if (!lifted.ok) return;
+    assert.equal(named(lifted.steps, "Our record of recent sends")?.status, "pass");
+    assert.match(named(lifted.steps, "Our record of recent sends")?.detail ?? "", /the lock is lifted/);
+    // An old lock with nothing sent since proves nothing about now: unknown, never fail.
+    const stale = await diagnoseAccount(
+      "wa-monza",
+      io({
+        accounts: async () => [WA],
+        now: () => Date.parse("2026-11-10T08:00:00Z"),
+        recentOutbound: async () => [{ at: "2026-10-23T05:25:27Z", status: "failed", error: LOCK, direction: "out" }],
+      })
+    );
+    assert.ok(stale.ok);
+    if (!stale.ok) return;
+    assert.equal(named(stale.steps, "Our record of recent sends")?.status, "unknown");
+    const noKey = await diagnoseAccount("wa-monza", io({ accounts: async () => [WA], tokenFor: () => null }));
+    assert.ok(noKey.ok);
+    if (!noKey.ok) return;
+    assert.equal(named(noKey.steps, "Our record of recent sends")?.status, "skipped");
+    assert.equal(named(noKey.steps, "Meta's health status for the number")?.status, "skipped");
+    const refused = await diagnoseAccount(
+      "wa-monza",
+      io({ accounts: async () => [WA], graph: async () => ({ ok: false, problem: "Meta said: (#10) permission", retryLighter: false, meta: "code 10" }) })
+    );
+    assert.ok(refused.ok);
+    if (!refused.ok) return;
+    assert.equal(named(refused.steps, "Meta's health status for the number")?.status, "unknown");
+    assert.match(named(refused.steps, "Meta's health status for the number")?.detail ?? "", /code 10/);
+  });
+});
+
 describe("diagnoseAccount: a refused Page token does not hide the checks that explain it", () => {
   /** Meta answers everything the app's own id and secret may ask, and refuses
    *  the Page read — the exact shape of a permission problem on the Page. */

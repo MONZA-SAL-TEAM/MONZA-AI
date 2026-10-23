@@ -1029,6 +1029,25 @@ WhatsApp" flow again** — that is the step that locked the phone out on
     (rule 19).
   - The 12-month clean-up deletes the FILES first; if that fails, the messages
     are kept for the next run.
+- **Meta LOCKED the WhatsApp business account on 2026-10-23 at 05:25 UTC (Samer: "WhatsApp Business is locked").**
+  Every send since was ACCEPTED by the API (an id came back) and then reported by the `statuses` webhook as `failed`
+  with Meta's words "Business account has been locked." — error 131031, which Meta's error-codes page files under
+  "Integrity errors" ("restricted or disabled for violating a platform policy"; see the Policy Enforcement document;
+  the Health Status API says why). Meta's Policy Enforcement page: warnings → restrictions (1/3/5/7/30-day blocks) →
+  "an account lock, which is an indefinite block on sending any messages; can only be removed via an appeal" →
+  disabled. The reason and the appeal live in **Meta Business Suite → Business Support Home → the messaging account →
+  Request Review** (decisions in 24–48 h); admins are e-mailed; the `account_update` webhook (not subscribed here)
+  carries it. Customers' messages also stopped arriving that morning. Nothing in MONZA AI changed about sending.
+  Possible trigger, unverified: the same brochure + two videos sent to many customers in a burst the morning before.
+  **Never "fix" this in code or Meta settings** — rule 9: identify, appeal, wait. What the code now does: a
+  WhatsApp thread reports the lock from our own record of the ACCOUNT's newest sends (`sendLockFrom` in whatsapp.ts,
+  `accountSendLock` in live.ts, 30 s memory: the newest send failed with the lock's words, nothing of ours went out
+  after it, and it is under 7 days old — a review found the first version judged ONE thread's rows, which would have
+  read "locked" in every chat touched during the lock for months after Meta lifted it → `ThreadView.sendLock`, a red
+  line under the chat; the diagnosis says `unknown`, never `fail`, for an old lock with nothing sent since); `GET /api/channels/diagnose?account=wa-monza` runs `diagnoseWhatsApp`: our record of recent sends, then
+  Meta's Health Status API (`GET /{phone-number-id}?fields=health_status`, AVAILABLE / LIMITED / BLOCKED per entity
+  with Meta's code, description and possible solution; a refused read is `unknown` — the sender key holds only
+  `whatsapp_business_messaging`, so Meta may refuse it).
 - **Calls cannot ring inside MONZA AI on this number.** Meta's Calling API
   requires a number used with the Cloud API *only* ("not the WhatsApp Business
   app"), and the Coexistence page lists calls as unsupported — checked

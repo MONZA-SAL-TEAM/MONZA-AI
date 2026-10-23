@@ -34,6 +34,8 @@ import {
   recordStaffTurn,
   recordWhatsAppSent,
   type StoredAccount,
+  readRecentOutbound,
+  type OutboundRecord,
 } from "@/lib/channels/store";
 import type { CustomerProfile } from "@/lib/inbox/types";
 import { adForConversation, adForMetaThread, type AdCard } from "@/lib/channels/ad-creative";
@@ -42,7 +44,12 @@ import {
   mapWhatsAppConversation,
   mapWhatsAppMessage,
   quoteReplies,
+  isAccountLockError,
+  sendLockFrom,
+  sendLockWords,
   sendWhatsAppMedia,
+  summariseHealth,
+  type SendLock,
   sendWhatsAppTemplate,
   sendWhatsAppText,
   uploadWhatsAppMedia,
@@ -812,12 +819,29 @@ async function readWhatsAppThread(
   const threadId = encodeThreadId(account.id, conversationId);
   const window = replyWindow(value.lastInboundAt, now);
   const older = olderRows.map((row) => mapWhatsAppMessage(row, threadId, links, now.getTime()));
+  const messages = quoteReplies(value.rows.map((row) => mapWhatsAppMessage(row, threadId, links, now.getTime())), older);
+  // Meta's account lock is account-wide: read from the account's recent sends, never this thread's alone.
+  const lock = await accountSendLock(account.id, now.getTime());
   return {
     ok: true,
-    messages: quoteReplies(value.rows.map((row) => mapWhatsAppMessage(row, threadId, links, now.getTime())), older),
+    messages,
     window: { open: window.open, text: windowExplanation(window, "whatsapp") },
     ad,
+    sendLock: lock ? { since: lock.since, note: sendLockWords(lock) } : null,
   };
+}
+
+/** The account's lock, from its newest sends, remembered 30 s so every open chat's refresh does not re-read it. */
+const sendLocks = new Map<string, { at: number; lock: SendLock | null }>();
+const SEND_LOCK_MEMORY_MS = 30_000;
+
+async function accountSendLock(accountId: string, now: number): Promise<SendLock | null> {
+  const hit = sendLocks.get(accountId);
+  if (hit && now - hit.at < SEND_LOCK_MEMORY_MS) return hit.lock;
+  const rows = await readRecentOutbound(accountId, 60);
+  const lock = rows ? sendLockFrom(rows, now) : (hit?.lock ?? null);
+  sendLocks.set(accountId, { at: now, lock });
+  return lock;
 }
 
 /** A file staff attached, already uploaded to our bucket (POST /api/channels/media). */
@@ -1155,6 +1179,8 @@ export type ThreadView =
       attachmentsNote?: string | null;
       /** Instagram / Facebook: fewer messages than the full page were asked — the screen merges, never replaces. */
       partial?: boolean;
+      /** WhatsApp: Meta has locked the business account — every send fails until its review (sendLockFrom). */
+      sendLock?: { since: string; note: string } | null;
     }
   | { ok: false; status: number; problem: string };
 
@@ -1327,6 +1353,8 @@ export interface DiagnoseIO {
   budgetMs: number;
   /** graph.instagram.com, for the opt-in Instagram-login check only. */
   igGraph?: GraphFn;
+  /** Our own record of recent sends (WhatsApp): the lock shows there before anywhere else. */
+  recentOutbound?: (accountId: string) => Promise<OutboundRecord[] | null>;
 }
 
 /** Inside the route's 60 s, leaving room to serialise what was gathered. */
@@ -1348,7 +1376,67 @@ export function liveDiagnoseIO(): DiagnoseIO {
     now: () => Date.now(),
     budgetMs: DIAGNOSE_BUDGET_MS,
     igGraph: igGraphGet,
+    recentOutbound: readRecentOutbound,
   };
+}
+
+/**
+ * The WhatsApp account's diagnosis (Samer, 2026-10-23: "when I'm sending a
+ * message it is not sending, it tells me WhatsApp Business is locked"): first
+ * OUR record — were recent sends accepted and then failed with Meta's lock
+ * words, since when, how many — then Meta's Health Status API on the business
+ * number (`GET /{phone-number-id}?fields=health_status`: AVAILABLE / LIMITED /
+ * BLOCKED per entity, with Meta's error code, description and possible
+ * solution). Reads only; nothing here can touch the number or its registration.
+ */
+async function diagnoseWhatsApp(account: StoredAccount, io: DiagnoseIO): Promise<Diagnosis> {
+  const steps: DiagnoseStep[] = [];
+  const add = (step: string, ms: number, status: CheckStatus, detail: string) => steps.push({ step, ms, status, detail });
+
+  const t0 = io.now();
+  const recent = io.recentOutbound ? await io.recentOutbound(account.id) : undefined;
+  if (recent === undefined) add("Our record of recent sends", 0, "skipped", "Not asked: no record reader was given.");
+  else if (recent === null) add("Our record of recent sends", io.now() - t0, "unknown", "The database could not be read.");
+  else {
+    // What the record PROVES: a lock when the newest send failed with Meta's lock words and it is recent;
+    // an older lock with nothing sent since proves nothing about now (unknown); otherwise the plain figures.
+    const lock = sendLockFrom(recent, io.now());
+    const lockFailures = recent.filter((r) => r.status === "failed" && isAccountLockError(r.error));
+    const failed = recent.filter((r) => r.status === "failed").length;
+    const through = recent.find((r) => r.status === "delivered" || r.status === "read");
+    const newest = recent[0];
+    const stale = !lock && lockFailures.length > 0 && newest && newest.status === "failed" && isAccountLockError(newest.error);
+    add(
+      "Our record of recent sends",
+      io.now() - t0,
+      lock ? "fail" : stale ? "unknown" : "pass",
+      lock
+        ? `The newest send (${lock.latest}) failed with "${lock.reason}", as did ${lock.failed} since ${lock.since}; nothing of ours went out after it.`
+        : stale
+          ? `The newest send (${newest.at}) failed with "${newest.error}" and nothing has been sent since — too old to say whether the lock still holds; Meta's status below decides.`
+          : `${recent.length} recent sends, ${failed} failed; last delivered or read ${through?.at ?? "never"}${lockFailures.length > 0 ? `; ${lockFailures.length} failed with Meta's lock words before that — the lock is lifted` : ""}.`
+    );
+  }
+
+  const token = io.tokenFor(account.tokenEnv);
+  if (!token) {
+    add("Meta's health status for the number", 0, "skipped", `The key ${account.tokenEnv} is not set, so Meta was not asked.`);
+    return { ok: true, account: account.id, steps, truncated: false };
+  }
+  const t1 = io.now();
+  const r = await io.graph(account.externalId, { fields: "health_status" }, token, Math.min(TIMEOUT_MS, io.budgetMs));
+  if (!r.ok) {
+    add("Meta's health status for the number", io.now() - t1, "unknown", `Meta refused the read: ${r.meta ?? r.problem}`);
+  } else {
+    const h = summariseHealth(r.json);
+    add(
+      "Meta's health status for the number",
+      io.now() - t1,
+      h.overall === null ? "unknown" : h.overall === "BLOCKED" ? "fail" : "pass",
+      h.overall === null ? "Meta answered without a health_status." : `${h.overall}. ${h.lines.join(" | ")}`
+    );
+  }
+  return { ok: true, account: account.id, steps, truncated: false };
 }
 
 function briefly(json: unknown): string {
@@ -1387,6 +1475,7 @@ export async function diagnoseAccount(
   }
   const all = await io.accounts();
   const account = all.find((a) => a.id === accountId);
+  if (account?.channel === "whatsapp") return diagnoseWhatsApp(account, io);
   if (!account || !isMetaChannel(account)) {
     return { ok: false, status: 404, problem: "That account is not connected." };
   }

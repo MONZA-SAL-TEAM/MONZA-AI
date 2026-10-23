@@ -130,6 +130,36 @@ export function channelDb(): SupabaseClient | null {
   return client();
 }
 
+export interface OutboundRecord {
+  at: string;
+  status: string | null;
+  error: string | null;
+  direction: string;
+}
+
+/**
+ * Our most recent sends on one account, newest first — when, what WhatsApp
+ * said of each, never the words. For the diagnosis of a locked account.
+ */
+export async function readRecentOutbound(accountId: string, limit = 200): Promise<OutboundRecord[] | null> {
+  const sb = client();
+  if (!sb) return null;
+  const { data, error } = await sb
+    .from("channel_messages")
+    .select("created_at, status, error, direction")
+    .eq("account_id", accountId)
+    .eq("direction", "out")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error || !data) return null;
+  return (data as { created_at: string; status: string | null; error: string | null; direction: string }[]).map((r) => ({
+    at: r.created_at,
+    status: r.status,
+    error: r.error,
+    direction: r.direction,
+  }));
+}
+
 /** The connected accounts, from the database rather than from code, so
  *  connecting one does not need a deploy. */
 const ACCOUNT_COLUMNS =

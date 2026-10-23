@@ -37,6 +37,7 @@ import {
   parseWhatsAppRevisions,
   quoteReplies,
 } from "@/lib/channels/whatsapp";
+import { isAccountLockError, sendLockFrom, sendLockWords, summariseHealth } from "@/lib/channels/whatsapp";
 import { parseInstagram } from "@/lib/channels/instagram";
 import { messengerAdapter } from "@/lib/channels/messenger";
 import { decodeThreadId, inboundIndexRow, redactDelivery } from "@/lib/channels/live-map";
@@ -686,5 +687,68 @@ describe("the 12-month rule", () => {
     assert.equal(isCronAuthorized(null, secret), false);
     assert.equal(isCronAuthorized(`Bearer ${secret}`, null), false, "unset refuses, never opens");
     assert.equal(isCronAuthorized("Bearer short", "short"), false, "a short secret is not a secret");
+  });
+});
+
+describe("Meta's account lock, read from our own record (2026-10-23)", () => {
+  const out = (at: string, status: string, error: string | null = null) => ({ direction: "out", status, error, at });
+  const LOCK = "Business account has been locked.";
+
+  test("the lock's words, and nothing else", () => {
+    assert.equal(isAccountLockError(LOCK), true);
+    assert.equal(isAccountLockError("(#131031) Business account locked"), true);
+    assert.equal(isAccountLockError("Message failed to send: the recipient blocked you"), false);
+    assert.equal(isAccountLockError(null), false);
+  });
+
+  const NOW = Date.parse("2026-10-23T08:00:00Z");
+
+  test("the newest send failed with the lock's words, recently: locked since the first such failure", () => {
+    const lock = sendLockFrom(
+      [
+        out("2026-10-23T07:11:02Z", "failed", LOCK),
+        out("2026-10-23T05:25:27Z", "failed", LOCK),
+        out("2026-10-22T16:57:15Z", "read"),
+        { direction: "in", status: "received", error: null, at: "2026-10-23T06:00:00Z" },
+      ],
+      NOW
+    );
+    assert.deepEqual(lock, { since: "2026-10-23T05:25:27Z", latest: "2026-10-23T07:11:02Z", reason: LOCK, failed: 2 });
+    assert.match(sendLockWords(lock!), /^Meta has locked the WhatsApp business account — every send since 23 Oct, 08:25 \(Beirut\) failed \(2 so far; WhatsApp says "Business account has been locked\."\)\. Only Meta's review lifts it/);
+  });
+
+  test("anything of ours sent after the last failure means the lock is lifted; old failures prove nothing; other failures are not a lock", () => {
+    assert.equal(sendLockFrom([out("2026-10-23T07:30:00Z", "sent"), out("2026-10-23T05:25:27Z", "failed", LOCK)], NOW), null, "accepted and not failed: lifted");
+    assert.equal(sendLockFrom([out("2026-10-23T09:00:00Z", "delivered"), out("2026-10-23T05:25:27Z", "failed", LOCK)], NOW), null);
+    assert.equal(sendLockFrom([out("2026-10-10T05:25:27Z", "failed", LOCK)], NOW), null, "13 days old with nothing since: unknown, not locked");
+    assert.ok(sendLockFrom([out("2026-10-20T05:25:27Z", "failed", LOCK)], NOW), "3 days old: still the newest fact");
+    assert.equal(sendLockFrom([out("2026-10-23T05:25:27Z", "failed", "WhatsApp could not deliver it.")], NOW), null);
+    assert.equal(sendLockFrom([], NOW), null);
+  });
+
+  test("Meta's health status, summarised in lines a person can act on", () => {
+    const h = summariseHealth({
+      id: "984244264767607",
+      health_status: {
+        can_send_message: "BLOCKED",
+        entities: [
+          { entity_type: "PHONE_NUMBER", id: "984244264767607", can_send_message: "AVAILABLE" },
+          {
+            entity_type: "WABA",
+            id: "1502691630809243",
+            can_send_message: "BLOCKED",
+            errors: [{ error_code: 131031, error_description: "Business account has been locked.", possible_solution: "See Meta Business Support Home." }],
+          },
+          { entity_type: "BUSINESS", id: "1", can_send_message: "LIMITED", additional_info: ["Messaging limit: 1,000 unique users per 24 h"] },
+        ],
+      },
+    });
+    assert.equal(h.overall, "BLOCKED");
+    assert.deepEqual(h.lines, [
+      "PHONE_NUMBER AVAILABLE",
+      "WABA BLOCKED · 131031: Business account has been locked. — See Meta Business Support Home.",
+      "BUSINESS LIMITED · Messaging limit: 1,000 unique users per 24 h",
+    ]);
+    assert.deepEqual(summariseHealth({ id: "x" }), { overall: null, lines: [] });
   });
 });

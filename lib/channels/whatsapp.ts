@@ -888,6 +888,98 @@ export async function sendWhatsAppLink(
   return postWhatsAppMessage(input.phoneNumberId, input.to, { type: input.kind, [input.kind]: part }, token, fetchFn);
 }
 
+/* ── Meta's account lock (Samer, 2026-10-23: "WhatsApp Business is locked") ─────────────────── */
+
+/**
+ * The words WhatsApp attaches to a send it accepted and then failed because Meta
+ * locked the business account — error 131031, "Business account has been
+ * locked." Meta's policy-enforcement page: "an account lock, which is an
+ * indefinite block on sending any messages; can only be removed via an appeal."
+ */
+export function isAccountLockError(error: string | null | undefined): boolean {
+  return typeof error === "string" && /account has been locked|\b131031\b/i.test(error);
+}
+
+export interface SendLock {
+  /** When the first send failed with the lock's words. */
+  since: string;
+  /** The newest such failure. */
+  latest: string;
+  reason: string;
+  failed: number;
+}
+
+/** A lock failure older than this, with no send since, proves nothing about now: Meta may have lifted it. */
+export const SEND_LOCK_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * Whether Meta has locked the business account, read from our OWN record of
+ * the ACCOUNT's recent sends (never one thread's — the lock is account-wide,
+ * and a chat touched during a lock would otherwise say "locked" for months):
+ * the NEWEST send failed with the lock's words, nothing of ours went out after
+ * it, and it is recent (SEND_LOCK_MAX_AGE_MS). Null as soon as any later send
+ * exists — one Meta accepted without failing it is the lock lifted.
+ */
+export function sendLockFrom(
+  rows: readonly { direction: string; status: string | null; error?: string | null; at: string }[],
+  now: number = Date.now(),
+  maxAgeMs: number = SEND_LOCK_MAX_AGE_MS
+): SendLock | null {
+  let since: string | null = null;
+  let latest: string | null = null;
+  let newestOut: string | null = null;
+  let reason = "";
+  let failed = 0;
+  for (const m of rows) {
+    if (m.direction !== "out") continue;
+    if (newestOut === null || m.at > newestOut) newestOut = m.at;
+    if (m.status === "failed" && isAccountLockError(m.error)) {
+      failed++;
+      reason = m.error ?? reason;
+      if (since === null || m.at < since) since = m.at;
+      if (latest === null || m.at > latest) latest = m.at;
+    }
+  }
+  if (since === null || latest === null) return null;
+  if (newestOut !== null && newestOut > latest) return null; // something of ours went out after the last failure
+  if (now - Date.parse(latest) > maxAgeMs) return null; // too old to say anything about now
+  return { since, latest, reason, failed };
+}
+
+/** The red line under a WhatsApp chat while the lock holds. */
+export function sendLockWords(lock: SendLock): string {
+  const at = new Date(lock.since).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Beirut" });
+  return `Meta has locked the WhatsApp business account — every send since ${at} (Beirut) failed (${lock.failed} so far; WhatsApp says "${lock.reason}"). Only Meta's review lifts it: Meta Business Suite → Business Support Home → the WhatsApp account → Request Review. Not a Monza AI fault.`;
+}
+
+/** One line per entity of Meta's Health Status API (GET /{phone-number-id}?fields=health_status). */
+export interface HealthSummary {
+  /** AVAILABLE, LIMITED or BLOCKED across every entity; null when the answer had no health_status. */
+  overall: string | null;
+  lines: string[];
+}
+
+/** Meta's health_status answer, in lines a person can act on — codes and Meta's own sentences, never a key. */
+export function summariseHealth(json: unknown): HealthSummary {
+  const h = obj(obj(json)?.health_status);
+  if (!h) return { overall: null, lines: [] };
+  const lines: string[] = [];
+  for (const raw of list(h.entities)) {
+    const e = obj(raw);
+    if (!e) continue;
+    const head = `${str(e.entity_type) ?? "?"} ${str(e.can_send_message) ?? "?"}`;
+    const errors = list(e.errors).map((x) => {
+      const err = obj(x);
+      const code = typeof err?.error_code === "number" ? `${err.error_code}: ` : "";
+      const fix = str(err?.possible_solution);
+      return `${code}${str(err?.error_description) ?? "no description"}${fix ? ` — ${fix}` : ""}`;
+    });
+    const info = list(e.additional_info).map((x) => str(x)).filter((x): x is string => x !== null);
+    lines.push([head, ...errors, ...info].join(" · "));
+  }
+  return { overall: str(h.can_send_message), lines };
+}
+
 /** WhatsApp's limits for tappable choices. */
 export const WHATSAPP_MAX_BUTTONS = 3;
 export const WHATSAPP_MAX_LIST_ROWS = 10;
