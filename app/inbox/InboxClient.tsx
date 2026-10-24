@@ -82,6 +82,8 @@ import {
 import { PushDialog, PushNudge, usePush } from "@/components/PushToggle";
 import { PUSH_ON_FLAG } from "@/lib/push/device";
 import OwnerChip from "@/components/OwnerChip";
+import { usePoll } from "@/lib/use-poll";
+import { POLL } from "@/lib/poll";
 import "./inbox.css";
 
 interface Props {
@@ -159,9 +161,6 @@ interface Run {
 
 type AlertsState = "unsupported" | "default" | "granted" | "denied";
 
-/** How often the newest conversations are checked while the inbox is open. */
-const CHECK_EVERY_MS = 60_000;
-const THREAD_REFRESH_MS = 15_000;
 /** Gentle on Meta: a short pause between pages. */
 const PAGE_PAUSE_MS = 300;
 /** A reload after a long absence still stops somewhere. */
@@ -732,19 +731,9 @@ export default function InboxClient(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live, viewerKey]);
 
-  // Keep checking while the inbox is open, and the moment it comes back into view.
-  useEffect(() => {
-    if (!live || !ready) return;
-    const t = setInterval(() => void checkNewest(), CHECK_EVERY_MS);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void checkNewest();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      clearInterval(t);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [live, ready, checkNewest]);
+  // Keep checking while the inbox is open — slower when left open or behind another tab (lib/poll.ts), and at
+  // once when it comes back into view.
+  usePoll(checkNewest, POLL.inboxList, live && ready);
 
   /* ── What is on screen ──────────────────────────────────────────────── */
 
@@ -800,42 +789,33 @@ export default function InboxClient(props: Props) {
   const [owners, setOwners] = useState<{ map: Record<string, { id: string; name: string | null }>; me: string | null }>({ map: {}, me: null });
   // Which car each chat is about (the insights labels), for the car filter under the brand tabs (Samer, 2026-10-20).
   const [cars, setCars] = useState<{ list: CarChoice[]; byThread: Record<string, string[]> }>({ list: [], byThread: {} });
-  useEffect(() => {
-    if (!live) return;
-    let alive = true;
-    const load = () =>
-      document.visibilityState === "hidden"
-        ? Promise.resolve()
-        : fetch("/api/conversations/cars", { cache: "no-store" })
+  const loadCars = useCallback(
+    () =>
+      fetch("/api/conversations/cars", { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : null))
         .then((b: { ok?: boolean; cars?: CarChoice[]; byThread?: Record<string, string[]> } | null) => {
-          if (alive && b?.ok && b.cars && b.byThread) setCars({ list: b.cars, byThread: b.byThread });
+          if (b?.ok && b.cars && b.byThread) setCars({ list: b.cars, byThread: b.byThread });
         })
-        .catch(() => undefined);
-    void load();
-    const t = setInterval(() => void load(), 5 * 60_000);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
-  }, [live]);
-  useEffect(() => {
-    if (!live) return;
-    let alive = true;
-    const load = () =>
+        .catch(() => undefined),
+    []
+  );
+  const loadOwners = useCallback(
+    () =>
       fetch("/api/conversations/owners", { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : null))
         .then((b: { ok?: boolean; me?: string; owners?: Record<string, { id: string; name: string | null }> } | null) => {
-          if (alive && b?.ok && b.owners) setOwners({ map: b.owners, me: b.me ?? null });
+          if (b?.ok && b.owners) setOwners({ map: b.owners, me: b.me ?? null });
         })
-        .catch(() => undefined);
-    void load();
-    const t = window.setInterval(load, 60_000);
-    return () => {
-      alive = false;
-      window.clearInterval(t);
-    };
-  }, [live]);
+        .catch(() => undefined),
+    []
+  );
+  useEffect(() => {
+    if (!live) return;
+    void loadCars();
+    void loadOwners();
+  }, [live, loadCars, loadOwners]);
+  usePoll(loadCars, POLL.cars, live);
+  usePoll(loadOwners, POLL.owners, live);
 
   const channels = useMemo(() => {
     const present = new Set(all.map((c) => c.channel as string));
@@ -1031,14 +1011,16 @@ export default function InboxClient(props: Props) {
     };
     reloadThread.current = () => load();
     void load();
-    const t = setInterval(() => void load(), THREAD_REFRESH_MS);
     return () => {
       alive = false;
       ctrl.abort();
-      clearInterval(t);
       reloadThread.current = null;
     };
   }, [live, openId, commit, markSeen]);
+
+  // The open thread is read again from Meta while someone is looking at it — not behind another tab (lib/poll.ts).
+  const refreshThread = useCallback(() => reloadThread.current?.(), []);
+  usePoll(refreshThread, POLL.thread, live && openId !== null);
 
   const messages = useMemo(() => {
     if (!open) return [];

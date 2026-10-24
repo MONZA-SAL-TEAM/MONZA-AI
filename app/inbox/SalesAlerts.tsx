@@ -16,6 +16,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { alertsHeadline } from "@/lib/wasales/alerts";
+import { usePoll } from "@/lib/use-poll";
+import { POLL } from "@/lib/poll";
 import "./suggestion.css";
 
 export interface SalesAlertItem {
@@ -138,9 +140,8 @@ export default function SalesAlerts({
 
   useEffect(() => {
     void load();
-    const timer = setInterval(() => void load(), 30_000);
-    return () => clearInterval(timer);
   }, [load]);
+  usePoll(load, POLL.salesAlerts);
 
   useEffect(() => {
     if (!popup) return;
