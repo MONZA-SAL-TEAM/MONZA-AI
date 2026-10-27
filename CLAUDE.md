@@ -1073,6 +1073,28 @@ WhatsApp" flow again** — that is the step that locked the phone out on
   `DELETE subscribed_apps` ("immediately stops all webhook deliveries"), "Remove from business portfolio". No permission
   scope is named on these read endpoints; error 200 = permission. A lifted restriction "returns the account to its
   previous status" — no re-acceptance or re-verification is documented.
+- **2026-10-27, the phone app is LOGGED OUT ("verify your number") and Samer wants the number back WITHOUT the app.
+  Deep search (two researchers, two refuters) of Meta's pages:** no Meta page says a WABA lock logs the WhatsApp
+  Business app out — a restriction "keeps account data, message history and business profile intact". WhatsApp's own
+  "You have been logged out" page names exactly two triggers: the number registered on another device, or 120+ days
+  of inactivity; a security logout ("someone might be trying to register a WhatsApp account with your phone number")
+  and an UNBAN ("to access your account after it is unbanned, you'll need to verify your account by entering your
+  phone number") also end on that screen; a BAN shows "This phone number can't use WhatsApp" instead. The API side
+  stopping on the lock day fits a SYSTEM `PARTNER_REMOVED` / `ACCOUNT_DISCONNECTED` ("disconnected due to
+  enforcement") — unprovable here because `account_update` was never subscribed (subscribe it: Samer's call). 131031
+  is "restricted or disabled for violating a platform policy, OR data in the request could not be verified (e.g. the
+  two-step PIN)". **Paths Meta documents:** (a) re-register the Business app on the phone with the SIM — after an
+  ACCOUNT_OFFBOARDED the pre-checked "keep connected" opt-in reconnects Cloud API "within a few minutes" with the same
+  ids, history kept; (b) Cloud-API-only: registration is API-ONLY (`POST /request_code` SMS|VOICE → `/verify_code` →
+  `/register` with `{"messaging_product":"whatsapp","pin":"……"}`; the existing PIN if two-step is on; 10 register
+  calls per 72 h then 133016; a forgotten PIN is CHANGED in WhatsApp Manager → the number → Two-step verification →
+  Change PIN, no old PIN needed; WhatsApp is replacing the PIN with a password, "verify another way" by email / SMS /
+  call) — after it the phone app, WhatsApp Web, calls and status are gone for the number unless it is deregistered
+  later; Meta's migration page wants the in-app account deleted first for a Business-app number ("or onboard to the
+  platform" via Coexistence), and whether a merely logged-out number registers without that step is UNDOCUMENTED.
+  Re-registering an already-registered number "succeeds". Phone-number `status` values: CONNECTED, DISCONNECTED,
+  PENDING, FLAGGED, RESTRICTED, RATE_LIMITED (+ MIGRATED, BANNED, DELETED, UNVERIFIED on the single-number node);
+  Coexistence intact = `is_on_biz_app: true` + `platform_type: CLOUD_API` + CONNECTED.
 - **Calls cannot ring inside MONZA AI on this number.** Meta's Calling API
   requires a number used with the Cloud API *only* ("not the WhatsApp Business
   app"), and the Coexistence page lists calls as unsupported — checked
