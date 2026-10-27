@@ -34,6 +34,7 @@ import {
   recordStaffTurn,
   recordWhatsAppSent,
   type StoredAccount,
+  lastDeliveryOf,
   readRecentOutbound,
   type OutboundRecord,
 } from "@/lib/channels/store";
@@ -48,6 +49,8 @@ import {
   sendLockFrom,
   sendLockWords,
   sendWhatsAppMedia,
+  phoneNumberSummary,
+  subscribedAppIds,
   summariseHealth,
   type SendLock,
   sendWhatsAppTemplate,
@@ -1355,7 +1358,20 @@ export interface DiagnoseIO {
   igGraph?: GraphFn;
   /** Our own record of recent sends (WhatsApp): the lock shows there before anywhere else. */
   recentOutbound?: (accountId: string) => Promise<OutboundRecord[] | null>;
+  /** The newest webhook delivery for one Meta object, and the count in the last day. */
+  lastDelivery?: (object: string) => Promise<{ ok: true; last: string | null; lastDay: number } | { ok: false; error: string }>;
 }
+
+/**
+ * The WhatsApp Business Account each number belongs to — ids, not secrets (the
+ * registry in CLAUDE.md). A number's own node does not say which WABA holds it,
+ * and `subscribed_apps` is asked of the WABA.
+ */
+const KNOWN_WABAS: Readonly<Record<string, string>> = { "wa-monza": "1502691630809243" };
+
+/** What is asked of the number's own node: its registration and quality, never a key. */
+const PHONE_NUMBER_FIELDS =
+  "display_phone_number,verified_name,status,platform_type,code_verification_status,quality_rating,messaging_limit_tier,name_status,is_official_business_account,webhook_configuration";
 
 /** Inside the route's 60 s, leaving room to serialise what was gathered. */
 const DIAGNOSE_BUDGET_MS = 45_000;
@@ -1377,6 +1393,7 @@ export function liveDiagnoseIO(): DiagnoseIO {
     budgetMs: DIAGNOSE_BUDGET_MS,
     igGraph: igGraphGet,
     recentOutbound: readRecentOutbound,
+    lastDelivery: (object) => lastDeliveryOf(object),
   };
 }
 
@@ -1418,9 +1435,30 @@ async function diagnoseWhatsApp(account: StoredAccount, io: DiagnoseIO): Promise
     );
   }
 
+  // The last webhook Meta delivered for WhatsApp at all. "None since …" is absence of a row, never proof
+  // that nothing was sent (rule 36) — but four silent days on a number that carried hundreds a day is the
+  // fact that says "not in sync" (Samer, 2026-10-27), and it needs no key to establish.
+  const t2 = io.now();
+  const seen = io.lastDelivery ? await io.lastDelivery("whatsapp_business_account") : undefined;
+  if (seen === undefined) add("The last WhatsApp webhook received", 0, "skipped", "Not asked: no delivery reader was given.");
+  else if (!seen.ok) add("The last WhatsApp webhook received", io.now() - t2, "unknown", `The delivery record could not be read: ${seen.error}`);
+  else if (seen.last === null) add("The last WhatsApp webhook received", io.now() - t2, "unknown", "No WhatsApp webhook has ever been recorded here.");
+  else {
+    const ageMs = io.now() - Date.parse(seen.last);
+    const fresh = ageMs < 6 * 60 * 60_000;
+    add(
+      "The last WhatsApp webhook received",
+      io.now() - t2,
+      fresh ? "pass" : "unknown",
+      `${seen.lastDay} in the last day; the newest at ${seen.last}${fresh ? "" : ` — ${Math.round(ageMs / 3_600_000)} hours ago. Nothing recorded since is not proof Meta sent nothing, but on a number that carried hundreds of events a day it reads as "not in sync": check the subscription below.`}`
+    );
+  }
+
   const token = io.tokenFor(account.tokenEnv);
   if (!token) {
-    add("Meta's health status for the number", 0, "skipped", `The key ${account.tokenEnv} is not set, so Meta was not asked.`);
+    for (const step of ["Meta's health status for the number", "The number as Meta sees it", "The app's subscription to the business account"]) {
+      add(step, 0, "skipped", `The key ${account.tokenEnv} is not set, so Meta was not asked.`);
+    }
     return { ok: true, account: account.id, steps, truncated: false };
   }
   const t1 = io.now();
@@ -1435,6 +1473,42 @@ async function diagnoseWhatsApp(account: StoredAccount, io: DiagnoseIO): Promise
       h.overall === null ? "unknown" : h.overall === "BLOCKED" ? "fail" : "pass",
       h.overall === null ? "Meta answered without a health_status." : `${h.overall}. ${h.lines.join(" | ")}`
     );
+  }
+
+  // The number's own node: is it still registered and CONNECTED to the Cloud API (Coexistence keeps it on
+  // the phone app as well), what Meta rates it, and whether a per-number webhook override exists.
+  const t3 = io.now();
+  const n = await io.graph(account.externalId, { fields: PHONE_NUMBER_FIELDS }, token, Math.min(TIMEOUT_MS, io.budgetMs));
+  if (!n.ok) {
+    add("The number as Meta sees it", io.now() - t3, "unknown", `Meta refused the read: ${n.meta ?? n.problem}`);
+  } else {
+    const p = phoneNumberSummary(n.json);
+    add("The number as Meta sees it", io.now() - t3, p.status === null ? "unknown" : p.status === "CONNECTED" ? "pass" : "fail", p.words);
+  }
+
+  // Which apps the WhatsApp Business Account sends its webhooks to. If ours is not among them, nothing
+  // reaches /api/channels/meta however well the number works — the usual silence after a lock.
+  const waba = KNOWN_WABAS[account.id];
+  if (!waba) {
+    add("The app's subscription to the business account", 0, "skipped", "This number's WhatsApp Business Account id is not on record here.");
+  } else {
+    const t4 = io.now();
+    const s = await io.graph(`${waba}/subscribed_apps`, {}, token, Math.min(TIMEOUT_MS, io.budgetMs));
+    if (!s.ok) {
+      add("The app's subscription to the business account", io.now() - t4, "unknown", `Meta refused the read (the sending key may hold only whatsapp_business_messaging): ${s.meta ?? s.problem}`);
+    } else {
+      const apps = subscribedAppIds(s.json);
+      const ours = account.appId;
+      const mine = ours !== null && apps.includes(ours);
+      add(
+        "The app's subscription to the business account",
+        io.now() - t4,
+        apps.length === 0 ? "fail" : ours === null ? "unknown" : mine ? "pass" : "fail",
+        apps.length === 0
+          ? `No app is subscribed to WABA ${waba}: Meta delivers its webhooks to nobody. Re-subscribe the app (POST /{waba-id}/subscribed_apps with a key that holds whatsapp_business_management, or the app dashboard) — never the Coexistence connect flow for this.`
+          : `Subscribed: ${apps.join(", ")}${ours === null ? " (this account's app id is not on record, so ours cannot be told apart)" : mine ? ` — ours (${ours}) is among them.` : ` — ours (${ours}) is NOT among them.`}`
+      );
+    }
   }
   return { ok: true, account: account.id, steps, truncated: false };
 }

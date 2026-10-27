@@ -712,6 +712,32 @@ export async function readDeliveries(
   }
 }
 
+/**
+ * The newest webhook delivery for one Meta object ("whatsapp_business_account",
+ * "instagram", "page") and how many came in the last day. Absence is absence of
+ * a ROW, never proof Meta sent nothing (rule 36) — the caller words it so.
+ */
+export async function lastDeliveryOf(
+  object: string,
+  now: Date = new Date()
+): Promise<{ ok: true; last: string | null; lastDay: number } | { ok: false; error: string }> {
+  const sb = client();
+  if (!sb) return { ok: false, error: "The database key for this product is not configured." };
+  try {
+    const dayAgo = new Date(now.getTime() - 24 * 60 * 60_000).toISOString();
+    const [latest, recent] = await Promise.all([
+      sb.from("channel_deliveries").select("received_at").eq("payload->>object", object).order("received_at", { ascending: false }).limit(1),
+      sb.from("channel_deliveries").select("id", { count: "exact", head: true }).eq("payload->>object", object).gte("received_at", dayAgo),
+    ]);
+    if (latest.error) return { ok: false, error: latest.error.message };
+    if (recent.error) return { ok: false, error: recent.error.message };
+    const row = (latest.data ?? [])[0] as { received_at: string } | undefined;
+    return { ok: true, last: row?.received_at ?? null, lastDay: recent.count ?? 0 };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "The delivery record could not be read." };
+  }
+}
+
 /** One stored row, read defensively: the payload is whatever shape arrived. */
 function deliveryRecord(row: Record<string, unknown>): DeliveryRecord {
   const payload = row.payload && typeof row.payload === "object" ? (row.payload as Record<string, unknown>) : {};

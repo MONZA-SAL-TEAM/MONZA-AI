@@ -37,7 +37,7 @@ import {
   parseWhatsAppRevisions,
   quoteReplies,
 } from "@/lib/channels/whatsapp";
-import { isAccountLockError, sendLockFrom, sendLockWords, summariseHealth } from "@/lib/channels/whatsapp";
+import { isAccountLockError, phoneNumberSummary, sendLockFrom, sendLockWords, subscribedAppIds, summariseHealth } from "@/lib/channels/whatsapp";
 import { parseInstagram } from "@/lib/channels/instagram";
 import { messengerAdapter } from "@/lib/channels/messenger";
 import { decodeThreadId, inboundIndexRow, redactDelivery } from "@/lib/channels/live-map";
@@ -750,5 +750,30 @@ describe("Meta's account lock, read from our own record (2026-10-23)", () => {
       "BUSINESS LIMITED · Messaging limit: 1,000 unique users per 24 h",
     ]);
     assert.deepEqual(summariseHealth({ id: "x" }), { overall: null, lines: [] });
+  });
+
+  test("the number's node and the subscribed apps, in words — never a key", () => {
+    const p = phoneNumberSummary({
+      id: "984244264767607",
+      display_phone_number: "+961 70 708 585",
+      verified_name: "Monza S.A.L.",
+      status: "CONNECTED",
+      platform_type: "CLOUD_API",
+      code_verification_status: "VERIFIED",
+      quality_rating: "GREEN",
+      messaging_limit_tier: "TIER_1K",
+      name_status: "APPROVED",
+      is_official_business_account: false,
+      webhook_configuration: { application: "https://monza-ai.vercel.app/api/channels/meta?secret=NEVER" },
+    });
+    assert.equal(p.status, "CONNECTED");
+    assert.equal(
+      p.words,
+      "number +961 70 708 585 · name Monza S.A.L. · status CONNECTED · platform CLOUD_API · verification VERIFIED · quality GREEN · limit tier TIER_1K · name status APPROVED · official business account false · own webhook override: set (application-level)"
+    );
+    assert.ok(!p.words.includes("NEVER"), "a webhook address, which may carry a secret, is never repeated");
+    assert.deepEqual(phoneNumberSummary(null), { status: null, words: "Meta answered without the number's fields." });
+    assert.deepEqual(subscribedAppIds({ data: [{ whatsapp_business_api_data: { id: "912301501380919", name: "Voyah", link: "x" } }, { nope: 1 }] }), ["912301501380919"]);
+    assert.deepEqual(subscribedAppIds({ data: [] }), []);
   });
 });

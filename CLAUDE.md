@@ -1047,7 +1047,18 @@ WhatsApp" flow again** — that is the step that locked the phone out on
   line under the chat; the diagnosis says `unknown`, never `fail`, for an old lock with nothing sent since); `GET /api/channels/diagnose?account=wa-monza` runs `diagnoseWhatsApp`: our record of recent sends, then
   Meta's Health Status API (`GET /{phone-number-id}?fields=health_status`, AVAILABLE / LIMITED / BLOCKED per entity
   with Meta's code, description and possible solution; a refused read is `unknown` — the sender key holds only
-  `whatsapp_business_messaging`, so Meta may refuse it).
+  `whatsapp_business_messaging`, so Meta may refuse it), then — added 2026-10-27 when Samer reported the lock
+  resolved but asked to "re-link so they are in sync" — **the last WhatsApp webhook received** (`lastDeliveryOf` in
+  store.ts: the newest `whatsapp_business_account` delivery and the count in a day; absence is `unknown`, never
+  `fail`, rule 36), **the number as Meta sees it** (`GET /{phone-number-id}?fields=status,platform_type,
+  quality_rating,…` → `phoneNumberSummary`; CONNECTED passes; a webhook override is reported as set, its address
+  never repeated) and **the app's subscription to the WABA** (`GET /{waba-id}/subscribed_apps` → `subscribedAppIds`;
+  the WABA id per number is `KNOWN_WABAS` in live.ts). **Facts of 2026-10-27:** no WhatsApp webhook of any kind since
+  2026-10-23 13:41 UTC on a number that carried 500+ deliveries a day — the lock is lifted on Meta's side, the
+  number's feed to MONZA AI is not; meanwhile Instagram DMs started arriving (ig-voyah 18, ig-mhero 16 since 10-23,
+  the first ever). The usual cause after a lock is the app's WABA subscription gone: the fix is re-subscribing the
+  app (`POST /{waba-id}/subscribed_apps`, needs `whatsapp_business_management`) — **never the Coexistence connect
+  flow** (rule 28) unless the number itself reads disconnected.
 - **Calls cannot ring inside MONZA AI on this number.** Meta's Calling API
   requires a number used with the Cloud API *only* ("not the WhatsApp Business
   app"), and the Coexistence page lists calls as unsupported — checked

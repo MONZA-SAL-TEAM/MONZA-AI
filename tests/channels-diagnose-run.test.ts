@@ -63,6 +63,24 @@ const named = (steps: DiagnoseStep[], name: string) => steps.find((s) => s.step 
 const names = (steps: DiagnoseStep[]) => steps.map((s) => s.step);
 
 const WA = base({ id: "wa-monza", brand: "monza", channel: "whatsapp", displayName: "+961 70 708 585", externalId: "984244264767607", tokenEnv: "META_TOKEN_WHATSAPP" });
+const WABA = "1502691630809243";
+const WA_STEPS = [
+  "Our record of recent sends",
+  "The last WhatsApp webhook received",
+  "Meta's health status for the number",
+  "The number as Meta sees it",
+  "The app's subscription to the business account",
+];
+/** Meta answering every read of the number's diagnosis, as a healthy, subscribed, connected number. */
+const waGraph = (over: Partial<Record<"health" | "number" | "apps", unknown>> = {}): DiagnoseIO["graph"] =>
+  async (path, params) => {
+    if (path === "984244264767607" && params.fields === "health_status") {
+      return { ok: true, json: over.health ?? { health_status: { can_send_message: "AVAILABLE", entities: [{ entity_type: "WABA", id: WABA, can_send_message: "AVAILABLE" }] } } };
+    }
+    if (path === "984244264767607") return { ok: true, json: over.number ?? { id: "984244264767607", status: "CONNECTED", platform_type: "CLOUD_API", quality_rating: "GREEN" } };
+    if (path === `${WABA}/subscribed_apps`) return { ok: true, json: over.apps ?? { data: [{ whatsapp_business_api_data: { id: APP, name: "Voyah" } }] } };
+    return { ok: false, problem: `unexpected ${path}`, retryLighter: false };
+  };
 
 describe("diagnoseAccount on the WhatsApp number: our record first, then Meta's health status", () => {
   const LOCK = "Business account has been locked.";
@@ -77,24 +95,24 @@ describe("diagnoseAccount on the WhatsApp number: our record first, then Meta's 
           { at: "2026-10-23T05:25:27Z", status: "failed", error: LOCK, direction: "out" },
           { at: "2026-10-22T16:57:15Z", status: "read", error: null, direction: "out" },
         ],
-        graph: async (path, params) => {
-          assert.equal(path, "984244264767607");
-          assert.equal(params.fields, "health_status");
-          return {
-            ok: true,
-            json: {
-              health_status: {
-                can_send_message: "BLOCKED",
-                entities: [{ entity_type: "WABA", id: "1", can_send_message: "BLOCKED", errors: [{ error_code: 131031, error_description: LOCK, possible_solution: "Appeal in Business Support Home." }] }],
-              },
+        graph: waGraph({
+          health: {
+            health_status: {
+              can_send_message: "BLOCKED",
+              entities: [{ entity_type: "WABA", id: "1", can_send_message: "BLOCKED", errors: [{ error_code: 131031, error_description: LOCK, possible_solution: "Appeal in Business Support Home." }] }],
             },
-          };
-        },
+          },
+        }),
+        lastDelivery: async () => ({ ok: true, last: "2026-10-23T07:12:48Z", lastDay: 36 }),
       })
     );
     assert.equal(d.ok, true);
     if (!d.ok) return;
-    assert.deepEqual(names(d.steps), ["Our record of recent sends", "Meta's health status for the number"]);
+    assert.deepEqual(names(d.steps), WA_STEPS);
+    assert.equal(named(d.steps, "The last WhatsApp webhook received")?.status, "pass");
+    assert.equal(named(d.steps, "The number as Meta sees it")?.status, "pass");
+    assert.equal(named(d.steps, "The app's subscription to the business account")?.status, "pass");
+    assert.match(named(d.steps, "The app's subscription to the business account")?.detail ?? "", /ours \(912301501380919\) is among them/);
     assert.equal(named(d.steps, "Our record of recent sends")?.status, "fail");
     assert.match(named(d.steps, "Our record of recent sends")?.detail ?? "", /^The newest send \(2026-10-23T07:11:02Z\) failed with "Business account has been locked\.", as did 2 since 2026-10-23T05:25:27Z; nothing of ours went out after it\.$/);
     assert.equal(named(d.steps, "Meta's health status for the number")?.status, "fail");
@@ -107,11 +125,13 @@ describe("diagnoseAccount on the WhatsApp number: our record first, then Meta's 
       "wa-monza",
       io({
         accounts: async () => [WA],
+        now: () => Date.parse("2026-10-23T10:00:00Z"),
         recentOutbound: async () => [{ at: "2026-10-23T09:00:00Z", status: "delivered", error: null, direction: "out" }],
-        graph: async () => ({ ok: true, json: { health_status: { can_send_message: "AVAILABLE", entities: [{ entity_type: "WABA", id: "1", can_send_message: "AVAILABLE" }] } } }),
+        lastDelivery: async () => ({ ok: true, last: "2026-10-23T09:30:00Z", lastDay: 400 }),
+        graph: waGraph(),
       })
     );
-    assert.ok(healthy.ok && healthy.steps.every((s) => s.status === "pass"));
+    assert.ok(healthy.ok && healthy.steps.every((s) => s.status === "pass"), JSON.stringify(healthy));
     // A lock lifted after an appeal: a later send got through, and the record says so.
     const lifted = await diagnoseAccount(
       "wa-monza",
@@ -145,6 +165,37 @@ describe("diagnoseAccount on the WhatsApp number: our record first, then Meta's 
     if (!noKey.ok) return;
     assert.equal(named(noKey.steps, "Our record of recent sends")?.status, "skipped");
     assert.equal(named(noKey.steps, "Meta's health status for the number")?.status, "skipped");
+    assert.equal(named(noKey.steps, "The app's subscription to the business account")?.status, "skipped");
+    // Four silent days after a lock, the number connected, but NO app subscribed: the silence explained.
+    const silent = await diagnoseAccount(
+      "wa-monza",
+      io({
+        accounts: async () => [WA],
+        now: () => Date.parse("2026-10-27T09:00:00Z"),
+        recentOutbound: async () => [{ at: "2026-10-23T13:41:01Z", status: "failed", error: LOCK, direction: "out" }],
+        lastDelivery: async () => ({ ok: true, last: "2026-10-23T13:41:03Z", lastDay: 0 }),
+        graph: waGraph({ apps: { data: [] } }),
+      })
+    );
+    assert.ok(silent.ok);
+    if (!silent.ok) return;
+    assert.equal(named(silent.steps, "Our record of recent sends")?.status, "fail", "3.8 days: the lock failure is still the newest fact");
+    assert.equal(named(silent.steps, "The last WhatsApp webhook received")?.status, "unknown");
+    assert.match(named(silent.steps, "The last WhatsApp webhook received")?.detail ?? "", /91 hours ago/);
+    assert.equal(named(silent.steps, "The app's subscription to the business account")?.status, "fail");
+    assert.match(named(silent.steps, "The app's subscription to the business account")?.detail ?? "", /No app is subscribed .* never the Coexistence connect flow/);
+    // The subscription read refused (the sending key holds only messaging): unknown, with Meta's words.
+    const refusedApps = await diagnoseAccount(
+      "wa-monza",
+      io({
+        accounts: async () => [WA],
+        graph: async (path) => (path.endsWith("/subscribed_apps") ? { ok: false, problem: "Meta said: (#200) permission", retryLighter: false, meta: "code 200" } : waGraph()(path, {}, "", 0)),
+      })
+    );
+    assert.ok(refusedApps.ok);
+    if (!refusedApps.ok) return;
+    assert.equal(named(refusedApps.steps, "The app's subscription to the business account")?.status, "unknown");
+    assert.match(named(refusedApps.steps, "The app's subscription to the business account")?.detail ?? "", /whatsapp_business_messaging.*code 200/);
     const refused = await diagnoseAccount(
       "wa-monza",
       io({ accounts: async () => [WA], graph: async () => ({ ok: false, problem: "Meta said: (#10) permission", retryLighter: false, meta: "code 10" }) })

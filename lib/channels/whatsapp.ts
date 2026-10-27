@@ -980,6 +980,41 @@ export function summariseHealth(json: unknown): HealthSummary {
   return { overall: str(h.can_send_message), lines };
 }
 
+/** A business phone number's own node (GET /{phone-number-id}?fields=…), in one line — never a key. */
+export function phoneNumberSummary(json: unknown): { status: string | null; words: string } {
+  const o = obj(json);
+  if (!o) return { status: null, words: "Meta answered without the number's fields." };
+  const status = str(o.status);
+  const parts: string[] = [];
+  const say = (label: string, v: unknown) => {
+    const s = str(v) ?? (typeof v === "boolean" ? String(v) : null);
+    if (s !== null) parts.push(`${label} ${s}`);
+  };
+  say("number", o.display_phone_number);
+  say("name", o.verified_name);
+  say("status", o.status);
+  say("platform", o.platform_type);
+  say("verification", o.code_verification_status);
+  say("quality", o.quality_rating);
+  say("limit tier", o.messaging_limit_tier);
+  say("name status", o.name_status);
+  say("official business account", o.is_official_business_account);
+  const hook = obj(o.webhook_configuration);
+  if (hook) parts.push(`own webhook override: ${str(hook.application) ? "set (application-level)" : "set"}`);
+  return { status, words: parts.join(" · ") || "Meta answered with none of the number's fields." };
+}
+
+/** The app ids a WhatsApp Business Account sends its webhooks to (GET /{waba-id}/subscribed_apps). */
+export function subscribedAppIds(json: unknown): string[] {
+  const out: string[] = [];
+  for (const raw of list(obj(json)?.data)) {
+    const app = obj(obj(raw)?.whatsapp_business_api_data);
+    const id = str(app?.id);
+    if (id) out.push(id);
+  }
+  return out;
+}
+
 /** WhatsApp's limits for tappable choices. */
 export const WHATSAPP_MAX_BUTTONS = 3;
 export const WHATSAPP_MAX_LIST_ROWS = 10;
