@@ -1095,6 +1095,24 @@ WhatsApp" flow again** — that is the step that locked the phone out on
   Re-registering an already-registered number "succeeds". Phone-number `status` values: CONNECTED, DISCONNECTED,
   PENDING, FLAGGED, RESTRICTED, RATE_LIMITED (+ MIGRATED, BANNED, DELETED, UNVERIFIED on the single-number node);
   Coexistence intact = `is_on_biz_app: true` + `platform_type: CLOUD_API` + CONNECTED.
+- **LIVE STATE READ 2026-10-27 (Graph Explorer, Samer):** phone `status DISCONNECTED`, `platform_type ON_PREMISE`,
+  `is_on_biz_app true`, `code_verification_status NOT_VERIFIED`, quality GREEN; the WABA's `subscribed_apps` still
+  lists our app 912301501380919; WABA `health_status` BLOCKED by **141006** ("error with the payment method … will block
+  business initiated conversations") and **141007** ("a timezone must be set before sending out messages"); APP
+  AVAILABLE. Meta's reading (researched, one refuter): a healthy Coexistence number is `is_on_biz_app true` +
+  `platform_type CLOUD_API` + CONNECTED; this is the OFFBOARDED Coexistence state — the Cloud API companion detached,
+  Graph access kept (On-Premises has been dead since 2025, so ON_PREMISE means "not on Cloud"). **Do NOT call
+  request_code / verify_code / register / deregister on a Business-app number**: the Coexistence guide says to skip
+  registration ("the number is already registered" by the app), deregister is "not usable on a number in use with both",
+  and the API-only road requires DELETING the in-app account first (history lost). The documented way back is the
+  in-app "verify your number" re-registration with the pre-checked "previously connected Cloud API products" opt-in
+  left ON → Meta re-onboards "typically within a few minutes" and fires `ACCOUNT_RECONNECTED`; **prerequisite: the app
+  must be subscribed to the `account_update` webhook field** (not subscribed here — Samer must add it in the App
+  Dashboard; the route already answers 200 to any signed payload). Order: timezone FIRST (locked once a credit line is
+  attached; `POST /{waba-id}` with `timezone_id=81` = Asia/Beirut, or WhatsApp Manager → account settings), then the
+  payment method (WhatsApp Manager → Payment settings, assigned to WABA 1502691630809243), re-read `health_status`
+  until AVAILABLE, THEN the phone. 141006/141007 are on no public Meta page (only the live text); since 2026-10-01
+  free-form replies beyond a free tier are billed, so a payment method is needed for Cloud API replies at all.
 - **Calls cannot ring inside MONZA AI on this number.** Meta's Calling API
   requires a number used with the Cloud API *only* ("not the WhatsApp Business
   app"), and the Coexistence page lists calls as unsupported — checked
