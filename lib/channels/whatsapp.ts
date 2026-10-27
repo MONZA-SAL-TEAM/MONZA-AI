@@ -981,10 +981,11 @@ export function summariseHealth(json: unknown): HealthSummary {
 }
 
 /** A business phone number's own node (GET /{phone-number-id}?fields=…), in one line — never a key. */
-export function phoneNumberSummary(json: unknown): { status: string | null; words: string } {
+export function phoneNumberSummary(json: unknown): { status: string | null; onBusinessApp: boolean | null; words: string } {
   const o = obj(json);
-  if (!o) return { status: null, words: "Meta answered without the number's fields." };
+  if (!o) return { status: null, onBusinessApp: null, words: "Meta answered without the number's fields." };
   const status = str(o.status);
+  const onBusinessApp = typeof o.is_on_biz_app === "boolean" ? o.is_on_biz_app : null;
   const parts: string[] = [];
   const say = (label: string, v: unknown) => {
     const s = str(v) ?? (typeof v === "boolean" ? String(v) : null);
@@ -999,9 +1000,11 @@ export function phoneNumberSummary(json: unknown): { status: string | null; word
   say("limit tier", o.messaging_limit_tier);
   say("name status", o.name_status);
   say("official business account", o.is_official_business_account);
+  say("on the WhatsApp Business app (Coexistence)", o.is_on_biz_app);
+  if (typeof o.last_onboarded_time === "number") parts.push(`last onboarded ${new Date(o.last_onboarded_time * 1000).toISOString()}`);
   const hook = obj(o.webhook_configuration);
   if (hook) parts.push(`own webhook override: ${str(hook.application) ? "set (application-level)" : "set"}`);
-  return { status, words: parts.join(" · ") || "Meta answered with none of the number's fields." };
+  return { status, onBusinessApp, words: parts.join(" · ") || "Meta answered with none of the number's fields." };
 }
 
 /** The app ids a WhatsApp Business Account sends its webhooks to (GET /{waba-id}/subscribed_apps). */

@@ -1056,9 +1056,23 @@ WhatsApp" flow again** — that is the step that locked the phone out on
   the WABA id per number is `KNOWN_WABAS` in live.ts). **Facts of 2026-10-27:** no WhatsApp webhook of any kind since
   2026-10-23 13:41 UTC on a number that carried 500+ deliveries a day — the lock is lifted on Meta's side, the
   number's feed to MONZA AI is not; meanwhile Instagram DMs started arriving (ig-voyah 18, ig-mhero 16 since 10-23,
-  the first ever). The usual cause after a lock is the app's WABA subscription gone: the fix is re-subscribing the
-  app (`POST /{waba-id}/subscribed_apps`, needs `whatsapp_business_management`) — **never the Coexistence connect
-  flow** (rule 28) unless the number itself reads disconnected.
+  the first ever). **Meta's docs (read 2026-10-27, one refuter) name THREE layers that each silently stop webhooks,
+  and never say a lock removes any of them:** (1) the app's `subscribed_apps` entry on the WABA — read with
+  `GET /{waba-id}/subscribed_apps`, repaired with a no-body `POST /{waba-id}/subscribed_apps` (the ONE reversible
+  repair; it also clears a WABA-level callback override); (2) the App Dashboard field subscriptions and callback
+  (`messages`, `smb_message_echoes`; Meta's Coexistence onboarding page also lists `account_update`, `history`,
+  `smb_app_state_sync` — `account_update` would have told us PARTNER_REMOVED / ACCOUNT_RESTRICTION / ACCOUNT_OFFBOARDED
+  with the reason, and is NOT subscribed here: Samer's call); (3) the Coexistence link between the number and the Cloud
+  API — `GET /{phone-number-id}?fields=is_on_biz_app,last_onboarded_time,status`: `is_on_biz_app: false` is the ONE
+  answer that calls for the Business Suite connect flow; enforcement can sever it (PARTNER_REMOVED, reason
+  ACCOUNT_DISCONNECTED) and so does not opening the WhatsApp Business app for ~14 days (dev docs) / 20 days (Business
+  Suite) — PRIMARY_INACTIVITY. Re-running the connect flow while still linked is refused (3441049 / 2655094: disconnect
+  first, wait 15 min); the flow unlinks companion devices, needs the phone charged and the app open, and the history
+  sync is one-time. **Dangerous, never:** `register` / `deregister` (deregister is unsupported for Coexistence numbers;
+  a wrong PIN itself returns 131031), "Disconnect Account" in the phone app (PARTNER_REMOVED, full re-onboarding),
+  `DELETE subscribed_apps` ("immediately stops all webhook deliveries"), "Remove from business portfolio". No permission
+  scope is named on these read endpoints; error 200 = permission. A lifted restriction "returns the account to its
+  previous status" — no re-acceptance or re-verification is documented.
 - **Calls cannot ring inside MONZA AI on this number.** Meta's Calling API
   requires a number used with the Cloud API *only* ("not the WhatsApp Business
   app"), and the Coexistence page lists calls as unsupported — checked

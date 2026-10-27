@@ -196,6 +196,12 @@ describe("diagnoseAccount on the WhatsApp number: our record first, then Meta's 
     if (!refusedApps.ok) return;
     assert.equal(named(refusedApps.steps, "The app's subscription to the business account")?.status, "unknown");
     assert.match(named(refusedApps.steps, "The app's subscription to the business account")?.detail ?? "", /whatsapp_business_messaging.*code 200/);
+    // CONNECTED but no longer on the Business app: the one answer that calls for the connect flow.
+    const offApp = await diagnoseAccount("wa-monza", io({ accounts: async () => [WA], graph: waGraph({ number: { status: "CONNECTED", is_on_biz_app: false } }) }));
+    assert.ok(offApp.ok);
+    if (!offApp.ok) return;
+    assert.equal(named(offApp.steps, "The number as Meta sees it")?.status, "fail");
+    assert.match(named(offApp.steps, "The number as Meta sees it")?.detail ?? "", /NO LONGER linked to the WhatsApp Business app/);
     const refused = await diagnoseAccount(
       "wa-monza",
       io({ accounts: async () => [WA], graph: async () => ({ ok: false, problem: "Meta said: (#10) permission", retryLighter: false, meta: "code 10" }) })

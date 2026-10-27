@@ -1371,7 +1371,7 @@ const KNOWN_WABAS: Readonly<Record<string, string>> = { "wa-monza": "15026916308
 
 /** What is asked of the number's own node: its registration and quality, never a key. */
 const PHONE_NUMBER_FIELDS =
-  "display_phone_number,verified_name,status,platform_type,code_verification_status,quality_rating,messaging_limit_tier,name_status,is_official_business_account,webhook_configuration";
+  "display_phone_number,verified_name,status,platform_type,code_verification_status,quality_rating,messaging_limit_tier,name_status,is_official_business_account,is_on_biz_app,last_onboarded_time,webhook_configuration";
 
 /** Inside the route's 60 s, leaving room to serialise what was gathered. */
 const DIAGNOSE_BUDGET_MS = 45_000;
@@ -1482,8 +1482,16 @@ async function diagnoseWhatsApp(account: StoredAccount, io: DiagnoseIO): Promise
   if (!n.ok) {
     add("The number as Meta sees it", io.now() - t3, "unknown", `Meta refused the read: ${n.meta ?? n.problem}`);
   } else {
+    // CONNECTED, and still on the WhatsApp Business app (Coexistence): both must hold. `is_on_biz_app: false`
+    // is the one answer that means the connect flow itself is needed — and only then (rule 28).
     const p = phoneNumberSummary(n.json);
-    add("The number as Meta sees it", io.now() - t3, p.status === null ? "unknown" : p.status === "CONNECTED" ? "pass" : "fail", p.words);
+    const status = p.status === null ? "unknown" : p.status === "CONNECTED" && p.onBusinessApp !== false ? "pass" : "fail";
+    add(
+      "The number as Meta sees it",
+      io.now() - t3,
+      status,
+      p.onBusinessApp === false ? `${p.words} — the number is NO LONGER linked to the WhatsApp Business app (Coexistence): this, and only this, is what the Business Suite connect flow is for.` : p.words
+    );
   }
 
   // Which apps the WhatsApp Business Account sends its webhooks to. If ours is not among them, nothing

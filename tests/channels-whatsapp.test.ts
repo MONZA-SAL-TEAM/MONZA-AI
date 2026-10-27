@@ -764,15 +764,19 @@ describe("Meta's account lock, read from our own record (2026-10-23)", () => {
       messaging_limit_tier: "TIER_1K",
       name_status: "APPROVED",
       is_official_business_account: false,
+      is_on_biz_app: true,
+      last_onboarded_time: 1757930400,
       webhook_configuration: { application: "https://monza-ai.vercel.app/api/channels/meta?secret=NEVER" },
     });
     assert.equal(p.status, "CONNECTED");
+    assert.equal(p.onBusinessApp, true);
     assert.equal(
       p.words,
-      "number +961 70 708 585 · name Monza S.A.L. · status CONNECTED · platform CLOUD_API · verification VERIFIED · quality GREEN · limit tier TIER_1K · name status APPROVED · official business account false · own webhook override: set (application-level)"
+      "number +961 70 708 585 · name Monza S.A.L. · status CONNECTED · platform CLOUD_API · verification VERIFIED · quality GREEN · limit tier TIER_1K · name status APPROVED · official business account false · on the WhatsApp Business app (Coexistence) true · last onboarded 2025-09-15T10:00:00.000Z · own webhook override: set (application-level)"
     );
+    assert.equal(phoneNumberSummary({ status: "CONNECTED", is_on_biz_app: false }).onBusinessApp, false);
     assert.ok(!p.words.includes("NEVER"), "a webhook address, which may carry a secret, is never repeated");
-    assert.deepEqual(phoneNumberSummary(null), { status: null, words: "Meta answered without the number's fields." });
+    assert.deepEqual(phoneNumberSummary(null), { status: null, onBusinessApp: null, words: "Meta answered without the number's fields." });
     assert.deepEqual(subscribedAppIds({ data: [{ whatsapp_business_api_data: { id: "912301501380919", name: "Voyah", link: "x" } }, { nope: 1 }] }), ["912301501380919"]);
     assert.deepEqual(subscribedAppIds({ data: [] }), []);
   });
