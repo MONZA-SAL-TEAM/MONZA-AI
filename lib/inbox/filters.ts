@@ -8,7 +8,7 @@
  */
 
 import type { ChannelKey } from "@/lib/domain/types";
-import { numberContains, searchIntent, textContains } from "@/lib/search";
+import { phoneMatches, searchIntent, textContains } from "@/lib/search";
 import {
   CHANNEL_FILTERS,
   INBOX_FILTERS,
@@ -107,9 +107,13 @@ export function unreadIn(
 }
 
 /**
- * Free-text search across the customer's name and their address on the
- * channel. Digits are compared with separators stripped, so "+961 3 100 001"
- * finds a thread stored as "9613100001".
+ * Free-text search across the customer's name, their address on the channel and, on WhatsApp, their
+ * number. Digits are compared with separators stripped, so "+961 3 100 001" finds a thread stored as
+ * "9613100001" — and so does "03 100 001", the way it is written in Lebanon (`phoneMatches`).
+ *
+ * Samer, 2026-11-05: "search the customers from his phone number". A WhatsApp thread's `channelAddress`
+ * is "name → MONZA", so a number typed here found nothing unless the person had no name; the number
+ * lives in `peerPhone`, and that is what a number search reads first.
  */
 export function searchConversations(
   conversations: readonly Conversation[],
@@ -121,7 +125,7 @@ export function searchConversations(
 
   return conversations.filter((c) => {
     if (intent.kind === "number") {
-      return numberContains(c.channelAddress, intent.digits);
+      return phoneMatches(c.peerPhone, intent.digits) || phoneMatches(c.channelAddress, intent.digits);
     }
     return (
       textContains(c.customerName, intent.text) ||

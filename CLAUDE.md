@@ -950,9 +950,24 @@ and tested in `lib/inbox/sync.ts`.
   account's cursor is saved after every page, so a reload resumes it.
 - **The page no longer reads Meta while rendering** — it used to wait up to 10 s
   per account. `readInbox()` is unused by the page now.
-- **Brands are tabs.** A conversation's brand is its ACCOUNT's brand
+- **Brands are a filter (a drop-down since 2026-11-05; tabs before — Samer: the tabs and chips "took
+  half the screen").** The filters are ONE row of drop-downs in `InboxClient` (`.ibx-filters`: Brand ·
+  Car · Show · Channel · Date, each with its count); the welcome pane's brand buttons still call
+  `pickBrand`. A conversation's brand is its ACCOUNT's brand
   (`Conversation.brand`, set in `mapConversations`) — never read from the text
-  (rule 1). MHERO's Instagram reads through `META_IG_LOGIN_TOKEN_MHERO`
+  (rule 1).
+- **The search box finds a person by NUMBER and by the CRM's name (2026-11-05; Samer: "search the
+  customers from his phone number or his name from the inbox, not just the customer page").** Two
+  faults fixed: a WhatsApp row's `channelAddress` is "name → MONZA", so a typed number matched nothing —
+  `searchConversations` now reads `peerPhone` first; and a number written the Lebanese way ("03 123 456",
+  "070 708 585") never matched the stored "961…" — `phoneMatches` / `significantDigits` in `lib/search.ts`
+  strip 00 / 961 / the trunk zero from what was TYPED (never from what is stored; a stripped form must keep
+  5 digits, so "0151" cannot match every number holding "151"). Beyond the saved list: `GET
+  /api/conversations/find?q=` (`lib/inbox/find.ts` pure, `find-server.ts`: `listPeople` kept 60 s per
+  instance + `listCrmCustomers` AS THE VIEWER kept 2 min per person, `mergeCrm`) answers "In the records"
+  under the box — name, CRM name, number, the chats' ids and channels, never a word — 350 ms after typing
+  pauses. A found chat the list does not hold opens through a stand-in row kept in `extra`, apart from the
+  saved copy, so a stub can never make the newest-first check (`reachedKnown`) stop early. MHERO's Instagram reads through `META_IG_LOGIN_TOKEN_MHERO`
   (rule 49); verified in production 2026-09-14: the key's user_id is
   `17841469421956644` and Meta listed conversations in ~1.7 s.
 - **Unread is per person, in their browser**, from a baseline set on the first

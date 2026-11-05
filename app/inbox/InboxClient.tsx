@@ -81,6 +81,9 @@ import {
 } from "@/lib/inbox/sync";
 import { PushDialog, PushNudge, usePush } from "@/components/PushToggle";
 import { PUSH_ON_FLAG } from "@/lib/push/device";
+import { searchIntent } from "@/lib/search";
+import type { FoundPerson } from "@/lib/inbox/find";
+import { formatLebanesePhone } from "@/lib/leads/phone";
 import OwnerChip from "@/components/OwnerChip";
 import "./inbox.css";
 
@@ -446,6 +449,11 @@ export default function InboxClient(props: Props) {
 
   const [view, setView] = useState<ViewFilter>(EMPTY_VIEW);
   const [datesOpen, setDatesOpen] = useState(false);
+  // People the records know under the search (name, lead or CRM name, number) — GET /api/conversations/find.
+  const [found, setFound] = useState<{ q: string; list: FoundPerson[]; crmUnavailable: boolean } | null>(null);
+  // A chat opened from those results that the saved list does not hold yet: kept apart from the saved
+  // copy, so a stub row can never make the newest-first check stop early.
+  const [extra, setExtra] = useState<Map<string, Conversation>>(new Map());
   const [statusOpen, setStatusOpen] = useState(false);
   const [renderCount, setRenderCount] = useState(RENDER_STEP);
   const sentinelRef = useRef<HTMLLIElement>(null);
@@ -879,6 +887,31 @@ export default function InboxClient(props: Props) {
 
   useEffect(() => setRenderCount(RENDER_STEP), [view]);
 
+  // The records' answer to the search box (Samer, 2026-11-05: a customer by CRM name or number, from the
+  // inbox). Asked 350 ms after typing pauses, for a name or a number long enough to mean somebody.
+  useEffect(() => {
+    const q = view.search.trim();
+    const intent = searchIntent(q);
+    if (!live || intent.kind === "empty" || intent.kind === "number_too_short" || (intent.kind === "text" && q.length < 2)) {
+      setFound(null);
+      return;
+    }
+    let alive = true;
+    const t = window.setTimeout(() => {
+      fetch(`/api/conversations/find?q=${encodeURIComponent(q)}`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b: { ok?: boolean; found?: FoundPerson[]; crmUnavailable?: boolean } | null) => {
+          if (alive && b?.ok && b.found) setFound({ q, list: b.found, crmUnavailable: b.crmUnavailable === true });
+        })
+        .catch(() => undefined);
+    }, 350);
+    return () => {
+      alive = false;
+      window.clearTimeout(t);
+    };
+  }, [view.search, live]);
+
+
   const shown = useMemo(() => visible.slice(0, renderCount), [visible, renderCount]);
   const groups = useMemo(
     () => (mounted ? groupByDay(shown, (c) => c.lastMessage.at, localDay, today) : []),
@@ -921,7 +954,7 @@ export default function InboxClient(props: Props) {
 
   /* ── The open conversation ──────────────────────────────────────────── */
 
-  const open = openId ? convMap.get(openId) ?? null : null;
+  const open = openId ? convMap.get(openId) ?? extra.get(openId) ?? null : null;
   const openBrand = open ? brandOf(open, accounts) : null;
   const openAccount = open ? accountById.get(open.accountId ?? accountIdOf(open.id) ?? "") ?? null : null;
 
@@ -932,6 +965,38 @@ export default function InboxClient(props: Props) {
       setUnreadMark(c.id, false);
     },
     [markSeen, setUnreadMark]
+  );
+
+  // Open a chat the records found. One the list holds opens as usual; one it does not hold yet (older than
+  // what is saved, or not paged yet) gets a stand-in row until the next check brings the real one.
+  const openFound = useCallback(
+    (person: FoundPerson, t: FoundPerson["threads"][number]) => {
+      const known = convRef.current.get(t.threadId);
+      if (known) {
+        openConversation(known);
+        return;
+      }
+      const account = accountById.get(accountIdOf(t.threadId) ?? "");
+      const stub: Conversation = {
+        id: t.threadId,
+        customerId: "",
+        customerName: person.name,
+        channel: t.channel as Conversation["channel"],
+        channelAddress: `${person.name} → ${account?.label ?? brandLabel(t.brand)}`,
+        ...(t.channel === "whatsapp" && person.phone ? { peerPhone: person.phone } : {}),
+        assignedTo: null,
+        assignedToName: null,
+        status: "open",
+        unreadCount: 0,
+        lastMessage: { text: "", at: t.lastMessageAt ?? new Date(0).toISOString(), direction: "in", author: "customer" },
+        hasAutomatedMessage: false,
+        accountId: account?.id ?? accountIdOf(t.threadId) ?? undefined,
+        brand: t.brand,
+      };
+      setExtra((prev) => new Map(prev).set(stub.id, stub));
+      setOpenId(stub.id);
+    },
+    [openConversation, accountById]
   );
 
   // "Open chat" from the test-drive calendar: /inbox?open=<thread id>.
@@ -1276,6 +1341,12 @@ export default function InboxClient(props: Props) {
             : `Up to date · ${count(all.length)} saved${lastChecked ? ` · ${localClock(lastChecked)}` : ""}`;
 
   const dateActive = view.from !== "" || view.to !== "";
+  const datePick: string = !dateActive
+    ? "any"
+    : (DATE_PRESETS.find((p) => {
+        const r = presetRange(p.id as DatePreset, today);
+        return r.from === view.from && r.to === view.to;
+      })?.id ?? "custom");
   const dateText = dateActive
     ? view.from && view.to
       ? view.from === view.to
@@ -1421,104 +1492,137 @@ export default function InboxClient(props: Props) {
             </div>
           )}
 
-          {brands.length > 0 && (
-            <nav className="ibx-brands" aria-label="Brand">
-              {["all", ...brands].map((b) => {
-                const s =
-                  b === "all"
-                    ? { total: all.length, unread: stats.unread }
-                    : stats.byBrand.get(b) ?? { total: 0, unread: 0 };
-                return (
-                  <button
-                    key={b}
-                    type="button"
-                    className="ibx-brand"
-                    data-brand={b}
-                    aria-pressed={view.brand === b}
-                    onClick={() => pickBrand(b)}
-                  >
-                    {b !== "all" && <span className="ibx-dot" data-brand={b} aria-hidden="true" />}
-                    <span className="ibx-brand-name">{b === "all" ? "All" : brandLabel(b)}</span>
-                    {s.unread > 0 ? (
-                      <span className="ibx-badge" aria-label={`${s.unread} unread`}>
-                        {s.unread > 99 ? "99+" : s.unread}
-                      </span>
-                    ) : (
-                      <span className="ibx-brand-count">{count(s.total)}</span>
-                    )}
-                  </button>
-                );
-              })}
-            </nav>
-          )}
-
-          {live && carChoices.length > 0 && (
-            <div className="ibx-chips ibx-cars" role="group" aria-label="Car" title="Chats where the customer named the car, asked about it, or came from its ad — from Monza AI's reading of the messages">
-              <button type="button" className="ibx-chip" aria-pressed={view.car === "all"} onClick={() => setView((v) => ({ ...v, car: "all" }))}>
-                All cars
-              </button>
-              {carChoices.map((c) => (
-                <button
-                  key={c.code}
-                  type="button"
-                  className="ibx-chip"
-                  aria-pressed={view.car === c.code}
-                  onClick={() => setView((v) => ({ ...v, car: v.car === c.code ? "all" : c.code }))}
-                >
-                  {c.label}
-                  <span className="ibx-chip-count">{carCounts.get(c.code) ?? 0}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
           <label className="ibx-search">
             <Icon d={I.search} size={16} />
             <input
               type="search"
-              placeholder="Search a name, @username or message"
+              placeholder="Search a name, number, @username or message"
               value={view.search}
               onChange={(e) => setView((v) => ({ ...v, search: e.target.value }))}
               aria-label="Search conversations"
             />
           </label>
 
-          <div className="ibx-chips" role="group" aria-label="Filters">
-            {SHOW_FILTERS.map((s: ShowFilter) => (
-              <button
-                key={s}
-                type="button"
-                className="ibx-chip"
-                aria-pressed={view.show === s}
-                onClick={() => setView((v) => ({ ...v, show: s }))}
+          {found && found.q === view.search.trim() && (() => {
+            const shownIds = new Set(visible.map((c) => c.id));
+            const withChat = found.list.filter((p) => p.threads.some((t) => !shownIds.has(t.threadId)));
+            const noChat = found.list.filter((p) => p.threads.length === 0).slice(0, 3);
+            if (withChat.length === 0 && noChat.length === 0) return null;
+            return (
+              <div className="ibx-found" role="region" aria-label="In the records">
+                <p className="ibx-found-title">In the records{found.crmUnavailable ? " · the CRM could not be read" : ""}</p>
+                <ul className="ibx-found-list">
+                  {withChat.map((p) => (
+                    <li key={p.id} className="ibx-found-row">
+                      <span className="ibx-found-who">
+                        <span className="ibx-found-name">{p.name}</span>
+                        {p.crmName && <span className="ibx-found-sub">CRM: {p.crmName}</span>}
+                        {p.phone && <span className="ibx-found-sub">{formatLebanesePhone(p.phone) ?? p.phone}</span>}
+                      </span>
+                      <span className="ibx-found-chats">
+                        {p.threads.filter((t) => !shownIds.has(t.threadId)).slice(0, 3).map((t) => (
+                          <button key={t.threadId} type="button" className="ibx-chip" data-channel={t.channel} onClick={() => openFound(p, t)}>
+                            {CHANNEL_LABEL[t.channel as ChannelKey] ?? t.channel} · {brandLabel(t.brand)}
+                          </button>
+                        ))}
+                      </span>
+                    </li>
+                  ))}
+                  {noChat.map((p) => (
+                    <li key={p.id} className="ibx-found-row" data-nochat="true">
+                      <span className="ibx-found-who">
+                        <span className="ibx-found-name">{p.name}</span>
+                        {p.phone && <span className="ibx-found-sub">{formatLebanesePhone(p.phone) ?? p.phone}</span>}
+                      </span>
+                      <span className="ibx-found-sub">In the CRM, no chat yet</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })()}
+
+          {/* The filters, as drop-downs (Samer, 2026-11-05: the tabs and chips "took half the screen"). */}
+          <div className="ibx-filters" role="group" aria-label="Filters">
+            {brands.length > 0 && (
+              <label className="ibx-select" data-active={view.brand !== "all"}>
+                <span className="ibx-select-label">Brand</span>
+                <select value={view.brand} onChange={(e) => pickBrand(e.target.value)} aria-label="Brand">
+                  {["all", ...brands].map((b) => {
+                    const st = b === "all" ? { total: all.length, unread: stats.unread } : stats.byBrand.get(b) ?? { total: 0, unread: 0 };
+                    return (
+                      <option key={b} value={b}>
+                        {b === "all" ? "All brands" : brandLabel(b)} · {count(st.total)}{st.unread > 0 ? ` · ${st.unread} unread` : ""}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+            )}
+            {live && carChoices.length > 0 && (
+              <label className="ibx-select" data-active={view.car !== "all"} title="Chats where the customer named the car, asked about it, or came from its ad — from Monza AI's reading of the messages">
+                <span className="ibx-select-label">Car</span>
+                <select value={view.car} onChange={(e) => setView((v) => ({ ...v, car: e.target.value }))} aria-label="Car">
+                  <option value="all">All cars</option>
+                  {carChoices.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.label} · {carCounts.get(c.code) ?? 0}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className="ibx-select" data-active={view.show !== "all"}>
+              <span className="ibx-select-label">Show</span>
+              <select value={view.show} onChange={(e) => setView((v) => ({ ...v, show: e.target.value as ShowFilter }))} aria-label="Show">
+                {SHOW_FILTERS.map((f: ShowFilter) => (
+                  <option key={f} value={f}>
+                    {SHOW_LABEL[f]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {channels.length > 1 && (
+              <label className="ibx-select" data-active={view.channel !== "all"} data-channel={view.channel}>
+                <span className="ibx-select-label">Channel</span>
+                <select value={view.channel} onChange={(e) => setView((v) => ({ ...v, channel: e.target.value }))} aria-label="Channel">
+                  <option value="all">All channels</option>
+                  {channels.map((ch) => (
+                    <option key={ch} value={ch}>
+                      {CHANNEL_LABEL[ch]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className="ibx-select" data-active={dateActive}>
+              <span className="ibx-select-label">Date</span>
+              <select
+                value={datePick}
+                aria-label="Date"
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "any") {
+                    setDates("", "");
+                    setDatesOpen(false);
+                  } else if (v === "custom") {
+                    setDatesOpen(true);
+                  } else {
+                    const r = presetRange(v as DatePreset, today);
+                    setDates(r.from, r.to);
+                    setDatesOpen(false);
+                  }
+                }}
               >
-                {SHOW_LABEL[s]}
-              </button>
-            ))}
-            {channels.length > 1 && <span className="ibx-chip-sep" aria-hidden="true" />}
-            {channels.length > 1 &&
-              channels.map((ch) => (
-                <button
-                  key={ch}
-                  type="button"
-                  className="ibx-chip"
-                  data-channel={ch}
-                  aria-pressed={view.channel === ch}
-                  onClick={() => setView((v) => ({ ...v, channel: v.channel === ch ? "all" : ch }))}
-                >
-                  {CHANNEL_LABEL[ch]}
-                </button>
-              ))}
-            <button
-              type="button"
-              className="ibx-chip ibx-chip-date"
-              aria-pressed={dateActive}
-              aria-expanded={datesOpen}
-              onClick={() => setDatesOpen((v) => !v)}
-            >
-              <Icon d={I.calendar} size={14} />
-              {dateText}
-            </button>
+                <option value="any">Any date</option>
+                {DATE_PRESETS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+                <option value="custom">{datePick === "custom" ? dateText : "Choose dates…"}</option>
+              </select>
+            </label>
           </div>
 
           {datesOpen && (

@@ -50,6 +50,36 @@ export function numberContains(stored: string | null, digits: string): boolean {
   return stored.replace(/\D/g, "").includes(digits);
 }
 
+/**
+ * The digits that identify a phone, the way a person in Lebanon writes it: "03 123 456", "70708585",
+ * "+961 70 708 585" and "0096170708585" all mean the number stored as "96170708585". The dialling
+ * prefix (00), the country code (961) and the trunk zero are decoration here — stripped from what was
+ * TYPED, never from what is stored, so a foreign number is still found by its full digits.
+ */
+export function significantDigits(digits: string): string {
+  let d = digits.replace(/\D/g, "");
+  if (d.startsWith("00")) d = d.slice(2);
+  if (d.startsWith("961") && d.length > 3) d = d.slice(3);
+  if (d.startsWith("0") && d.length > 1) d = d.slice(1);
+  return d;
+}
+
+/**
+ * A prefix is only stripped from a number long enough to still mean somebody afterwards: "0151" stripped
+ * to "151" would find every number holding those three digits.
+ */
+export const MIN_STRIPPED_DIGITS = 5;
+
+/** Does a stored number match a typed one, written any of the ways above? */
+export function phoneMatches(stored: string | null | undefined, digits: string): boolean {
+  if (!stored) return false;
+  const have = stored.replace(/\D/g, "");
+  if (have === "") return false;
+  if (have.includes(digits)) return true;
+  const want = significantDigits(digits);
+  return want !== digits && want.length >= MIN_STRIPPED_DIGITS && have.includes(want);
+}
+
 /** Case-insensitive substring, safe on null. */
 export function textContains(stored: string | null, needle: string): boolean {
   if (!stored) return false;
