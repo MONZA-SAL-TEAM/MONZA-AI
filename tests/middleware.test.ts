@@ -65,6 +65,15 @@ describe("live mode: a CRM is configured", () => {
     }
   });
 
+  test("the Notifications page is behind the gate and open to every signed-in person", () => {
+    // Samer, 2026-11-05: the switch for this device is a page of its own. It is in the navigation, so the
+    // derived gate covers it; `open` keeps the side rail from hiding it from a person with a limited page list.
+    const item = NAV_ITEMS.find((i) => i.href === "/notifications");
+    assert.ok(item, "in lib/nav.ts");
+    assert.equal(item.open, true);
+    assert.equal(gate("/notifications"), `/login?next=${encodeURIComponent("/notifications")}`);
+  });
+
   test("sub-paths of a screen are protected too", () => {
     assert.equal(
       gate("/customers/rami-kanaan"),

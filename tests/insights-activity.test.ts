@@ -14,6 +14,7 @@ describe("what a minute is", () => {
     assert.equal(sectionOf("/inbox"), "inbox");
     assert.equal(sectionOf("/insights/clients/lead:123"), "insights");
     assert.equal(sectionOf("/test-drives"), "test_drives");
+    assert.equal(sectionOf("/notifications"), "notifications");
     assert.equal(sectionOf("/something-new"), "other");
     assert.equal(sectionOf("/care"), null);
     assert.equal(sectionOf("/login"), null);

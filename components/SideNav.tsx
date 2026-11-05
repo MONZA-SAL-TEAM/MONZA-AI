@@ -15,7 +15,6 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import InstallApp from "@/components/InstallApp";
-import PushToggle from "@/components/PushToggle";
 import { usePathname } from "next/navigation";
 import { NAV } from "@/lib/nav";
 
@@ -56,6 +55,7 @@ const ICONS: Record<string, string> = {
   chat:
     "M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z",
   dashboard: "M12 2a10 10 0 1 0 10 10 M12 2v10l7-7",
+  bell: "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9 M10.3 21a1.94 1.94 0 0 0 3.4 0",
   integrations: "M9 2v6 M15 2v6 M12 17v5 M5 8h14l-1 7a6 6 0 0 1-12 0z",
   settings:
     "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z",
@@ -199,7 +199,7 @@ export default function SideNav() {
           {NAV.map((group) => (
             <div className="side-group" key={group.label}>
               <div className="side-group-label">{group.label}</div>
-              {group.items.filter((item) => (!item.requires || allowed[item.requires]) && (pages === null || item.requires === "admin" || pages.includes(item.href.slice(1).replace(/-/g, "_")))).map((item) => {
+              {group.items.filter((item) => (!item.requires || allowed[item.requires]) && (item.open || pages === null || item.requires === "admin" || pages.includes(item.href.slice(1).replace(/-/g, "_")))).map((item) => {
                 const active = item.exact
                   ? pathname === item.href
                   : pathname.startsWith(item.href);
@@ -225,7 +225,6 @@ export default function SideNav() {
           ))}
         </nav>
 
-        <PushToggle />
         <InstallApp />
         <div className="side-foot">Monza SAL — internal</div>
       </aside>

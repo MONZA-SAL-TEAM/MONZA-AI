@@ -1594,8 +1594,12 @@ Samer: "I'm not receiving notifications outside the app." A closed app has no pa
 device's own push service (Apple, Google, Mozilla, Microsoft) has to wake it: Web Push, in `lib/push/`
 — `webpush.ts` (the request and the rules, pure, no dependency: node:crypto signs the VAPID token),
 `server.ts` (the two tables of migration 019, APPLIED 2026-09-21), `device.ts` (the page's half, pure),
-`components/PushToggle.tsx` (the switch: foot of the side rail, the inbox's bell, and a one-line nudge
-in the inbox), `/api/push/{key,subscribe,latest,test}`, and the second half of `public/sw.js`.
+`components/PushToggle.tsx` (`usePush`: the state and the actions; the inbox's bell dialog and its one-line
+nudge), **the page `/notifications`** (`app/notifications/`, 2026-11-05 — Samer: "a page notification … so I
+can turn off and turn on notification"; the rail's foot button is gone and the System group links to the
+page instead; `open: true` in `lib/nav.ts` so a limited page list never hides it, `pageKeyOf` null so every
+signed-in person may open it, blocked still nothing), `/api/push/{key,subscribe,latest,test}`, and the
+second half of `public/sw.js`.
 
 - **The push carries NOTHING.** No payload: the worker wakes, asks `/api/push/latest` for one line and
   shows it. So no customer's name travels through Apple or Google, and there is no payload encryption
@@ -1623,8 +1627,8 @@ in the inbox), `/api/push/{key,subscribe,latest,test}`, and the second half of `
 - Everybody who switched it on is notified of every new customer message on every brand — there is no
   per-brand or per-person filter yet. Instagram and Facebook ring only when their webhooks deliver
   (WhatsApp always does); their tap opens the inbox, WhatsApp's opens the chat.
-- When somebody says "it does not ring": (1) `/api/push/key` must answer `"setup":"ready"`; (2) the
-  switch must read "Notifications on" ON THAT DEVICE, then "Send a test"; (3) the phone's own settings
+- When somebody says "it does not ring": (1) `/api/push/key` must answer `"setup":"ready"`; (2) `/notifications`
+  must read "On — this device rings" ON THAT DEVICE, then "Send a test"; (3) the phone's own settings
   (Focus / Do Not Disturb, battery saver killing Chrome, notifications off for the app) — only then code.
 
 ## General

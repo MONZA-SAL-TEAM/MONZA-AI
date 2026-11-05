@@ -26,6 +26,8 @@ export interface NavItem {
   blurb: string;
   /** Shown only to staff allowed to open it (the page checks again). The key is a field of /api/me/capabilities. */
   requires?: "insights" | "admin";
+  /** Open to EVERY signed-in person — not a page Team & access controls (their own device's notifications). */
+  open?: boolean;
 }
 
 export interface NavGroup {
@@ -125,6 +127,13 @@ export const NAV: NavGroup[] = [
         icon: "team",
         requires: "admin",
         blurb: "Who may open what, who is online, and what each person did.",
+      },
+      {
+        href: "/notifications",
+        label: "Notifications",
+        icon: "bell",
+        open: true,
+        blurb: "Make this phone or computer ring for new messages, even when Monza AI is closed.",
       },
       {
         href: "/settings",

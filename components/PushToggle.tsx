@@ -7,8 +7,12 @@
  * run, so the phone's own push service has to wake it; that needs the person's permission, asked by a
  * tap (browsers refuse to ask without one), on each device they want to ring.
  *
- *   PushToggle        the button at the foot of the side rail, and its small dialog
- *   usePush           the state and the actions, for anywhere else (the inbox's bell)
+ *   usePush           the state and the actions — the /notifications page (app/notifications) and the
+ *                     inbox's bell both use it, so they can never disagree about this device
+ *   PushDialog        the inbox's small dialog; PushNudge its one line
+ *
+ * Until 2026-11-05 the switch was a button at the foot of the side rail, inside the phone's hidden menu.
+ * Samer asked for a page of its own; the rail now carries a link to it (lib/nav.ts) and no button.
  *
  * On an iPhone or iPad this only works inside the INSTALLED app — Apple's rule — so in a Safari tab it
  * says so and points at the install steps instead of failing silently.
@@ -169,7 +173,7 @@ export function usePush() {
   return { path, ios: facts?.ios ?? false, busy, message, turnOn, turnOff, sendTest };
 }
 
-function Bell({ off = false }: { off?: boolean }) {
+export function Bell({ off = false }: { off?: boolean }) {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
@@ -272,22 +276,5 @@ export function PushNudge({ push, onOpen }: { push: ReturnType<typeof usePush>; 
         ×
       </button>
     </div>
-  );
-}
-
-/** The side rail's button. Shown in the browser AND inside the installed app. */
-export default function PushToggle() {
-  const push = usePush();
-  const [open, setOpen] = useState(false);
-  if (!push.path || push.path === "unsupported") return null;
-  const on = push.path === "on";
-  return (
-    <>
-      <button type="button" className="install-btn push-btn" data-on={on} onClick={() => setOpen(true)}>
-        <Bell off={push.path === "blocked"} />
-        {on ? "Notifications on" : push.path === "blocked" ? "Notifications blocked" : "Turn on notifications"}
-      </button>
-      {open && <PushDialog push={push} onClose={() => setOpen(false)} />}
-    </>
   );
 }

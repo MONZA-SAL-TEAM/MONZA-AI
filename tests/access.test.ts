@@ -54,6 +54,10 @@ describe("who may open what", () => {
     assert.equal(pageKeyOf("/insights/clients/lead:1"), "insights");
     assert.equal(pageKeyOf("/admin/123"), "admin");
     assert.equal(pageKeyOf("/no-access"), null);
+    // The person's own device's notifications: every signed-in person, never a page Team & access controls.
+    assert.equal(pageKeyOf("/notifications"), null);
+    assert.equal(allowsPage(sales, pageKeyOf("/notifications")), true);
+    assert.equal(allowsPage(effectiveAccess(row({ blocked: true })), pageKeyOf("/notifications")), false, "blocked is still nothing");
   });
   test("online: seen in 2½ minutes; active when also used", () => {
     const now = Date.parse("2026-10-13T12:00:00Z");
@@ -90,7 +94,7 @@ describe("nothing slips by", () => {
     }
   });
   test("every page with real data checks access on the server", () => {
-    for (const page of ["inbox", "customers", "automations", "installments", "test-drives", "sales", "chat", "dashboard", "integrations", "settings"]) {
+    for (const page of ["inbox", "customers", "automations", "installments", "test-drives", "sales", "chat", "dashboard", "integrations", "notifications", "settings"]) {
       assert.match(readFileSync(join(process.cwd(), "app", page, "page.tsx"), "utf8"), /requireStaffForPage/, page);
     }
     for (const p of ["app/admin/page.tsx", "app/admin/[id]/page.tsx"]) assert.match(readFileSync(join(process.cwd(), p), "utf8"), /requireAdminForPage/, p);
