@@ -192,6 +192,12 @@ export interface OutboundMessage {
    */
   attachment?: { type: "image" | "video" | "audio" | "file"; url: string };
   /**
+   * The message this one answers, quoted above it (Samer, 2026-11-11). Instagram's Send API takes it as
+   * `reply_to.mid` on both login routes (Meta's docs, read 2026-11-11); Messenger's has no such thing, so the
+   * Messenger adapter ignores it and the inbox never offers it there. WhatsApp goes its own way (`context`).
+   */
+  replyTo?: string;
+  /**
    * Sent after the 24-hour window under Meta's HUMAN_AGENT tag (Samer, 2026-10-20: "reply even after 24 hours"):
    * Instagram and Messenger only, within 7 days of the customer's last message, and ONLY for words or a file a
    * PERSON chose and pressed Send on — never a sales suggestion, never the autoreply. Meta must have approved

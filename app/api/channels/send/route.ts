@@ -84,11 +84,16 @@ export async function POST(request: Request): Promise<NextResponse> {
     conversationId?: unknown;
     text?: unknown;
     attachment?: unknown;
+    replyTo?: unknown;
   };
 
   const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";
   const text = typeof body.text === "string" ? body.text.trim() : "";
   const attachment = attachmentOf(body.attachment);
+  // The message this one answers, quoted above it (Samer, 2026-11-11): the platform's own id, shape-checked
+  // here, and again by each sender (a wamid for WhatsApp, Meta's message id for Instagram).
+  const replyTo = typeof body.replyTo === "string" && /^[A-Za-z0-9+/=_.:-]{8,400}$/.test(body.replyTo) ? body.replyTo : undefined;
+  if (body.replyTo !== undefined && body.replyTo !== null && !replyTo) return fail("That message cannot be quoted.", 400, "badRequest");
 
   const ids = decodeThreadId(conversationId);
   if (!ids) return fail("No conversation.", 400, "badRequest");
@@ -124,7 +129,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     channelsSendLive(),
     staffName,
     attachment ?? undefined,
-    access.user.userId
+    access.user.userId,
+    replyTo
   );
 
   // Counts and ids only — never the text or a file name (customer-facing content).

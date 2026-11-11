@@ -604,6 +604,8 @@ export async function recordWhatsAppSent(input: {
   automationId?: string;
   /** "automation" only for the sales autoreply pilot. */
   author?: "staff" | "automation";
+  /** The wamid this reply quoted (a contextual reply). */
+  replyTo?: string | null;
 }): Promise<boolean> {
   const sb = client();
   if (!sb) return false;

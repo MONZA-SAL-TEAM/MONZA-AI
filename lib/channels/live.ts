@@ -96,6 +96,8 @@ import {
   mapCustomerProfile,
   PROFILE_FIELDS,
   mapThread,
+  mergeMessageDetails,
+  undescribedMessageIds,
   graphTime,
   metaErrorCode,
   metaErrorDetail,
@@ -305,6 +307,140 @@ export async function askThread(
     level = (level + 1) as ThreadLevel;
   }
   return { r, level: WORDS_ONLY, limit, richProblem, rememberedUntil: null };
+}
+
+/* ── Instagram login: a message's content is read per message ──────────────── */
+
+/**
+ * On the Instagram API with Instagram login, the nested `messages{…}` ask answers with ids and times and
+ * leaves out what a message carries; Meta's Conversations doc (read 2026-11-11) names the content only on
+ * `GET /{message-id}?fields=…`. Until then every photo and video a customer sent on that route read
+ * "Photo, video or attachment — open the app to see it" (Samer, 2026-11-11). So, on that route only, each
+ * message the nested answer described with no content key is asked about on its own: a few at a time,
+ * inside a budget, and REMEMBERED per message for a while — a message's content does not change, and the
+ * thread refreshes every 15 seconds. Two field sets, the fuller first; a refusal naming a field moves the
+ * route to the plainer one for a while; a second refusal stops the asking for a while, and the thread then
+ * says so. Never a word leaves here: the answers go straight into the thread's JSON.
+ */
+const IG_DETAIL_FIELDS = ["id,created_time,from,message,attachments,shares,story,is_unsupported", "id,created_time,from,message,attachments"] as const;
+const IG_DETAIL_OFF = IG_DETAIL_FIELDS.length;
+const IG_DETAIL_MEMORY_MS = 10 * 60_000;
+const IG_DETAIL_BUDGET_MS = 15_000;
+const IG_DETAIL_ASK_MS = 8_000;
+const IG_DETAIL_AT_ONCE = 4;
+const IG_DETAIL_MAX_MEMORY = 5_000;
+/** Message id → Meta's answer, kept a while. */
+const igMessageMemory = new Map<string, { until: number; json: unknown }>();
+/** Per account and route: which field set works (IG_DETAIL_OFF = asking is paused), and why. */
+const igDetailLevel = new Map<string, { level: number; until: number; detail: string | null }>();
+
+export interface DetailOutcome {
+  json: unknown;
+  /** How many messages were asked about this time (not counting those remembered). */
+  asked: number;
+  ok: number;
+  /** Messages that still carry no content after this pass: Meta refused, the budget ran out, or asking is paused. */
+  undescribed: number;
+  /** Meta's last refusal (codes and words, never a key), or why asking is paused. */
+  problem: string | null;
+}
+
+/** Exported for its tests, which hand it a scripted route; production calls it from readMetaThread. */
+export async function detailInstagramMessages(
+  route: { get: GraphFn; token: string },
+  conversation: unknown,
+  memoryKey: string,
+  record: (ask: ThreadAskRecord) => void = () => {}
+): Promise<DetailOutcome> {
+  const started = Date.now();
+  const wanted = undescribedMessageIds(conversation);
+  const details = new Map<string, unknown>();
+  const toAsk: string[] = [];
+  // Remembered per account AND message: one brand's memory can never answer for another's (rule 4).
+  const remember = (id: string) => `${memoryKey}:${id}`;
+  for (const id of wanted) {
+    const hit = igMessageMemory.get(remember(id));
+    if (hit && hit.until > started) details.set(id, hit.json);
+    else toAsk.push(id);
+  }
+  const paused = igDetailLevel.get(memoryKey);
+  let level = paused && paused.until > started ? paused.level : 0;
+  let problem: string | null = paused && paused.until > started ? paused.detail : null;
+  let asked = 0;
+  let ok = 0;
+  let stop = level >= IG_DETAIL_OFF;
+
+  const askOne = async (id: string): Promise<void> => {
+    while (!stop) {
+      const left = IG_DETAIL_BUDGET_MS - (Date.now() - started);
+      if (left < 1_000) {
+        stop = true;
+        return;
+      }
+      const t0 = Date.now();
+      asked++;
+      // The level this ask was made at: a refusal moves the route on only if no other ask already has.
+      const askedAt = level;
+      const r = await route.get(id, { fields: IG_DETAIL_FIELDS[askedAt] }, route.token, Math.min(IG_DETAIL_ASK_MS, left));
+      record({
+        level: askedAt as ThreadLevel,
+        limit: 1,
+        ms: Date.now() - t0,
+        status: r.ok ? "ok" : r.throttled ? "throttled" : r.retryLighter ? "slow" : r.transient ? "transient" : "refused",
+        detail: r.ok ? null : (r.meta ?? r.problem),
+      });
+      if (r.ok) {
+        ok++;
+        details.set(id, r.json);
+        igMessageMemory.set(remember(id), { until: Date.now() + IG_DETAIL_MEMORY_MS, json: r.json });
+        if (igMessageMemory.size > IG_DETAIL_MAX_MEMORY) igMessageMemory.delete(igMessageMemory.keys().next().value as string);
+        return;
+      }
+      // Meta's rate limit, a hiccup or slowness: this message waits for the next refresh; the rest go on.
+      if (r.throttled) {
+        stop = true;
+        return;
+      }
+      if (r.retryLighter || r.transient) return;
+      // A refusal naming the fields: the plainer set from now on; a second one pauses the asking. Two asks in
+      // flight refused together move the route on ONCE, not twice.
+      problem = r.meta ?? r.problem;
+      if (level === askedAt) {
+        level++;
+        igDetailLevel.set(memoryKey, { level, until: Date.now() + RICH_FIELDS_MEMORY_MS, detail: problem });
+      }
+      if (level >= IG_DETAIL_OFF) {
+        console.warn(`[channels/thread] ${memoryKey}: Meta refused the per-message fields; photos and files cannot be read for a while`);
+        stop = true;
+        return;
+      }
+    }
+  };
+
+  // A few at a time: Meta rate-limits the messaging endpoints per account.
+  const queue = [...toAsk];
+  const workers = Array.from({ length: Math.min(IG_DETAIL_AT_ONCE, queue.length) }, async () => {
+    while (!stop) {
+      const id = queue.shift();
+      if (!id) return;
+      await askOne(id);
+    }
+  });
+  await Promise.all(workers);
+
+  return {
+    json: mergeMessageDetails(conversation, details),
+    asked,
+    ok,
+    undescribed: wanted.filter((id) => !details.has(id)).length,
+    problem,
+  };
+}
+
+/** The short sentence under an Instagram-login thread some of whose messages could not be read on their own this time. */
+export function detailNote(d: DetailOutcome): string {
+  const why = d.problem ? ` (${d.problem.slice(0, 120)})` : "";
+  return `${d.undescribed} message${d.undescribed === 1 ? "" : "s"} could not be read in full from Instagram this time${why} — what was shown before is kept, and the next refresh tries again.`;
 }
 
 /** The short sentence under a thread whose files could not be read this time. */
@@ -869,7 +1005,8 @@ async function sendOnWhatsApp(
   live: boolean,
   staffName: string,
   attachment?: OutgoingAttachment,
-  staffId?: string
+  staffId?: string,
+  replyTo?: string
 ): Promise<SendOutcome> {
   const r = await readWhatsAppMessages(account.id, conversationId, 1);
   if (!r.ok) return { kind: "refused", status: 502, problem: "Could not read this WhatsApp conversation." };
@@ -894,7 +1031,7 @@ async function sendOnWhatsApp(
   let sent: Awaited<ReturnType<typeof sendWhatsAppText>>;
 
   if (!attachment) {
-    sent = await sendWhatsAppText({ phoneNumberId: account.externalId, to: r.value.peerExternalId, text }, token);
+    sent = await sendWhatsAppText({ phoneNumberId: account.externalId, to: r.value.peerExternalId, text, replyTo }, token);
   } else {
     // Only a file uploaded for THIS conversation — never another customer's.
     if (!isOutboundPathFor(attachment.path, account.id, conversationId)) {
@@ -930,6 +1067,7 @@ async function sendOnWhatsApp(
         caption: text || undefined,
         filename,
         voice,
+        replyTo,
       },
       token
     );
@@ -961,6 +1099,7 @@ async function sendOnWhatsApp(
     staffName,
     staffId: staffId ?? null,
     attachment: stored,
+    replyTo: replyTo ?? null,
   });
   // It WENT. Failing to write our copy must not report a failure — a person
   // would send it a second time.
@@ -1103,12 +1242,23 @@ async function readMetaThread(threadId: unknown, now: Date): Promise<OpenThread>
   if (!route.ok) return { ok: false, status: 503, problem: route.problem };
 
   // What the messages carry first; words only as the last resort (askThread).
-  const { r, level, limit, richProblem, rememberedUntil } = await askThread(route, ids.metaConversationId, account.channel, `${account.id}:${route.via}`);
+  const memoryKey = `${account.id}:${route.via}`;
+  const { r, level, limit, richProblem, rememberedUntil } = await askThread(route, ids.metaConversationId, account.channel, memoryKey);
   if (!r.ok) return { ok: false, status: 502, problem: r.problem };
 
+  // Instagram login names a message's content only per message id (detailInstagramMessages).
+  let json: unknown = r.json;
+  let attachmentsRead = level < WORDS_ONLY;
+  let note: string | null = attachmentsRead ? null : attachmentsNote(account.channel, richProblem, rememberedUntil);
+  if (route.via === "instagram-login") {
+    const d = await detailInstagramMessages(route, r.json, memoryKey);
+    json = d.json;
+    attachmentsRead = d.undescribed === 0;
+    note = attachmentsRead ? null : detailNote(d);
+  }
+
   const threadId_ = `${ids.accountId}~${ids.metaConversationId}`;
-  const messages = mapThread(r.json, threadId_, route.selfIds);
-  const attachmentsRead = level < WORDS_ONLY;
+  const messages = mapThread(json, threadId_, route.selfIds);
   return {
     ok: true,
     account,
@@ -1116,10 +1266,10 @@ async function readMetaThread(threadId: unknown, now: Date): Promise<OpenThread>
     get: route.get,
     via: route.via,
     messages,
-    peer: peerOf(r.json, route.selfIds),
+    peer: peerOf(json, route.selfIds),
     window: replyWindow(lastCustomerAt(messages), now),
     attachmentsRead,
-    attachmentsNote: attachmentsRead ? null : attachmentsNote(account.channel, richProblem, rememberedUntil),
+    attachmentsNote: note,
     partial: limit < THREAD_LIMITS[0],
   };
 }
@@ -1135,7 +1285,19 @@ async function readMetaThread(threadId: unknown, now: Date): Promise<OpenThread>
  * inbox remembers about the account.
  */
 export async function diagnoseThread(threadId: unknown): Promise<
-  | { ok: true; thread: string; channel: string; via: string; remembered: string; asks: ThreadAskRecord[]; messages: MessageShape[] }
+  | {
+      ok: true;
+      thread: string;
+      channel: string;
+      via: string;
+      remembered: string;
+      asks: ThreadAskRecord[];
+      messages: MessageShape[];
+      /** Instagram login: the per-message asks (detailInstagramMessages), counts only. */
+      details: { asked: number; ok: number; undescribed: number; problem: string | null; paused: string } | null;
+      /** The customer's profile as Meta answers it: whether it came, and whether a picture link came (its host only, never the link). */
+      profile: { status: "ok" | "refused" | "no_peer"; detail: string | null; name: boolean; picture: boolean; pictureHost: string | null };
+    }
   | { ok: false; status: number; problem: string }
 > {
   const ids = decodeThreadId(threadId);
@@ -1152,8 +1314,32 @@ export async function diagnoseThread(threadId: unknown): Promise<
   const scratch = `diagnose:${memoryKey}:${Date.now()}`;
   const { r } = await askThread(route, ids.metaConversationId, account.channel, scratch, (a) => asks.push(a));
   richFieldsWorks.delete(scratch);
-  const messages = r.ok ? messageShapes(r.json, `${ids.accountId}~${ids.metaConversationId}`, route.selfIds) : [];
+  let json: unknown = r.ok ? r.json : null;
+  let details: { asked: number; ok: number; undescribed: number; problem: string | null; paused: string } | null = null;
+  if (r.ok && route.via === "instagram-login") {
+    const d = await detailInstagramMessages(route, r.json, memoryKey, (a) => asks.push(a));
+    json = d.json;
+    const paused = igDetailLevel.get(memoryKey);
+    details = { asked: d.asked, ok: d.ok, undescribed: d.undescribed, problem: d.problem, paused: paused && paused.until > Date.now() ? `level ${paused.level} until ${new Date(paused.until).toISOString()}` : "no" };
+  }
+  const messages = r.ok ? messageShapes(json, `${ids.accountId}~${ids.metaConversationId}`, route.selfIds) : [];
+  // The profile, asked afresh (not the inbox's memory): did Meta answer, and did a picture link come?
+  const peer = r.ok ? peerOf(json, route.selfIds) : null;
+  let profile: { status: "ok" | "refused" | "no_peer"; detail: string | null; name: boolean; picture: boolean; pictureHost: string | null } = { status: "no_peer", detail: null, name: false, picture: false, pictureHost: null };
+  if (peer) {
+    const pr = await route.get(peer.id, { fields: account.channel === "facebook" ? PROFILE_FIELDS.facebook : PROFILE_FIELDS.instagram }, route.token, TIMEOUT_MS);
+    const mapped = pr.ok ? mapCustomerProfile(pr.json) : null;
+    let host: string | null = null;
+    try {
+      host = mapped?.pictureUrl ? new URL(mapped.pictureUrl).hostname : null;
+    } catch {
+      host = null;
+    }
+    profile = { status: pr.ok ? "ok" : "refused", detail: pr.ok ? null : (pr.meta ?? pr.problem), name: Boolean(mapped?.name || mapped?.username), picture: Boolean(mapped?.pictureUrl), pictureHost: host };
+  }
   return {
+    details,
+    profile,
     ok: true,
     thread: `${ids.accountId}~${ids.metaConversationId.slice(-6)}`,
     channel: account.channel,
@@ -1968,10 +2154,12 @@ export async function sendOnThread(
   /** A file already uploaded for this conversation (POST /api/channels/media). */
   attachment?: OutgoingAttachment,
   /** Who pressed Send, for the record of a kept Instagram/Facebook file. */
-  staffId?: string
+  staffId?: string,
+  /** The platform's id of the message this one answers, quoted above it (Samer, 2026-11-11). */
+  replyTo?: string
 ): Promise<SendOutcome> {
   const wa = await whatsappAccountOf(threadId);
-  if (wa) return sendOnWhatsApp(wa.account, wa.id, text, live, staffName, attachment, staffId);
+  if (wa) return sendOnWhatsApp(wa.account, wa.id, text, live, staffName, attachment, staffId, replyTo);
   const t = await openThreadForSend(threadId, new Date());
   if (!t.ok) return { kind: "refused", status: t.status, problem: t.problem };
   if (!t.peer) {
@@ -1983,6 +2171,11 @@ export async function sendOnThread(
     return { kind: "window_closed", explanation: windowExplanation(t.window, t.account.channel as ChannelKey) };
   }
   if (!live) return { kind: "switched_off" };
+  // Meta's Messenger Send API has no reply-to; the inbox never offers it there, and a request that names one is refused
+  // rather than sent as a plain message the person did not mean.
+  if (replyTo && t.account.channel !== "instagram") {
+    return { kind: "refused", status: 400, problem: "Facebook Messenger cannot quote a message — send it as a plain reply." };
+  }
   const tagged = (problem: string) =>
     humanAgent ? `${problem} (Sent after 24 hours with Meta's Human Agent tag — Meta must have approved that feature for this app; if not, wait for the customer to write again.)` : problem;
 
@@ -1995,7 +2188,7 @@ export async function sendOnThread(
         ? sendInstagramLogin
         : instagramAdapter.send;
   if (!attachment) {
-    const result = await send({ accountId: t.account.id, toExternalId: t.peer.id, text, humanAgent }, t.token);
+    const result = await send({ accountId: t.account.id, toExternalId: t.peer.id, text, humanAgent, ...(replyTo ? { replyTo } : {}) }, t.token);
     if (result.ok) {
       const ids = decodeThreadId(threadId);
       if (ids) await recordStaffTurn({ accountId: t.account.id, peerExternalId: t.peer.id, metaConversationId: ids.metaConversationId, externalMessageId: result.externalMessageId, staffId: staffId ?? null, at: new Date().toISOString() });

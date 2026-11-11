@@ -209,14 +209,15 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); outline
 }
 
 .side {
-  width: 250px;
+  /* Narrower since 2026-11-11 (Samer: "make the first left sidebar smaller") — the inbox's list gained the room. */
+  width: 212px;
   flex: none;
   display: flex;
   flex-direction: column;
   background: var(--panel);
   border-right: 1px solid var(--line);
-  padding: 18px 14px;
-  gap: 18px;
+  padding: 16px 10px;
+  gap: 16px;
   min-height: 0;
 }
 .side-head { display: flex; flex-direction: column; gap: 10px; padding: 2px 8px 0; }

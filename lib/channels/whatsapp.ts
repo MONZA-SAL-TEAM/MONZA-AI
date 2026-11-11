@@ -66,9 +66,11 @@ import type {
   InboundReferral,
   SendResult,
 } from "@/lib/channels/types";
-import type { Conversation, ConversationStatus, InboxAttachment, InboxMessage, MessageStatus, QuotedMessage } from "@/lib/inbox/types";
+import type { Conversation, ConversationStatus, InboxAttachment, InboxMessage, MessageStatus } from "@/lib/inbox/types";
 import { encodeThreadId } from "@/lib/channels/live-map";
 import { mediaLabel } from "@/lib/inbox/media";
+import { WA_ATTACHMENT_ONLY } from "@/lib/inbox/no-content";
+import { quoteOf } from "@/lib/inbox/quote";
 import {
   MAX_CAPTION,
   META_MEDIA_DAYS,
@@ -531,21 +533,12 @@ export function quoteReplies(messages: readonly InboxMessage[], older: readonly 
     if (!m.replyToId) return m;
     const target = byId.get(m.replyToId);
     if (!target) return { ...m, replyTo: { author: m.direction === "in" ? "staff" : "customer", text: "", missing: true } };
-    if (target.deleted) return { ...m, replyTo: { author: target.author, text: "This message was deleted" } };
-    const first = target.attachments?.[0];
-    const words = target.text === WA_ATTACHMENT_ONLY ? "" : target.text.replace(/\s+/g, " ").trim();
-    const quote: QuotedMessage = {
-      author: target.author,
-      text: words.length > 140 ? `${words.slice(0, 139)}…` : words,
-      ...(first ? { kind: first.kind } : {}),
-      ...(first && (first.kind === "image" || first.kind === "sticker") && first.state === "ready" && first.url ? { thumbUrl: first.url } : {}),
-    };
-    return { ...m, replyTo: quote };
+    return { ...m, replyTo: quoteOf(target, (t) => t === WA_ATTACHMENT_ONLY) };
   });
 }
 
-/** Shown for a message whose only content cannot be shown here. */
-export const WA_ATTACHMENT_ONLY = "Photo, video, voice note or file — open WhatsApp to see it.";
+/** Shown for a message whose only content cannot be shown here (defined in lib/inbox/no-content.ts). */
+export { WA_ATTACHMENT_ONLY };
 
 /** "96170708585" → "+961 70 708 585"; other numbers keep their digits. */
 export function displayPhone(waId: string): string {
@@ -756,17 +749,32 @@ async function postWhatsAppMessage(
 
 /** `fetchFn` exists so the request's shape can be tested without a network. */
 export async function sendWhatsAppText(
-  input: { phoneNumberId: string; to: string; text: string },
+  input: { phoneNumberId: string; to: string; text: string; replyTo?: string | null },
   token: string,
   fetchFn: typeof fetch = fetch
 ): Promise<WhatsAppSendResult> {
   return postWhatsAppMessage(
     input.phoneNumberId,
     input.to,
-    { type: "text", text: { preview_url: false, body: input.text } },
+    { ...replyContext(input.replyTo), type: "text", text: { preview_url: false, body: input.text } },
     token,
     fetchFn
   );
+}
+
+/**
+ * A reply to a specific message (Samer, 2026-11-11): WhatsApp's "contextual reply" — the quoted bubble
+ * above the message. Meta's Cloud API: a top-level `context.message_id` holding the wamid of the message
+ * answered, on text and media alike; it is not drawn for a template, and not once the quoted message has
+ * left the phone's recent history. Only a wamid-shaped id is ever sent.
+ */
+export function replyContext(replyTo: string | null | undefined): { context?: { message_id: string } } {
+  return replyTo && isWamid(replyTo) ? { context: { message_id: replyTo } } : {};
+}
+
+/** WhatsApp's message ids: "wamid." and base64-ish characters, as Meta issues them. */
+export function isWamid(id: string): boolean {
+  return /^wamid\.[A-Za-z0-9+/=_-]{8,200}$/.test(id);
 }
 
 /**
@@ -851,6 +859,7 @@ export async function sendWhatsAppMedia(
     caption?: string;
     filename?: string;
     voice?: boolean;
+    replyTo?: string | null;
   },
   token: string,
   fetchFn: typeof fetch = fetch
@@ -859,7 +868,7 @@ export async function sendWhatsAppMedia(
   if (input.caption && input.kind !== "audio") part.caption = input.caption.slice(0, WHATSAPP_MAX_CAPTION);
   if (input.kind === "document" && input.filename) part.filename = input.filename;
   if (input.kind === "audio" && input.voice) part.voice = true;
-  return postWhatsAppMessage(input.phoneNumberId, input.to, { type: input.kind, [input.kind]: part }, token, fetchFn);
+  return postWhatsAppMessage(input.phoneNumberId, input.to, { ...replyContext(input.replyTo), type: input.kind, [input.kind]: part }, token, fetchFn);
 }
 
 /**
@@ -871,6 +880,8 @@ export async function sendWhatsAppLink(
   input: {
     phoneNumberId: string;
     to: string;
+    /** Never set by the sales engine today; accepted so the one request builder serves both senders. */
+    replyTo?: string | null;
     kind: "document" | "video";
     link: string;
     filename?: string;
@@ -885,7 +896,7 @@ export async function sendWhatsAppLink(
   const part: Record<string, unknown> = { link: input.link };
   if (input.kind === "document" && input.filename) part.filename = input.filename.slice(0, 240);
   if (input.caption) part.caption = input.caption.slice(0, WHATSAPP_MAX_CAPTION);
-  return postWhatsAppMessage(input.phoneNumberId, input.to, { type: input.kind, [input.kind]: part }, token, fetchFn);
+  return postWhatsAppMessage(input.phoneNumberId, input.to, { ...replyContext(input.replyTo), type: input.kind, [input.kind]: part }, token, fetchFn);
 }
 
 /* ── Meta's account lock (Samer, 2026-10-23: "WhatsApp Business is locked") ─────────────────── */
@@ -1088,6 +1099,8 @@ export function whatsappSentRow(input: {
   automationId?: string;
   /** "automation" only for the sales autoreply pilot, which no person pressed. */
   author?: "staff" | "automation";
+  /** The wamid this reply quoted (migration 030 `reply_to`), so the thread shows the quote on our side too. */
+  replyTo?: string | null;
 }): Record<string, unknown> {
   return {
     conversation_id: input.conversationId,
@@ -1103,6 +1116,7 @@ export function whatsappSentRow(input: {
     ...(input.staffId && /^[0-9a-f-]{36}$/i.test(input.staffId) ? { staff_id: input.staffId } : {}),
     sent_at: input.at,
     ...(input.automationId ? { automation_id: input.automationId } : {}),
+    ...(input.replyTo && isWamid(input.replyTo) ? { reply_to: input.replyTo } : {}),
   };
 }
 

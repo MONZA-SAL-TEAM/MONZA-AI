@@ -417,6 +417,40 @@ function mapMessage(
   };
 }
 
+/**
+ * The conversation's JSON with each message REPLACED by what Meta said of it when asked on its own
+ * (`GET /{message-id}`), where that was asked. The Instagram API with Instagram login answers the nested
+ * `messages{…}` ask with ids and times, and names a message's content only per message id (Meta's
+ * Conversations doc, read 2026-11-11: "send a GET request to the /<MESSAGE_ID> endpoint") — so the
+ * per-message answer is the truth and the nested row only fills what it left out (its time, its sender).
+ * PURE: a message without a detail is left exactly as it was.
+ */
+export function mergeMessageDetails(conversation: unknown, details: ReadonlyMap<string, unknown>): unknown {
+  const c = obj(conversation);
+  if (!c || details.size === 0) return conversation;
+  const rows = edgeRows(c.messages).map((raw) => {
+    const m = obj(raw);
+    const id = str(m?.id);
+    const d = id ? obj(details.get(id)) : null;
+    return d && m ? { ...m, ...d } : raw;
+  });
+  const edge = obj(c.messages);
+  return { ...c, messages: Array.isArray(c.messages) ? rows : { ...(edge ?? {}), data: rows } };
+}
+
+/** Which messages of a thread's JSON Meta described without any content key — the ones to ask about on their own. */
+export function undescribedMessageIds(conversation: unknown): string[] {
+  const out: string[] = [];
+  for (const raw of edgeRows(obj(conversation)?.messages)) {
+    const m = obj(raw);
+    const id = str(m?.id);
+    if (!m || !id) continue;
+    if ("attachments" in m || "shares" in m || "story" in m || m.is_unsupported === true) continue;
+    out.push(id);
+  }
+  return out;
+}
+
 /** A conversation node's messages, OLDEST first (Meta sends newest first). */
 export function mapThread(
   conversation: unknown,

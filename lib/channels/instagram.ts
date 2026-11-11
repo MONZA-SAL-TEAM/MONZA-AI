@@ -245,6 +245,11 @@ export async function sendInstagramLogin(
   return sendVia(IG_LOGIN_GRAPH, message, token, fetchFn);
 }
 
+/** Meta's message ids on Instagram: base64url-ish, as the webhook and the thread list give them. */
+export function isInstagramMessageId(id: string): boolean {
+  return /^[A-Za-z0-9+/=_.:-]{8,400}$/.test(id);
+}
+
 async function sendVia(
   host: string,
   message: OutboundMessage,
@@ -267,6 +272,8 @@ async function sendVia(
         message: outboundMessagePart(message),
         // A person's own reply between 24 hours and 7 days: Meta's HUMAN_AGENT tag (types.ts).
         ...(message.humanAgent ? { messaging_type: "MESSAGE_TAG", tag: "HUMAN_AGENT" } : {}),
+        // A reply to one specific message, quoted above it: Meta's `reply_to.mid` (Samer, 2026-11-11).
+        ...(message.replyTo && isInstagramMessageId(message.replyTo) ? { reply_to: { mid: message.replyTo } } : {}),
       }),
       // Instagram fetches the file before it answers; a video takes a while.
       signal: AbortSignal.timeout(message.attachment ? 90_000 : 20_000),

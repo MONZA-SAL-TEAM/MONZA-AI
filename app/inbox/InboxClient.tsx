@@ -84,6 +84,9 @@ import { PUSH_ON_FLAG } from "@/lib/push/device";
 import { searchIntent } from "@/lib/search";
 import type { FoundPerson } from "@/lib/inbox/find";
 import { formatLebanesePhone } from "@/lib/leads/phone";
+import { quoteOf, replyableId } from "@/lib/inbox/quote";
+import { isStandIn } from "@/lib/inbox/no-content";
+import type { QuotedMessage } from "@/lib/inbox/types";
 import OwnerChip from "@/components/OwnerChip";
 import "./inbox.css";
 
@@ -476,6 +479,9 @@ export default function InboxClient(props: Props) {
   // Replies on their way (Samer, 2026-10-20: "very slow when sending"): shown at once, ticked when Meta took
   // them; one that failed stays with "Try again" and "Delete" — and is never sent twice by itself.
   const [pending, setPending] = useState<(InboxMessage & { pendingState: "sending" | "sent" | "failed" })[]>([]);
+  // The message the next reply answers, quoted above it (Samer, 2026-11-11: "reply to a specific message").
+  // Kept with its chat's id, so a quote picked in one chat never rides into another.
+  const [replyTarget, setReplyTarget] = useState<{ conversationId: string; id: string; quote: QuotedMessage } | null>(null);
   const [sendNote, setSendNote] = useState<string | null>(null);
   /** A file dropped or pasted into a WhatsApp conversation, for the attach sheet. */
   const [dropped, setDropped] = useState<File[] | null>(null);
@@ -1242,17 +1248,20 @@ export default function InboxClient(props: Props) {
     [vehicles, open]
   );
 
-  async function sendReply(retry?: { id: string; text: string; conversationId: string }) {
+  async function sendReply(retry?: { id: string; text: string; conversationId: string; replyTo?: string; quote?: QuotedMessage }) {
     if (!open && !retry) return;
     const conversationId = retry?.conversationId ?? open!.id;
     const text = (retry?.text ?? composerText).trim();
     if (text === "") return;
     const id = retry?.id ?? `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const draft = { id, conversationId, direction: "out" as const, author: "staff" as const, text, at: new Date().toISOString(), status: "queued" as const, staffName: "You", pendingState: "sending" as const };
+    // The quote travels with the reply it belongs to: the one picked for THIS chat, or the one a failed reply carried.
+    const target = retry ? (retry.replyTo ? { id: retry.replyTo, quote: retry.quote } : null) : replyTarget && replyTarget.conversationId === conversationId ? replyTarget : null;
+    const draft = { id, conversationId, direction: "out" as const, author: "staff" as const, text, at: new Date().toISOString(), status: "queued" as const, staffName: "You", pendingState: "sending" as const, ...(target ? { replyToId: target.id, ...(target.quote ? { replyTo: target.quote } : {}) } : {}) };
     // On the screen at once; the box is free for the next message straight away.
     setPending((list) => [...list.filter((p) => p.id !== id), draft]);
     if (!retry) {
       setComposerText("");
+      setReplyTarget(null);
       if (composerRef.current) composerRef.current.style.height = "";
     }
     setSendNote(null);
@@ -1262,7 +1271,7 @@ export default function InboxClient(props: Props) {
       const res = await fetch("/api/channels/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId, text }),
+        body: JSON.stringify({ conversationId, text, ...(target ? { replyTo: target.id } : {}) }),
       });
       const json = (await res.json().catch(() => null)) as { delivered?: boolean; message?: string } | null;
       if (res.ok && json?.delivered) {
@@ -1989,7 +1998,7 @@ export default function InboxClient(props: Props) {
                         {m.text !== "" && <LinkEmbeds text={m.text} />}
                         {"pendingState" in m && (m as { pendingState: string }).pendingState === "failed" && (
                           <p className="ibx-bubble-actions">
-                            <button type="button" className="btn quiet" onClick={() => void sendReply({ id: m.id, text: m.text, conversationId: m.conversationId })}>
+                            <button type="button" className="btn quiet" onClick={() => void sendReply({ id: m.id, text: m.text, conversationId: m.conversationId, replyTo: m.replyToId, quote: m.replyTo })}>
                               Try again
                             </button>
                             <button type="button" className="btn quiet" onClick={() => dropPending(m.id)}>
@@ -2006,6 +2015,24 @@ export default function InboxClient(props: Props) {
                           {" · "}
                           {localClock(m.at)}
                           {m.edited && <span className="ibx-edited"> · edited</span>}
+                          {live && replyableId(m, open.channel) && (
+                            <>
+                              {" · "}
+                              <button
+                                type="button"
+                                className="ibx-reply-btn"
+                                title="Reply to this message — it is quoted above your reply"
+                                onClick={() => {
+                                  const id = replyableId(m, open.channel);
+                                  if (!id) return;
+                                  setReplyTarget({ conversationId: open.id, id, quote: quoteOf(m, isStandIn) });
+                                  composerRef.current?.focus();
+                                }}
+                              >
+                                Reply
+                              </button>
+                            </>
+                          )}
                           {live && open.channel === "whatsapp" && m.direction === "out" && !m.deleted && !("pendingState" in m) && Date.now() - Date.parse(m.at) < 48 * 3_600_000 && waWebChatLink(open.peerPhone) && (
                             <>
                               {" · "}
@@ -2081,6 +2108,14 @@ export default function InboxClient(props: Props) {
                     }}
                   />
                 )}
+                {replyTarget && replyTarget.conversationId === open.id && (
+                  <div className="ibx-reply-bar" role="status">
+                    <Quote q={replyTarget.quote} customerName={open.customerName} onOpenImage={openImage} />
+                    <button type="button" className="ibx-icon-btn ibx-reply-x" aria-label="Do not quote this message" title="Do not quote (Esc)" onClick={() => setReplyTarget(null)}>
+                      ×
+                    </button>
+                  </div>
+                )}
                 <div className="ibx-compose">
                   <textarea
                     ref={composerRef}
@@ -2094,6 +2129,11 @@ export default function InboxClient(props: Props) {
                       e.target.style.height = `${Math.min(e.target.scrollHeight, 180)}px`;
                     }}
                     onKeyDown={(e) => {
+                      if (e.key === "Escape" && replyTarget) {
+                        e.preventDefault();
+                        setReplyTarget(null);
+                        return;
+                      }
                       // Enter sends (Shift+Enter: a new line; on a phone Enter stays a new line) — Samer, 2026-10-20.
                       if (live && enterSends({ key: e.key, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing }, touchKeyboard)) {
                         e.preventDefault();

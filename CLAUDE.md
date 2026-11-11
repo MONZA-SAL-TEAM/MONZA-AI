@@ -1298,6 +1298,34 @@ Samer's list: delete/edit messages; see the image a client refers to; mark unrea
     the account, and the SHAPE of each message as Meta returned it (`messageShape`: keys, each attachment's keys and
     MIME type, shares / story / unsupported flags, what the inbox showed) — never a word, never a link. Run it on an
     affected chat before guessing.
+- **Instagram login names a message's content only PER MESSAGE (2026-11-11; Samer: photos and videos on
+  Instagram "appear only as: Photo, video or attachment").** Meta's Conversations doc for the Instagram API with
+  Instagram login (read 2026-11-11 from its `.md` page; the HTML pages refuse automated reads): `GET
+  /{conversation-id}?fields=messages` answers ids and times, and "to get information about a message … send a
+  GET request to the /<MESSAGE_ID> endpoint" — the nested `messages{attachments…}` ask that works on Facebook
+  login described nothing there, so every photo read as `NO_TEXT`. Now, on the instagram-login route only,
+  `detailInstagramMessages` (live.ts) asks each message the nested answer left without a content key
+  (`undescribedMessageIds`) on its own — `id,created_time,from,message,attachments,shares,story,is_unsupported`,
+  then the plainer set after a refusal naming a field, paused 10 min after a second — four at a time inside
+  15 s, each answer REMEMBERED 10 min per message id (the thread refreshes every 15 s), merged back into the
+  thread's JSON (`mergeMessageDetails`, pure) before `mapThread`. A message still undescribed shows the note
+  `detailNote`, and the screen keeps what it had (`attachmentsRead: false`). The staff diagnosis
+  (`?thread=`) now lists those asks (`limit: 1`), the counts (`details`) and **the profile ask** (`profile`:
+  ok / refused with Meta's code, whether a name and a picture link came, the picture's HOST only) — run it on
+  an Instagram chat before guessing why a picture is missing. Meta's profile doc (same day): `GET
+  graph.instagram.com/{IGSID}?fields=name,username,profile_pic,…` needs `instagram_business_basic` +
+  `instagram_business_manage_messages`, "user consent is required" (set once they message), the link "will
+  expire in a few days", and a user who BLOCKED the business returns nothing.
+- **Reply to a specific message (Samer, 2026-11-11).** A "Reply" action on a WhatsApp or Instagram bubble quotes
+  it above the composer (`replyTarget`, Esc or × drops it; `lib/inbox/quote.ts` `quoteOf` / `replyableId`, pure,
+  shared with the WhatsApp thread's `quoteReplies`); the reply goes with `replyTo` (`POST /api/channels/send`,
+  shape-checked there and again by each sender). WhatsApp: Meta's contextual reply, a top-level
+  `context.message_id` (wamid) on text and media (`replyContext`); the sent row keeps `reply_to`, so the thread
+  quotes it on our side too. Instagram: `reply_to.mid` on `/me/messages`, both login routes (Meta's send docs
+  for each, read 2026-11-11: "a text message, a media message, or a template message"); the live read has no
+  field saying what a sent message answered, so the quote shows on the stand-in row and is gone once the real
+  row is read back. **Messenger has no reply-to in Meta's Send API**: the action is not offered, and a request
+  naming one is refused, never sent plain. Files sent from the attach sheet do not carry a quote yet.
 - **After 24 hours:** Instagram / Messenger — a PERSON's own reply (typed or a file) up to 7 days after the
   customer's last message goes with `messaging_type: MESSAGE_TAG, tag: HUMAN_AGENT` (`humanAgentWindow`,
   `OutboundMessage.humanAgent`; header pill "After 24 h — your own reply only"). **Meta must approve the Human
@@ -1319,6 +1347,9 @@ Samer's list: delete/edit messages; see the image a client refers to; mark unrea
 - **Enter sends (2026-10-20)** — `lib/inbox/keys.ts enterSends`: Enter sends, Shift+Enter a new line, Ctrl/Cmd+Enter
   still sends; on a touch keyboard (pointer: coarse) Enter stays a new line and the button sends, as in the WhatsApp
   app; an Enter during IME composition never sends. Used by the reply box and the file caption.
+- **Widths (2026-11-11; Samer: "make the inbox sidebar 20 to 25% larger, and the first left sidebar smaller").**
+  The list column is `minmax(410px, 500px)` (was 340–410) and the app's side rail 212 px (was 250), in
+  `inbox.css` / `globals.css`. Phones are unchanged (one column; the rail slides over).
 - **The car filter under the brand tabs (2026-10-20; Samer: "when I click on VOYAH, show me a filter to choose
   which car … so I can upsell for a car I want").** `GET /api/conversations/cars` (gated like the other inbox data
   routes) returns car codes per inbox thread id from the insights labels — `lib/inbox/cars.ts` (pure:
