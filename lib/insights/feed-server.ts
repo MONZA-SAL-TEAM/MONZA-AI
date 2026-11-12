@@ -17,7 +17,7 @@ import { channelDb } from "@/lib/channels/store";
 import { readInsightRows } from "@/lib/insights/insights-server";
 import { buildPersonFacts, type PersonFacts } from "@/lib/insights/people";
 import { executiveOverview, KPI_DEFINITIONS, type Overview } from "@/lib/insights/overview";
-import { leadsView, STAGES } from "@/lib/insights/leads";
+import { feedFunnel, leadsView, STAGES } from "@/lib/insights/leads";
 import { alertedPeople, phoneOfPerson } from "@/lib/insights/analysis-server";
 import { colourMatrix, type ColourRow } from "@/lib/insights/analysis";
 import { readCrmOutcomes, readCrmSales, readCrmStock } from "@/lib/insights/crm-server";
@@ -55,7 +55,7 @@ export interface InsightFeed {
   cars: DemandLevels[];
   colours: ColourRow[];
   /** The funnel, each stage defined and sourced. */
-  funnel: { key: string; label: string; definition: string; source: string; n: number | null; fromPrevious: number | null }[];
+  funnel: { key: string; label: string; definition: string; source: string; n: number | null; fromPrevious: number | null; /** The stage fromPrevious is measured against. */ of: string | null }[];
   byCar: { code: string; key: string; label: string; people: number; qualified: number; booked: number; won: number | null }[];
   byChannel: { key: string; label: string; people: number; qualified: number; booked: number; won: number | null }[];
   bySource: { key: string; label: string; people: number; qualified: number; booked: number; won: number | null }[];
@@ -81,6 +81,9 @@ export async function readInsightFeed(user: StaffIdentity, days: number, origin:
   }
   return feed;
 }
+
+/** How many open decisions of EACH group (customers, stock, data) the feed carries. */
+const DECISIONS_PER_GROUP = 20;
 
 async function buildFeed(user: StaffIdentity, days: number, origin: string, nowMs: number): Promise<InsightFeed | null> {
   const sb = channelDb();
@@ -138,7 +141,7 @@ async function buildFeed(user: StaffIdentity, days: number, origin: string, nowM
   const byGroup: Record<string, number> = {};
   for (const d of decisionRows) byGroup[RULES[d.rule as RuleKey].group] = (byGroup[RULES[d.rule as RuleKey].group] ?? 0) + 1;
   const RANK: Record<Severity, number> = { critical: 0, high: 1, normal: 2 };
-  const items: FeedDecision[] = decisionRows
+  const sortedDecisions: FeedDecision[] = decisionRows
     .map((d) => {
       const rule = RULES[d.rule as RuleKey];
       return {
@@ -156,8 +159,16 @@ async function buildFeed(user: StaffIdentity, days: number, origin: string, nowM
         state: d.state,
       };
     })
-    .sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.since.localeCompare(b.since))
-    .slice(0, 50);
+    .sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.since.localeCompare(b.since));
+  // Capped PER GROUP, never overall: one cap over every group let 300+ critical "customer waiting" items
+  // fill every slot, so the stock and data groups arrived empty while their counts said 7 and 2.
+  const items: FeedDecision[] = [];
+  const taken: Record<string, number> = {};
+  for (const d of sortedDecisions) {
+    if ((taken[d.group] ?? 0) >= DECISIONS_PER_GROUP) continue;
+    taken[d.group] = (taken[d.group] ?? 0) + 1;
+    items.push(d);
+  }
 
   return {
     generatedAt: new Date(nowMs).toISOString(),
@@ -166,7 +177,7 @@ async function buildFeed(user: StaffIdentity, days: number, origin: string, nowM
     weeks: o.weeks.map((week, i) => ({ week, newPeople: o.newPerWeek[i] ?? 0, messages: o.messagesPerWeek[i] ?? 0, buying: o.buyingPerWeek[i] ?? 0 })),
     cars: demandLevels({ people, stock, sales, orderedModels }),
     colours: colourMatrix(rows.observations ?? [], people, personOf, false, stock),
-    funnel: funnel.stages.map((s) => ({ key: s.def.key, label: s.def.label, definition: s.def.definition, source: s.def.source, n: s.n, fromPrevious: s.fromPrevious })),
+    funnel: feedFunnel(funnel.stages),
     byCar: funnel.byModel.map((b) => ({ code: b.key, ...breakdown({ ...b, label: carName(b.key) }) })),
     byChannel: funnel.byChannel.map(breakdown),
     bySource: funnel.bySource.map(breakdown),

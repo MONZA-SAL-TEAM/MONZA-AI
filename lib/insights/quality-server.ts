@@ -9,24 +9,26 @@ import { readMetaRuns, type MetaRunView } from "@/lib/insights/meta-backfill";
 import { READER_VERSION } from "@/lib/wasales/reader";
 
 export interface QualityExtras {
-  sources: { key: string; n: number }[];
-  readerVersions: { version: number; n: number }[];
+  /** n null = could not be read. */
+  sources: { key: string; n: number | null }[];
+  readerVersions: { version: number; n: number | null }[];
   current: number;
   whatsappRebuild: { state: string | null; updatedAt: string | null };
   metaRuns: MetaRunView[];
   peopleRefreshedAt: string | null;
-  peopleRows: number;
+  peopleRows: number | null;
   /** The server-side WhatsApp re-read is running now (its lease is alive). */
   rereadRunning: boolean;
   /** Instagram customer messages recorded in the last 7 days. */
-  instagram7d: number;
+  instagram7d: number | null;
   /** When the permanent demand record was last stored; null = never. */
   demandStoredAt: string | null;
 }
 
-async function count(build: () => PromiseLike<{ count: number | null; error: unknown }>): Promise<number> {
+/** null = the count could not be read. Never 0: a health page that turns a failed query into "0" hides the failure. */
+async function count(build: () => PromiseLike<{ count: number | null; error: unknown }>): Promise<number | null> {
   const { count: n, error } = await build();
-  return error ? 0 : (n ?? 0);
+  return error ? null : (n ?? 0);
 }
 
 export async function readQualityExtras(): Promise<QualityExtras | null> {
@@ -49,7 +51,7 @@ export async function readQualityExtras(): Promise<QualityExtras | null> {
   const w = wa as { state?: string; updated_at?: string; lease_until?: string | null } | null;
   return {
     sources,
-    readerVersions: readerVersions.filter((r) => r.n > 0),
+    readerVersions: readerVersions.filter((r) => r.n !== 0),
     current: READER_VERSION,
     whatsappRebuild: { state: w?.state ?? null, updatedAt: w?.updated_at ?? null },
     metaRuns,
