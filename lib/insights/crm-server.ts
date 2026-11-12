@@ -9,7 +9,7 @@
 import { crmEnv, makeUserClient, rel } from "@/lib/connectors/crm";
 import type { StaffIdentity } from "@/lib/connectors/types";
 import { isAutoLinkable, normalizeLebanesePhone } from "@/lib/leads/phone";
-import { crmModelCode, furthestOutcome, STOCK_STATUSES, type CrmOrderRow, type CrmPurchase, type CrmResult, type CrmSaleRow, type PersonCrm, type StockRow } from "@/lib/insights/crm";
+import { crmModelCode, furthestOutcome, STOCK_STATUSES, type CrmOrderRow, type CrmPurchase, type CrmResult, type CrmSaleRow, type CrmTestDrive, type PersonCrm, type StockRow } from "@/lib/insights/crm";
 
 const connected = (identity: StaffIdentity) => crmEnv() !== null && identity.crmAccessToken !== "demo";
 const why = (e: unknown) => (e instanceof Error ? e.message : JSON.stringify(e));
@@ -157,6 +157,30 @@ export async function readCrmSales(identity: StaffIdentity): Promise<CrmResult<C
     return { state: "ok", data: out };
   } catch (e) {
     console.error("[insights] the CRM read of sales volumes failed:", why(e));
+    return { state: "unavailable" };
+  }
+}
+
+/**
+ * The CRM's customer test drives (the /test-drive form), as the viewer: the customer's mobile and when the
+ * drive started — never a name, a licence or a car. Cancelled drives are left out. A refusal reads
+ * "unavailable", never "no test drives".
+ */
+export async function readCrmTestDrives(identity: StaffIdentity): Promise<CrmResult<CrmTestDrive[]>> {
+  if (!connected(identity)) return { state: "not_connected" };
+  try {
+    const db = makeUserClient({ user: identity, conversationId: null, turnId: "insights-test-drives" });
+    const { data, error } = await db.from("test_drives").select("customer_phone, test_drive_start_at, status").neq("status", "cancelled").limit(20000);
+    if (error) throw error;
+    const out: CrmTestDrive[] = [];
+    for (const r of (data ?? []) as Record<string, unknown>[]) {
+      const phone = typeof r.customer_phone === "string" && isAutoLinkable(r.customer_phone) ? normalizeLebanesePhone(r.customer_phone) : null;
+      const at = typeof r.test_drive_start_at === "string" ? r.test_drive_start_at : null;
+      if (phone && at) out.push({ phone, at });
+    }
+    return { state: "ok", data: out };
+  } catch (e) {
+    console.error("[insights] the CRM read of test drives failed:", why(e));
     return { state: "unavailable" };
   }
 }

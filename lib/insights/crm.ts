@@ -219,3 +219,74 @@ export function monthsOfStock(now: number, soldLast90: number): number | null {
   if (soldLast90 <= 0) return null;
   return Math.round((now / (soldLast90 / 3)) * 10) / 10;
 }
+
+/* ── Sales by SALE DATE, and CRM test drives (2026-11-12) ────────────────────────────────────────────────
+ * "Bought (CRM)" counts people who wrote in the period and have a paid order — whenever it was paid. That
+ * answers "did this period's chats buy?", not "how many cars did we sell this period?". Live, the CRM held
+ * 192 paid orders while the page showed 19. These two figures answer the second question by the CRM's own
+ * sale date: every sale, and the ones whose buyer wrote to us first.
+ */
+
+export interface PeriodSales {
+  /** Every paid/delivered CRM order dated in the window — chats or not. */
+  all: number;
+  /** Paid orders in the window with no date at all (not counted in `all`). */
+  undated: number;
+  /** Distinct buyers paid in the window whose phone wrote to us BEFORE the sale. */
+  fromChats: number;
+  /** Of `fromChats`, those whose first tracked touch was an ad click. */
+  fromAds: number;
+}
+
+export interface ChatContact {
+  /** When the person first wrote to us. */
+  firstAt: string;
+  /** The first tracked touch's kind (ad_click, social_post, direct…), or null. */
+  firstTouch: string | null;
+}
+
+export function salesInPeriod(
+  sales: readonly CrmSaleRow[],
+  crmByPhone: Readonly<Record<string, PersonCrm>>,
+  chatByPhone: ReadonlyMap<string, ChatContact>,
+  window: { sinceMs: number; untilMs: number }
+): PeriodSales {
+  const inside = (iso: string | null) => {
+    const t = iso ? Date.parse(iso) : NaN;
+    return !Number.isNaN(t) && t >= window.sinceMs && t <= window.untilMs;
+  };
+  let all = 0;
+  let undated = 0;
+  for (const r of sales) {
+    if (!SOLD.has((r.status ?? "").toLowerCase())) continue;
+    if (!r.at || Number.isNaN(Date.parse(r.at))) undated++;
+    else if (inside(r.at)) all++;
+  }
+  // One customer can carry two phones: count each buyer (the same PersonCrm object) once.
+  const counted = new Set<PersonCrm>();
+  let fromAds = 0;
+  for (const [phone, person] of Object.entries(crmByPhone)) {
+    if (counted.has(person) || !person.wonAt || !inside(person.wonAt)) continue;
+    const chat = chatByPhone.get(phone);
+    if (!chat || Date.parse(chat.firstAt) > Date.parse(person.wonAt)) continue;
+    counted.add(person);
+    if (chat.firstTouch === "ad_click") fromAds++;
+  }
+  return { all, undated, fromChats: counted.size, fromAds };
+}
+
+/** A CRM test drive (the /test-drive form): the customer's mobile and when it started. Never a name. */
+export interface CrmTestDrive {
+  phone: string;
+  at: string;
+}
+
+/** Distinct people in `phones` with a CRM test drive (not cancelled) started in the window. */
+export function testDrivesTaken(drives: readonly CrmTestDrive[], phones: ReadonlySet<string>, window: { sinceMs: number; untilMs: number }): number {
+  const seen = new Set<string>();
+  for (const d of drives) {
+    const t = Date.parse(d.at);
+    if (phones.has(d.phone) && t >= window.sinceMs && t <= window.untilMs) seen.add(d.phone);
+  }
+  return seen.size;
+}
