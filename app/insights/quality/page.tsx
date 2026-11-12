@@ -35,8 +35,11 @@ export default async function QualityPage({ searchParams }: { searchParams: Prom
           crm.state === "ok" && phoneOf ? (p) => Boolean(crm.data[phoneOf(p) ?? ""]) : undefined
         )
       : null;
-  const current = extras?.readerVersions.find((r) => r.version === extras.current)?.n ?? 0;
-  const allLabels = extras?.readerVersions.reduce((a, r) => a + r.n, 0) ?? 0;
+  // A version whose count failed makes the share unknown — never a share computed over the counts that happened to load.
+  const versionsKnown = extras ? extras.readerVersions.every((r) => r.n !== null) : false;
+  const current = versionsKnown ? (extras?.readerVersions.find((r) => r.version === extras.current)?.n ?? 0) : null;
+  const allLabels = versionsKnown ? (extras?.readerVersions.reduce((a, r) => a + (r.n ?? 0), 0) ?? 0) : null;
+  const shown = (n: number | null) => (n === null ? "— (could not be read)" : n);
 
   return (
     <div className="board">
@@ -97,12 +100,12 @@ export default async function QualityPage({ searchParams }: { searchParams: Prom
                   <tbody>
                     <tr>
                       <th scope="row">Labels made by the current reader</th>
-                      <td>{allLabels ? `${Math.round((current / allLabels) * 100)}%` : "—"}</td>
-                      <td>{current} of {allLabels}{extras.rereadRunning ? " · re-reading on the server now" : ""}</td>
+                      <td>{allLabels && current !== null ? `${Math.round((current / allLabels) * 100)}%` : "—"}</td>
+                      <td>{current === null || allLabels === null ? "could not be read" : `${current} of ${allLabels}`}{extras.rereadRunning ? " · re-reading on the server now" : ""}</td>
                     </tr>
                     <tr>
                       <th scope="row">Instagram messages, last 7 days</th>
-                      <td>{extras.instagram7d}</td>
+                      <td>{shown(extras.instagram7d)}</td>
                       <td>{extras.instagram7d === 0 ? "none reach MONZA AI" : ""}</td>
                     </tr>
                     <tr>
@@ -146,20 +149,20 @@ export default async function QualityPage({ searchParams }: { searchParams: Prom
                       {extras.sources.map((s) => (
                         <tr key={s.key}>
                           <th scope="row">{SOURCE_LABEL[s.key] ?? s.key}</th>
-                          <td>{s.n}</td>
+                          <td>{shown(s.n)}</td>
                         </tr>
                       ))}
                       {extras.readerVersions.map((r) => (
                         <tr key={r.version}>
                           <th scope="row">Reader version {r.version}{r.version === extras.current ? " (current)" : " (older — rebuild)"}</th>
-                          <td>{r.n}</td>
+                          <td>{shown(r.n)}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
                 <p className="ins-known">
-                  WhatsApp history: {extras.whatsappRebuild.state ?? "not read yet"} ({day(extras.whatsappRebuild.updatedAt)}). Per-person summary: {extras.peopleRows} people,
+                  WhatsApp history: {extras.whatsappRebuild.state ?? "not read yet"} ({day(extras.whatsappRebuild.updatedAt)}). Per-person summary: {shown(extras.peopleRows)} people,
                   rebuilt {day(extras.peopleRefreshedAt)}.
                 </p>
               </div>

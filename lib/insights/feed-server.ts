@@ -17,11 +17,11 @@ import { channelDb } from "@/lib/channels/store";
 import { readInsightRows } from "@/lib/insights/insights-server";
 import { buildPersonFacts, type PersonFacts } from "@/lib/insights/people";
 import { executiveOverview, KPI_DEFINITIONS, type Overview } from "@/lib/insights/overview";
-import { leadsView, STAGES } from "@/lib/insights/leads";
+import { feedFunnel, leadsView, STAGES } from "@/lib/insights/leads";
 import { alertedPeople, phoneOfPerson } from "@/lib/insights/analysis-server";
 import { colourMatrix, type ColourRow } from "@/lib/insights/analysis";
-import { readCrmOutcomes, readCrmSales, readCrmStock } from "@/lib/insights/crm-server";
-import { salesByModel, stockByModel, type CarStock, type CrmOutcome, type ModelSales } from "@/lib/insights/crm";
+import { readCrmOutcomes, readCrmSales, readCrmStock, readCrmTestDrives } from "@/lib/insights/crm-server";
+import { salesByModel, salesInPeriod, stockByModel, testDrivesTaken, type CarStock, type ChatContact, type CrmOutcome, type ModelSales } from "@/lib/insights/crm";
 import { demandLevels, describe, RULES, type DemandLevels, type RuleKey, type Severity } from "@/lib/insights/decisions";
 import { carName } from "@/lib/insights/facts";
 import { rereadPending } from "@/lib/wasales/signal-server";
@@ -55,7 +55,7 @@ export interface InsightFeed {
   cars: DemandLevels[];
   colours: ColourRow[];
   /** The funnel, each stage defined and sourced. */
-  funnel: { key: string; label: string; definition: string; source: string; n: number | null; fromPrevious: number | null }[];
+  funnel: { key: string; label: string; definition: string; source: string; n: number | null; fromPrevious: number | null; /** The stage fromPrevious is measured against. */ of: string | null }[];
   byCar: { code: string; key: string; label: string; people: number; qualified: number; booked: number; won: number | null }[];
   byChannel: { key: string; label: string; people: number; qualified: number; booked: number; won: number | null }[];
   bySource: { key: string; label: string; people: number; qualified: number; booked: number; won: number | null }[];
@@ -82,14 +82,18 @@ export async function readInsightFeed(user: StaffIdentity, days: number, origin:
   return feed;
 }
 
+/** How many open decisions of EACH group (customers, stock, data) the feed carries. */
+const DECISIONS_PER_GROUP = 20;
+
 async function buildFeed(user: StaffIdentity, days: number, origin: string, nowMs: number): Promise<InsightFeed | null> {
   const sb = channelDb();
   if (!sb) return null;
-  const [read, crm, stockRead, salesRead, pending, igCount, demandLast, liveDecisions] = await Promise.all([
+  const [read, crm, stockRead, salesRead, drivesRead, pending, igCount, demandLast, liveDecisions] = await Promise.all([
     readInsightRows(null),
     readCrmOutcomes(user),
     readCrmStock(user),
     readCrmSales(user),
+    readCrmTestDrives(user),
     rereadPending(),
     sb.from("sales_signals").select("id", { count: "exact", head: true }).eq("channel", "instagram").gte("at", new Date(nowMs - 7 * DAY).toISOString()),
     sb.from("insight_demand_daily").select("computed_at").order("computed_at", { ascending: false }).limit(1).maybeSingle(),
@@ -134,11 +138,33 @@ async function buildFeed(user: StaffIdentity, days: number, origin: string, nowM
   const funnel = leadsView({ people, alerted: alertedPeople(rows, personOf), phoneOf, crm: crm.state === "ok" ? { state: "ok", byPhone: crm.data } : crm, sinceMs: window.sinceMs, nowMs });
   const breakdown = (b: { key: string; label: string; people: number; qualified: number; booked: number; won: number | null }) => ({ key: b.key, label: b.label, people: b.people, qualified: b.qualified, booked: b.booked, won: b.won });
 
+  // Sales by the CRM's own sale date, and the CRM's test drives — beside, not instead of, the chat-cohort figures.
+  const chatByPhone = new Map<string, ChatContact>();
+  for (const p of all) {
+    const ph = phoneOf(p);
+    if (!ph) continue;
+    const had = chatByPhone.get(ph);
+    if (!had || p.firstAt < had.firstAt) chatByPhone.set(ph, { firstAt: p.firstAt, firstTouch: p.firstTouch });
+  }
+  const sold = (w: { sinceMs: number; untilMs: number }) =>
+    salesRead.state === "ok" && crm.state === "ok" ? salesInPeriod(salesRead.data, crm.data, chatByPhone, w) : null;
+  const soldNow = sold(window);
+  const soldPrev = sinceMs ? sold(prevWindow) : null;
+  const phonesIn = (list: readonly PersonFacts[]) => new Set(list.map(phoneOf).filter((x): x is string => Boolean(x)));
+  const drives = (list: readonly PersonFacts[], w: { sinceMs: number; untilMs: number }) =>
+    drivesRead.state === "ok" ? testDrivesTaken(drivesRead.data, phonesIn(list), w) : null;
+  const crmKpis = [
+    { key: "soldPeriod", label: "Cars sold (CRM)", definition: "Paid or delivered CRM orders dated in the period, by the CRM's sale date — every sale, whether the buyer wrote to us or not.", value: soldNow?.all ?? null, previous: soldPrev?.all ?? null, ...(soldNow?.undated ? { foot: `${soldNow.undated} paid without a date, not counted` } : {}) },
+    { key: "soldFromChats", label: "Sold to people who wrote first", definition: "Distinct buyers paid in the period whose mobile wrote to MONZA AI before the sale date.", value: soldNow?.fromChats ?? null, previous: soldPrev?.fromChats ?? null },
+    { key: "soldFromAds", label: "…of which came from an ad", definition: "Of the buyers who wrote first, those whose first tracked contact was an ad click (tracked since September 2026).", value: soldNow?.fromAds ?? null, previous: soldPrev?.fromAds ?? null },
+    { key: "testDrivesCrm", label: "Test drives taken (CRM)", definition: "People who wrote in the period with a test drive in the CRM's test-drive form started in the period, matched by mobile.", value: drives(people, window), previous: sinceMs ? drives(previous, prevWindow) : null },
+  ];
+
   const decisionRows = ((liveDecisions.data ?? []) as { rule: string; severity: Severity; model: string | null; facts: Record<string, unknown> | null; first_seen: string; due_at: string | null; state: string }[]).filter((d) => d.rule in RULES);
   const byGroup: Record<string, number> = {};
   for (const d of decisionRows) byGroup[RULES[d.rule as RuleKey].group] = (byGroup[RULES[d.rule as RuleKey].group] ?? 0) + 1;
   const RANK: Record<Severity, number> = { critical: 0, high: 1, normal: 2 };
-  const items: FeedDecision[] = decisionRows
+  const sortedDecisions: FeedDecision[] = decisionRows
     .map((d) => {
       const rule = RULES[d.rule as RuleKey];
       return {
@@ -156,17 +182,28 @@ async function buildFeed(user: StaffIdentity, days: number, origin: string, nowM
         state: d.state,
       };
     })
-    .sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.since.localeCompare(b.since))
-    .slice(0, 50);
+    .sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.since.localeCompare(b.since));
+  // Capped PER GROUP, never overall: one cap over every group let 300+ critical "customer waiting" items
+  // fill every slot, so the stock and data groups arrived empty while their counts said 7 and 2.
+  const items: FeedDecision[] = [];
+  const taken: Record<string, number> = {};
+  for (const d of sortedDecisions) {
+    if ((taken[d.group] ?? 0) >= DECISIONS_PER_GROUP) continue;
+    taken[d.group] = (taken[d.group] ?? 0) + 1;
+    items.push(d);
+  }
 
   return {
     generatedAt: new Date(nowMs).toISOString(),
     period: { days, since: new Date(window.sinceMs).toISOString(), until: new Date(untilMs).toISOString() },
-    kpis: o.kpis.map((k) => ({ key: k.key, label: k.label, definition: KPI_DEFINITIONS[k.key] ?? "", value: k.value, previous: k.previous, ...(k.foot ? { foot: k.foot } : {}) })),
+    kpis: [
+      ...o.kpis.map((k) => ({ key: k.key, label: k.label, definition: KPI_DEFINITIONS[k.key] ?? "", value: k.value, previous: k.previous, ...(k.foot ? { foot: k.foot } : {}) })),
+      ...crmKpis,
+    ],
     weeks: o.weeks.map((week, i) => ({ week, newPeople: o.newPerWeek[i] ?? 0, messages: o.messagesPerWeek[i] ?? 0, buying: o.buyingPerWeek[i] ?? 0 })),
     cars: demandLevels({ people, stock, sales, orderedModels }),
     colours: colourMatrix(rows.observations ?? [], people, personOf, false, stock),
-    funnel: funnel.stages.map((s) => ({ key: s.def.key, label: s.def.label, definition: s.def.definition, source: s.def.source, n: s.n, fromPrevious: s.fromPrevious })),
+    funnel: feedFunnel(funnel.stages),
     byCar: funnel.byModel.map((b) => ({ code: b.key, ...breakdown({ ...b, label: carName(b.key) }) })),
     byChannel: funnel.byChannel.map(breakdown),
     bySource: funnel.bySource.map(breakdown),

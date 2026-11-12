@@ -203,3 +203,31 @@ export function leadsView(input: LeadsInput): LeadsView {
     crm: input.crm.state,
   };
 }
+
+/**
+ * Each stage's share is of the stage it actually follows, not of the row above it. Test drives and
+ * quotations are parallel branches off a qualified lead, so both are measured against "qualified";
+ * reserved is of quoted, bought of reserved. "Handed to Sales" is left out: it counts people for whom the
+ * bot raised an alert (any alert, not only "ready to buy"), so it is not a step — it showed as 452% of the
+ * step before. It stays on the channels page, where it is a count.
+ */
+const FUNNEL_PARENT: Readonly<Record<string, string>> = {
+  asked: "wrote",
+  interest: "asked",
+  qualified: "interest",
+  test_drive_asked: "qualified",
+  test_drive_booked: "test_drive_asked",
+  quoted: "qualified",
+  reserved: "quoted",
+  won: "reserved",
+};
+
+export function feedFunnel(stages: readonly { def: { key: string; label: string; definition: string; source: string }; n: number | null }[]) {
+  const kept = stages.filter((s) => s.def.key !== "handoff");
+  const nOf = new Map(kept.map((s) => [s.def.key, s.n]));
+  return kept.map((s) => {
+    const parent = FUNNEL_PARENT[s.def.key];
+    const p = parent ? (nOf.get(parent) ?? null) : null;
+    return { key: s.def.key, label: s.def.label, definition: s.def.definition, source: s.def.source, n: s.n, fromPrevious: s.n !== null && p ? s.n / p : null, of: parent ?? null };
+  });
+}
