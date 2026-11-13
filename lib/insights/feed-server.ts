@@ -22,7 +22,7 @@ import { alertedPeople, phoneOfPerson } from "@/lib/insights/analysis-server";
 import { colourMatrix, type ColourRow } from "@/lib/insights/analysis";
 import { readCrmOutcomes, readCrmSales, readCrmStock, readCrmTestDrives } from "@/lib/insights/crm-server";
 import { readTeamReport } from "@/lib/insights/team-server";
-import { feedTeam, firstReplyByConversation, speedVsSale, type FeedTeam } from "@/lib/insights/team";
+import { feedTeam, firstReplyByConversation, showroomOpenAt, speedVsSale, type FeedTeam } from "@/lib/insights/team";
 import { salesByModel, salesInPeriod, stockByModel, testDrivesTaken, type CarStock, type ChatContact, type CrmOutcome, type ModelSales } from "@/lib/insights/crm";
 import { demandLevels, describe, RULES, type DemandLevels, type RuleKey, type Severity } from "@/lib/insights/decisions";
 import { carName } from "@/lib/insights/facts";
@@ -177,7 +177,14 @@ async function buildFeed(user: StaffIdentity, days: number, origin: string, nowM
           return Boolean(wonAt && wonAt.slice(0, 10) >= firstAt.slice(0, 10));
         }
       : null;
-  const team: FeedTeam | null = teamRead.state === "ok" ? feedTeam(teamRead.report, speedVsSale(firstReplyByConversation(teamRead.turns), boughtAfter)) : null;
+  let team: FeedTeam | null = null;
+  if (teamRead.state === "ok") {
+    const first = firstReplyByConversation(teamRead.turns);
+    team = feedTeam(teamRead.report, speedVsSale(first, boughtAfter), {
+      inHours: speedVsSale(first, boughtAfter, showroomOpenAt),
+      afterHours: speedVsSale(first, boughtAfter, (at) => !showroomOpenAt(at)),
+    });
+  }
 
   const decisionRows = ((liveDecisions.data ?? []) as { rule: string; severity: Severity; model: string | null; facts: Record<string, unknown> | null; first_seen: string; due_at: string | null; state: string }[]).filter((d) => d.rule in RULES);
   const byGroup: Record<string, number> = {};
