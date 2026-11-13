@@ -51,6 +51,10 @@ export interface OwnerStats {
 }
 
 export interface TeamReport {
+  /** Chats with at least one turn in the period. */
+  chats: number;
+  /** Of those, chats with an owner (a salesperson took or was given the lead). */
+  ownedChats: number;
   bursts: number;
   answered: number;
   overall: ResponderStats;
@@ -186,6 +190,8 @@ export function buildTeamReport(rows: TeamRows, now: string, opts: { noFollowUpD
   const overdueAlerts = rows.alerts.filter((a) => a.status === "open" && nowMs - Date.parse(a.created_at) > overdueHours * 3_600_000).length;
 
   return {
+    chats: byConv.size,
+    ownedChats: rows.owned.filter((o) => byConv.has(o.conversation_id)).length,
     bursts,
     answered: responses.length,
     overall: stats("all", "Everyone", responses),
@@ -241,4 +247,90 @@ export function handoffs(rows: { alerts: { conversation_ref: string; status: str
   return [...byKind.entries()]
     .map(([kind, g]) => ({ kind, created: g.created, open: g.open, answered: g.mins.length, medianMinutes: median(g.mins), medianBusinessMinutes: median(g.biz), owned: g.owned }))
     .sort((a, b) => b.created - a.created);
+}
+
+/* ── The sales team, for the Monza app's Insight page (2026-11-13; Samer: "a report of the sales team — the time it
+ * takes to respond, conversion rate"). Two honest limits shape it: a reply typed in the WhatsApp phone app carries no
+ * name, and almost no chat has an owner, so per-person CONVERSION cannot be measured yet. What can be measured: the
+ * team's speed, each named person's speed, and whether a chat answered faster bought more often. ───────────────── */
+
+/** Business minutes from each chat's FIRST customer message to the first person's reply; null = never answered. */
+export function firstReplyByConversation(turns: readonly TurnRow[]): Map<string, { firstAt: string; minutes: number | null }> {
+  const byConv = new Map<string, TurnRow[]>();
+  for (const t of turns) (byConv.get(t.conversation_id) ?? byConv.set(t.conversation_id, []).get(t.conversation_id)!).push(t);
+  const out = new Map<string, { firstAt: string; minutes: number | null }>();
+  for (const [conv, list] of byConv) {
+    const sorted = [...list].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+    const first = sorted.find((t) => t.author === "customer");
+    if (!first) continue;
+    const reply = sorted.find((t) => t.author === "staff" && Date.parse(t.at) > Date.parse(first.at));
+    out.set(conv, { firstAt: first.at, minutes: reply ? businessMinutes(first.at, reply.at) : null });
+  }
+  return out;
+}
+
+export const SPEED_BANDS = [
+  { key: "15m", label: "Within 15 minutes", max: 15 },
+  { key: "1h", label: "15 minutes to 1 hour", max: 60 },
+  { key: "4h", label: "1 to 4 hours", max: 240 },
+  { key: "1d", label: "4 hours to 1 working day", max: 600 },
+  { key: "more", label: "More than a working day", max: Infinity },
+  { key: "never", label: "Never answered", max: NaN },
+] as const;
+
+export interface SpeedBand {
+  key: string;
+  label: string;
+  chats: number;
+  /** Chats whose customer later bought (a paid CRM order dated on or after their first message). null = CRM unreadable. */
+  bought: number | null;
+}
+
+/** First-reply speed against later sales. `boughtAfter` answers per chat; null when the CRM could not be read. */
+export function speedVsSale(first: ReadonlyMap<string, { firstAt: string; minutes: number | null }>, boughtAfter: ((conv: string, firstAt: string) => boolean) | null): SpeedBand[] {
+  const bands: SpeedBand[] = SPEED_BANDS.map((b) => ({ key: b.key, label: b.label, chats: 0, bought: boughtAfter ? 0 : null }));
+  for (const [conv, f] of first) {
+    const i = f.minutes === null ? bands.length - 1 : SPEED_BANDS.findIndex((b) => f.minutes! <= b.max);
+    const band = bands[i];
+    band.chats++;
+    if (boughtAfter && band.bought !== null && boughtAfter(conv, f.firstAt)) band.bought++;
+  }
+  return bands;
+}
+
+export interface FeedTeam {
+  chats: number;
+  ownedChats: number;
+  bursts: number;
+  answered: number;
+  unanswered: number;
+  botFirst: number;
+  /** Share of answered bursts whose reply carries a person's name (the rest were typed in the phone app). */
+  attributedShare: number | null;
+  overall: { medianBusinessMinutes: number | null; within60Share: number | null; sameDayShare: number | null };
+  people: { name: string; answered: number; medianBusinessMinutes: number | null; within60Share: number | null; named: boolean }[];
+  owners: { name: string; leads: number; waitingOnUs: number; noFollowUp: number }[];
+  speed: SpeedBand[];
+}
+
+export function feedTeam(report: TeamReport, speed: SpeedBand[]): FeedTeam {
+  const share = (n: number, of: number) => (of > 0 ? n / of : null);
+  const named = report.people.filter((p) => p.name !== PHONE_APP).reduce((a, p) => a + p.answered, 0);
+  return {
+    chats: report.chats,
+    ownedChats: report.ownedChats,
+    bursts: report.bursts,
+    answered: report.answered,
+    unanswered: report.unanswered,
+    botFirst: report.botFirst,
+    attributedShare: share(named, report.answered),
+    overall: {
+      medianBusinessMinutes: report.overall.medianBusinessMinutes,
+      within60Share: share(report.overall.within60, report.overall.answered),
+      sameDayShare: share(report.overall.sameDay, report.overall.answered),
+    },
+    people: report.people.map((p) => ({ name: p.name, answered: p.answered, medianBusinessMinutes: p.medianBusinessMinutes, within60Share: share(p.within60, p.answered), named: p.name !== PHONE_APP })),
+    owners: report.owners.map((o) => ({ name: o.name, leads: o.leads, waitingOnUs: o.waitingOnUs, noFollowUp: o.noFollowUp })),
+    speed,
+  };
 }
