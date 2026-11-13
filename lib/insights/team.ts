@@ -255,6 +255,14 @@ export function handoffs(rows: { alerts: { conversation_ref: string; status: str
  * team's speed, each named person's speed, and whether a chat answered faster bought more often. ───────────────── */
 
 /** Business minutes from each chat's FIRST customer message to the first person's reply; null = never answered. */
+/** The showroom was open at this instant (Beirut; Mon–Fri 8–18, Sat 8–14). */
+export function showroomOpenAt(iso: string): boolean {
+  const w = beirutTime(Date.parse(iso));
+  const span = OPEN[w.weekday];
+  const m = w.hour * 60 + w.minute;
+  return Boolean(span && m >= span[0] && m < span[1]);
+}
+
 export function firstReplyByConversation(turns: readonly TurnRow[]): Map<string, { firstAt: string; minutes: number | null }> {
   const byConv = new Map<string, TurnRow[]>();
   for (const t of turns) (byConv.get(t.conversation_id) ?? byConv.set(t.conversation_id, []).get(t.conversation_id)!).push(t);
@@ -287,9 +295,14 @@ export interface SpeedBand {
 }
 
 /** First-reply speed against later sales. `boughtAfter` answers per chat; null when the CRM could not be read. */
-export function speedVsSale(first: ReadonlyMap<string, { firstAt: string; minutes: number | null }>, boughtAfter: ((conv: string, firstAt: string) => boolean) | null): SpeedBand[] {
+export function speedVsSale(
+  first: ReadonlyMap<string, { firstAt: string; minutes: number | null }>,
+  boughtAfter: ((conv: string, firstAt: string) => boolean) | null,
+  only: (firstAt: string) => boolean = () => true
+): SpeedBand[] {
   const bands: SpeedBand[] = SPEED_BANDS.map((b) => ({ key: b.key, label: b.label, chats: 0, bought: boughtAfter ? 0 : null }));
   for (const [conv, f] of first) {
+    if (!only(f.firstAt)) continue;
     const i = f.minutes === null ? bands.length - 1 : SPEED_BANDS.findIndex((b) => f.minutes! <= b.max);
     const band = bands[i];
     band.chats++;
@@ -311,9 +324,16 @@ export interface FeedTeam {
   people: { name: string; answered: number; medianBusinessMinutes: number | null; within60Share: number | null; named: boolean }[];
   owners: { name: string; leads: number; waitingOnUs: number; noFollowUp: number }[];
   speed: SpeedBand[];
+  /**
+   * The same, split by when the customer FIRST wrote. Studied live 2026-11-13: slow replies were mostly chats begun
+   * after hours (74% of the "more than a day" ones), and after-hours chats almost never bought however fast we
+   * answered — so the unsplit table showed timing, not speed. Within showroom hours no speed pattern was visible.
+   */
+  speedInHours: SpeedBand[];
+  speedAfterHours: SpeedBand[];
 }
 
-export function feedTeam(report: TeamReport, speed: SpeedBand[]): FeedTeam {
+export function feedTeam(report: TeamReport, speed: SpeedBand[], split: { inHours: SpeedBand[]; afterHours: SpeedBand[] } = { inHours: [], afterHours: [] }): FeedTeam {
   const share = (n: number, of: number) => (of > 0 ? n / of : null);
   const named = report.people.filter((p) => p.name !== PHONE_APP).reduce((a, p) => a + p.answered, 0);
   return {
@@ -332,5 +352,7 @@ export function feedTeam(report: TeamReport, speed: SpeedBand[]): FeedTeam {
     people: report.people.map((p) => ({ name: p.name, answered: p.answered, medianBusinessMinutes: p.medianBusinessMinutes, within60Share: share(p.within60, p.answered), named: p.name !== PHONE_APP })),
     owners: report.owners.map((o) => ({ name: o.name, leads: o.leads, waitingOnUs: o.waitingOnUs, noFollowUp: o.noFollowUp })),
     speed,
+    speedInHours: split.inHours,
+    speedAfterHours: split.afterHours,
   };
 }

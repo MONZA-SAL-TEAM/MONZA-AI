@@ -39,3 +39,17 @@ test("the feed says how much of the replying carries a name, and chats with an o
   assert.equal(team.attributedShare, 0.5); // Michelle named; the other reply came from the phone app
   assert.equal(team.people.find((p) => p.name === PHONE_APP)?.named, false);
 });
+
+test("the speed table splits by when the customer first wrote: showroom hours or after", async () => {
+  const { showroomOpenAt } = await import("@/lib/insights/team");
+  assert.equal(showroomOpenAt("2026-11-10T08:00:00Z"), true); // Tue 10:00 Beirut
+  assert.equal(showroomOpenAt("2026-11-10T19:00:00Z"), false); // Tue 21:00
+  assert.equal(showroomOpenAt("2026-11-14T13:00:00Z"), false); // Sat 15:00, closed at 14:00
+  assert.equal(showroomOpenAt("2026-11-15T08:00:00Z"), false); // Sunday
+  const late = [t("late", "2026-11-10T19:00:00Z", "customer"), t("late", "2026-11-11T08:30:00Z", "staff")];
+  const f = firstReplyByConversation([...turns, ...late]);
+  const inH = speedVsSale(f, () => false, showroomOpenAt);
+  const after = speedVsSale(f, () => false, (at) => !showroomOpenAt(at));
+  assert.equal(inH.reduce((a, b) => a + b.chats, 0), 3);
+  assert.equal(after.reduce((a, b) => a + b.chats, 0), 1);
+});
