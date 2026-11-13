@@ -21,6 +21,8 @@ import { feedFunnel, leadsView, STAGES } from "@/lib/insights/leads";
 import { alertedPeople, phoneOfPerson } from "@/lib/insights/analysis-server";
 import { colourMatrix, type ColourRow } from "@/lib/insights/analysis";
 import { readCrmOutcomes, readCrmSales, readCrmStock, readCrmTestDrives } from "@/lib/insights/crm-server";
+import { readTeamReport } from "@/lib/insights/team-server";
+import { feedTeam, firstReplyByConversation, speedVsSale, type FeedTeam } from "@/lib/insights/team";
 import { salesByModel, salesInPeriod, stockByModel, testDrivesTaken, type CarStock, type ChatContact, type CrmOutcome, type ModelSales } from "@/lib/insights/crm";
 import { demandLevels, describe, RULES, type DemandLevels, type RuleKey, type Severity } from "@/lib/insights/decisions";
 import { carName } from "@/lib/insights/facts";
@@ -63,6 +65,8 @@ export interface InsightFeed {
   lists: Pick<Overview, "brands" | "types" | "channels" | "questions" | "objections" | "languages" | "budgets" | "timelines" | "sources" | "outcomes">;
   coverage: Overview["coverage"] & { people: number };
   decisions: { open: number; byGroup: Record<string, number>; items: FeedDecision[] };
+  /** The sales team's speed and the speed-to-sale study; null when it could not be read. */
+  team: FeedTeam | null;
   health: { rereadPending: boolean | null; instagramMessages7d: number | null; demandStoredAt: string | null; crm: "ok" | "not_connected" | "unavailable" };
   /** Where the people behind each figure are: MONZA AI's own pages. */
   links: { overview: string; decisions: string; customers: string; models: string; colours: string };
@@ -88,7 +92,7 @@ const DECISIONS_PER_GROUP = 20;
 async function buildFeed(user: StaffIdentity, days: number, origin: string, nowMs: number): Promise<InsightFeed | null> {
   const sb = channelDb();
   if (!sb) return null;
-  const [read, crm, stockRead, salesRead, drivesRead, pending, igCount, demandLast, liveDecisions] = await Promise.all([
+  const [read, crm, stockRead, salesRead, drivesRead, pending, igCount, demandLast, liveDecisions, teamRead] = await Promise.all([
     readInsightRows(null),
     readCrmOutcomes(user),
     readCrmStock(user),
@@ -98,6 +102,8 @@ async function buildFeed(user: StaffIdentity, days: number, origin: string, nowM
     sb.from("sales_signals").select("id", { count: "exact", head: true }).eq("channel", "instagram").gte("at", new Date(nowMs - 7 * DAY).toISOString()),
     sb.from("insight_demand_daily").select("computed_at").order("computed_at", { ascending: false }).limit(1).maybeSingle(),
     sb.from("insight_decisions").select("rule, severity, model, facts, first_seen, due_at, state").in("state", ["open", "acknowledged", "escalated"]).order("first_seen", { ascending: true }).limit(500),
+    // "All time" reads ten years of turns; MONZA AI holds a few months.
+    readTeamReport(days > 0 ? days : 3650, new Date(nowMs).toISOString()),
   ]);
   if (read.state !== "ok") return null;
   const rows = read.rows;
@@ -160,6 +166,19 @@ async function buildFeed(user: StaffIdentity, days: number, origin: string, nowM
     { key: "testDrivesCrm", label: "Test drives taken (CRM)", definition: "People who wrote in the period with a test drive in the CRM's test-drive form started in the period, matched by mobile.", value: drives(people, window), previous: sinceMs ? drives(previous, prevWindow) : null },
   ];
 
+  // The sales team: speed per person, and whether a chat answered faster bought more often (by mobile → CRM).
+  const personByKey = new Map(all.map((p) => [p.key, p]));
+  const boughtAfter =
+    crm.state === "ok"
+      ? (conv: string, firstAt: string) => {
+          const p = personByKey.get(personOf(conv));
+          const ph = p ? phoneOf(p) : null;
+          const wonAt = ph ? crm.data[ph]?.wonAt : null;
+          return Boolean(wonAt && wonAt.slice(0, 10) >= firstAt.slice(0, 10));
+        }
+      : null;
+  const team: FeedTeam | null = teamRead.state === "ok" ? feedTeam(teamRead.report, speedVsSale(firstReplyByConversation(teamRead.turns), boughtAfter)) : null;
+
   const decisionRows = ((liveDecisions.data ?? []) as { rule: string; severity: Severity; model: string | null; facts: Record<string, unknown> | null; first_seen: string; due_at: string | null; state: string }[]).filter((d) => d.rule in RULES);
   const byGroup: Record<string, number> = {};
   for (const d of decisionRows) byGroup[RULES[d.rule as RuleKey].group] = (byGroup[RULES[d.rule as RuleKey].group] ?? 0) + 1;
@@ -211,6 +230,7 @@ async function buildFeed(user: StaffIdentity, days: number, origin: string, nowM
     lists: { brands: o.brands, types: o.types, channels: o.channels, questions: o.questions, objections: o.objections, languages: o.languages, budgets: o.budgets, timelines: o.timelines, sources: o.sources, outcomes: o.outcomes },
     coverage: { ...o.coverage, people: people.length },
     decisions: { open: decisionRows.length, byGroup, items },
+    team,
     health: {
       rereadPending: pending,
       instagramMessages7d: igCount.error ? null : (igCount.count ?? 0),

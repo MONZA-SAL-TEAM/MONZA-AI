@@ -21,7 +21,7 @@ async function pages<T>(read: (from: number, to: number) => PromiseLike<{ data: 
   return out;
 }
 
-export type TeamRead = { state: "ok"; report: TeamReport; byChannel: Record<string, TeamReport>; handoffs: HandoffRow[] } | { state: "unavailable" };
+export type TeamRead = { state: "ok"; report: TeamReport; byChannel: Record<string, TeamReport>; handoffs: HandoffRow[]; turns: TurnRow[] } | { state: "unavailable" };
 
 export async function readTeamReport(days: number, now = new Date().toISOString()): Promise<TeamRead> {
   const sb = channelDb();
@@ -83,7 +83,7 @@ export async function readTeamReport(days: number, now = new Date().toISOString(
       const inCh = (conv: string) => convChannel.get(conv) === ch;
       byChannel[ch] = buildTeamReport({ turns: rows.filter((r) => inCh(r.conversation_id)), owned: owned.filter((o) => inCh(o.conversation_id)), alerts: alertRows.filter((a) => a.status === "open" && inCh(a.conversation_ref)) }, now);
     }
-    return { state: "ok", report, byChannel, handoffs: handoffs({ alerts: alertRows.filter((a) => a.created_at >= since), turns: rows, ownedConvs: new Set(owned.map((o) => o.conversation_id)) }) };
+    return { state: "ok", report, byChannel, turns: rows, handoffs: handoffs({ alerts: alertRows.filter((a) => a.created_at >= since), turns: rows, ownedConvs: new Set(owned.map((o) => o.conversation_id)) }) };
   } catch (e) {
     console.error("[insights/team] reading failed:", e instanceof Error ? e.message : JSON.stringify(e));
     return { state: "unavailable" };
