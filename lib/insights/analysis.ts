@@ -310,7 +310,7 @@ export interface ChannelView {
   firstTouch: LinkedCount[];
 }
 
-const TOUCH_LABEL: Readonly<Record<string, string>> = { ad: "An ad", post: "A post", story: "A story", direct: "Not tracked", referral: "A link" };
+const TOUCH_LABEL: Readonly<Record<string, string>> = { ad: "An ad", ad_click: "An ad", post: "A post", social_post: "A post", story: "A story", direct: "Not tracked", referral: "A link", website: "A website", website_voyah: "voyahlebanon.com", website_mhero: "mherolebanon.com", website_monza: "monzasal.com" };
 const LANGUAGE_LABEL: Readonly<Record<string, string>> = { en: "English", ar: "Arabic", arabizi: "Arabizi", fr: "French", mixed: "Mixed", unknown: "Unknown" };
 
 export function channelsView(people: readonly PersonFacts[]): ChannelView[] {

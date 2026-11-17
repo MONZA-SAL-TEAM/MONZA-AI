@@ -159,7 +159,7 @@ export function leadsView(input: LeadsInput): LeadsView {
   const byChannel = ["whatsapp", "instagram", "facebook"]
     .map((ch) => breakdown(ch, ch === "whatsapp" ? "WhatsApp" : ch === "instagram" ? "Instagram" : "Messenger", people.filter((p) => p.channels.includes(ch)), { channel: ch }))
     .filter((b) => b.people > 0);
-  const SOURCE_LABEL: Record<string, string> = { ad_click: "An ad", ad: "An ad", social_post: "A post", direct: "Not tracked" };
+  const SOURCE_LABEL: Record<string, string> = { ad_click: "An ad", ad: "An ad", social_post: "A post", direct: "Not tracked", website: "A website", website_voyah: "voyahlebanon.com", website_mhero: "mherolebanon.com", website_monza: "monzasal.com" };
   const sources = [...new Set(people.map((p) => p.firstTouch ?? "direct"))];
   const bySource = sources.map((s) => breakdown(s, SOURCE_LABEL[s] ?? s, people.filter((p) => (p.firstTouch ?? "direct") === s), { firstTouch: s })).sort((a, b) => b.people - a.people);
 

@@ -12,6 +12,7 @@
  * Pure. Never keeps words: a turn's text is read and dropped; the output is labels.
  */
 
+import { stripWebsiteRef } from "@/lib/wasales/website-ref";
 import { freshState, isExpired, type SearchEngineState } from "@/lib/wasales/context";
 import { decide, engineCars, type EngineDeps } from "@/lib/wasales/engine";
 import { resolveModels } from "@/lib/wasales/entities";
@@ -84,6 +85,11 @@ export function noteStaffWords(state: SearchEngineState, text: string, at: strin
 
 /** One customer message, read in its conversation. Null when the engine excludes it (a scam, a vendor). */
 export function readNext(turn: Turn, state: SearchEngineState, meta: SignalMeta, deps: EngineDeps): { result: ReadResult | null; state: SearchEngineState } {
+  // The website's Ref tag is ours, not the customer's words: neither the engine nor the observer reads it.
+  if (typeof turn.text === "string") {
+    const text = stripWebsiteRef(turn.text);
+    if (text !== turn.text) turn = { ...turn, text };
+  }
   const brand = salesBrandOf(meta.brand);
   if (!brand) return { result: null, state };
   const d = decide(

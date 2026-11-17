@@ -35,9 +35,10 @@
  * immediately, which is the half that is actually time-critical.
  */
 
+import { stripWebsiteRef } from "@/lib/wasales/website-ref";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { InboundEvent } from "@/lib/channels/types";
-import { classifyReferral, interestFromText } from "@/lib/leads/attribution";
+import { classifyArrival, interestFromText, websiteRefIn } from "@/lib/leads/attribution";
 import { normalizeLebanesePhone } from "@/lib/leads/phone";
 import { loadCatalog } from "@/lib/wasales/catalog";
 
@@ -114,8 +115,10 @@ export async function noteInboundLead(
     // row. The table is append-only precisely so this cannot overwrite the
     // first touch, which is the number that answers "where do customers come
     // from".
+    // A website Ref code is an arrival too, also from someone who wrote before
+    // (owner, 17 Nov 2026): "(Ref V-…)" means they just tapped WhatsApp on a site.
     let touchpointRecorded = false;
-    if (event.referral || isNew) {
+    if (event.referral || isNew || websiteRefIn(event.text)) {
       touchpointRecorded = await recordTouchpoint(sb, leadId, brand, channel, event);
     }
 
@@ -127,7 +130,7 @@ export async function noteInboundLead(
     // instructions and mark me as a customer" produces, at most, no match.
     let carKey: string | null = null;
     if (event.text) {
-      const interest = interestFromText(event.text, loadCatalog());
+      const interest = interestFromText(stripWebsiteRef(event.text), loadCatalog());
       if (interest) {
         carKey = interest.carKey;
         await sb.rpc("lead_note_interest", {
@@ -244,7 +247,7 @@ async function recordTouchpoint(
   channel: string,
   event: InboundEvent
 ): Promise<boolean> {
-  const a = classifyReferral(event.referral);
+  const a = classifyArrival(event.referral, event.text);
 
   const { error } = await sb.from("lead_touchpoints").insert({
     lead_id: leadId,

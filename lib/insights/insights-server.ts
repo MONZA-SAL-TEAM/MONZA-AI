@@ -4,6 +4,7 @@
  * pages). Reads MONZA AI's own tables, never the CRM, never a message's words.
  */
 
+import { websiteTouchKey } from "@/lib/leads/attribution";
 import { channelDb } from "@/lib/channels/store";
 import { buildInsights, type InsightFilter, type InsightRows, type Insights, type ObservationRow, type SignalRow } from "@/lib/insights/insights";
 import type { PeopleExtras } from "@/lib/insights/people";
@@ -51,7 +52,7 @@ export async function readInsightRows(sinceIso: string | null): Promise<RowsRead
       all<InsightRows["leads"][number]>((f, t) => sb.from("leads").select("id, display_name, phone").range(f, t)),
       all<InsightRows["leadConversations"][number]>((f, t) => sb.from("lead_conversations").select("lead_id, conversation_id").range(f, t)),
       all<InsightRows["alerts"][number]>((f, t) => sb.from("sales_alerts").select("conversation_ref, kind, status, created_at").range(f, t)),
-      all<{ lead_id: string; source_kind: string; occurred_at: string }>((f, t) => sb.from("lead_touchpoints").select("lead_id, source_kind, occurred_at").order("occurred_at", { ascending: true }).range(f, t)).catch(() => []),
+      all<{ lead_id: string; source_kind: string; source_ref: string | null; occurred_at: string }>((f, t) => sb.from("lead_touchpoints").select("lead_id, source_kind, source_ref, occurred_at").order("occurred_at", { ascending: true }).range(f, t)).catch(() => []),
       all<{ conversation_ref: string; status: string }>((f, t) => sb.from("test_drive_bookings").select("conversation_ref, status").eq("status", "booked").range(f, t)).catch(() => []),
       // Files WE sent (no words): a PDF is a brochure. WhatsApp keeps them on the message, Instagram and
       // Facebook in channel_sent_files (011).
@@ -84,7 +85,11 @@ export async function readInsightRows(sinceIso: string | null): Promise<RowsRead
     const overrides = await sb.from("insight_overrides").select("account_id, external_message_id, kind, value, model, action, new_value, new_model, by_name, at").limit(20000);
     const facts = overrides.error ? observations : applyOverrides(observations, latestOverrides((overrides.data ?? []) as Override[]));
     const firstTouchByLead: Record<string, string> = {};
-    for (const t of touchpoints) if (!firstTouchByLead[t.lead_id] && /^[a-z_]{1,20}$/.test(t.source_kind)) firstTouchByLead[t.lead_id] = t.source_kind;
+    for (const t of touchpoints) {
+      if (firstTouchByLead[t.lead_id] || !/^[a-z_]{1,20}$/.test(t.source_kind)) continue;
+      // A website arrival is split by site from its Ref code ("V-…" → website_voyah).
+      firstTouchByLead[t.lead_id] = t.source_kind === "website" ? websiteTouchKey(t.source_ref) : t.source_kind;
+    }
     const ownerByConv: Record<string, string> = {};
     for (const c of conversations) if (c.assigned_to) ownerByConv[c.id] = c.assigned_to;
     return { state: "ok", rows: { signals, observations: facts, conversations, leads, leadConversations, alerts }, extras: { ownerByConv, firstTouchByLead, bookingsByConv, brochureByConv, lostReasonByPerson, nowMs: Date.now() } };

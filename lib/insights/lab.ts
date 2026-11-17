@@ -59,6 +59,9 @@ export const LAB_CHOICES: Readonly<Record<string, readonly Choice[]>> = {
   firstTouch: [
     { value: "ad_click", label: "An ad" },
     { value: "social_post", label: "A post" },
+    { value: "website_voyah", label: "voyahlebanon.com" },
+    { value: "website_mhero", label: "mherolebanon.com" },
+    { value: "website_monza", label: "monzasal.com" },
     { value: "direct", label: "Not tracked" },
   ],
   language: [

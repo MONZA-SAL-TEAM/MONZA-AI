@@ -163,6 +163,74 @@ export function classifyReferral(
   };
 }
 
+/* ── The website's own Ref code (owner, 17 Nov 2026) ─────────────────────── */
+
+/**
+ * Every WhatsApp button on the three websites ends the pre-filled message with
+ * "(Ref V-7K2Q9M)": V = voyahlebanon.com, M = mherolebanon.com, S = monzasal.com,
+ * six letters/digits with no 0, O, 1 or I. The website records the same code with
+ * the visit in the Monza CRM (website_events, CRM migration 333), so a chat that
+ * starts with it can be traced back to that visit — its page, Google or
+ * Instagram, the campaign — by reading the CRM AS THE PERSON LOOKING. Nothing
+ * here writes to the CRM.
+ *
+ * The code is OURS, written by our website, not the customer's words: keeping it
+ * keeps no customer text. Only an exact code is believed — a customer who types
+ * "ref" or a different code is simply not a website arrival.
+ */
+export const WEBSITE_REF = /\(Ref ([VMS])-([A-HJ-NP-Z2-9]{6})\)/;
+
+export const WEBSITE_OF_LETTER: Readonly<Record<string, string>> = {
+  V: "voyahlebanon.com",
+  M: "mherolebanon.com",
+  S: "monzasal.com",
+};
+
+/** The first-touch key the insights use for a website arrival, by site. */
+export const WEBSITE_TOUCH_OF_LETTER: Readonly<Record<string, string>> = {
+  V: "website_voyah",
+  M: "website_mhero",
+  S: "website_monza",
+};
+
+/** The Ref code in a message, or null. */
+export function websiteRefIn(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const m = WEBSITE_REF.exec(text);
+  return m ? `${m[1]}-${m[2]}` : null;
+}
+
+/** "website_voyah" etc. for a stored Ref code; "website" for any other website touchpoint. */
+export function websiteTouchKey(sourceRef: string | null | undefined): string {
+  const letter = typeof sourceRef === "string" && /^[VMS]-[A-HJ-NP-Z2-9]{6}$/.test(sourceRef) ? sourceRef[0] : null;
+  return letter ? WEBSITE_TOUCH_OF_LETTER[letter] : "website";
+}
+
+/**
+ * Where an arrival came from: Meta's referral first (an ad or a post is fact,
+ * and Meta only attaches it to the first message), then the website's Ref
+ * code, then — honestly — unknown.
+ */
+export function classifyArrival(
+  referral: InboundReferral | null | undefined,
+  text: string | null | undefined
+): AttributionResult {
+  const fromMeta = classifyReferral(referral);
+  if (fromMeta.kind !== "direct") return fromMeta;
+  const code = websiteRefIn(text);
+  if (!code) return fromMeta;
+  const site = WEBSITE_OF_LETTER[code[0]];
+  return {
+    kind: "website",
+    ref: code,
+    headline: site,
+    vehicleContext: null,
+    certain: true,
+    explanation: `Tapped WhatsApp on ${site} (Ref ${code}).`,
+    raw: { ref_code: code, site },
+  };
+}
+
 /**
  * The vehicle a website URL was about, from its path.
  *

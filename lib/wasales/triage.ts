@@ -13,6 +13,7 @@
  * the customer's words (rule: the alert store holds no customer text).
  */
 
+import { stripWebsiteRef } from "@/lib/wasales/website-ref";
 import { decide, type EngineDeps } from "@/lib/wasales/engine";
 import { freshState } from "@/lib/wasales/context";
 import type { AlertKind, AlertUrgency } from "@/lib/wasales/actions";
@@ -130,6 +131,7 @@ export function triageInbound(
   input: { text: string; hasMedia: boolean; brand: string; now: string },
   deps: EngineDeps
 ): Triage | null {
+  input = { ...input, text: stripWebsiteRef(input.text) };
   const d = decide(
     { text: input.text, hasMedia: input.hasMedia, brand: input.brand, conversationIsNew: true, now: input.now },
     freshState(),

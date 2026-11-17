@@ -43,6 +43,7 @@
  *     window.
  */
 
+import { stripWebsiteRef } from "@/lib/wasales/website-ref";
 import {
   vocabularyWords,
   asksForOptions,
@@ -677,6 +678,11 @@ function understand(
  * carries the next one. Nothing is mutated and nothing is sent.
  */
 export function decide(input: EngineInput, state: SearchEngineState, deps: EngineDeps): EngineDecision {
+  // The website's Ref tag is ours, not the customer's words (lib/wasales/website-ref.ts).
+  if (typeof input.text === "string") {
+    const text = stripWebsiteRef(input.text);
+    if (text !== input.text) input = { ...input, text };
+  }
   const k = deps.knowledge;
   const reading = readMessage(input.text, input.payload);
   const eventKind = input.eventKind ?? "message";
