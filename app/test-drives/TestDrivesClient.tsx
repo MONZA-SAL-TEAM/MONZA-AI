@@ -8,6 +8,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { usePoll } from "@/lib/use-poll";
+import { POLL } from "@/lib/poll";
 import "../board.css";
 
 interface Booking {
@@ -44,9 +46,8 @@ export default function TestDrivesClient() {
 
   useEffect(() => {
     void load();
-    const timer = setInterval(() => void load(), 60_000);
-    return () => clearInterval(timer);
   }, [load]);
+  usePoll(load, POLL.testDrives);
 
   const cancel = async (id: string) => {
     if (!window.confirm("Cancel this test drive? The time becomes free for other customers.")) return;
