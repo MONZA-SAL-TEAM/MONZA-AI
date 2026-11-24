@@ -143,6 +143,11 @@ export function cronSecret(): string | null {
   return read("CRON_SECRET");
 }
 
+/** The Monza S.A.L. app's morning brief reads /api/brief/decisions with this (never CRON_SECRET). */
+export function briefFeedSecret(): string | null {
+  return read("BRIEF_FEED_SECRET");
+}
+
 export function anthropicApiKey(): string | null {
   return read("ANTHROPIC_API_KEY");
 }

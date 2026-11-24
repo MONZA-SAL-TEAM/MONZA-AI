@@ -120,7 +120,7 @@ export function apiRuleOf(pathname: string, method: string): ApiRule | null {
   const p = pathname.replace(/\/+$/, "");
   const write = WRITE.has(method.toUpperCase());
   const is = (prefix: string) => p === prefix || p.startsWith(`${prefix}/`);
-  if (is("/api/channels/meta") || is("/api/channels/retention") || is("/api/insights/catchup") || is("/api/insights/refresh")) return null;
+  if (is("/api/channels/meta") || is("/api/channels/retention") || is("/api/insights/catchup") || is("/api/insights/refresh") || is("/api/brief/decisions")) return null;
   if (is("/api/admin/templates")) return { page: "admin", ...(write ? { event: "templates_changed" } : {}) };
   if (is("/api/admin")) return { page: "admin", ...(write ? { event: "access_changed" } : {}) };
   if (is("/api/me") || is("/api/push") || is("/api/status")) return { page: "any" };
