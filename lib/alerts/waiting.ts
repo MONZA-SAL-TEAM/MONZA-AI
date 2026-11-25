@@ -68,15 +68,29 @@ export interface WaitingSummary {
   existingConversations: number;
   unowned: number;
   oldestHours: number;
+  /** Waiting `RECENT_WAIT_DAYS` or less: who can still reasonably be answered. */
+  recent: number;
+  /** Waiting longer: to be reviewed and closed with a reason, not put on a phone every morning. */
+  older: number;
   byClass: Partial<Record<ConversationClass, number>>;
 }
+
+/**
+ * A wait longer than this is a backlog to review, not a morning's work (Samer, 2026-11-25: 74
+ * "buyers awaiting a reply" on a lock screen, 47 of them over a week old, "will stop meaning
+ * anything"). The morning brief counts the recent ones.
+ */
+export const RECENT_WAIT_DAYS = 7;
 
 /** Counts only — what the morning brief's feed gives the Monza app: no name, no chat. */
 export function summariseWaiting(rows: readonly WaitingRow[]): WaitingSummary {
   const byClass: Partial<Record<ConversationClass, number>> = {};
   for (const r of rows) byClass[r.class] = (byClass[r.class] ?? 0) + 1;
+  const recent = rows.filter((r) => r.waitingHours <= RECENT_WAIT_DAYS * 24).length;
   return {
     total: rows.length,
+    recent,
+    older: rows.length - recent,
     inWindow: rows.filter((r) => r.inWindow).length,
     outsideWindow: rows.filter((r) => !r.inWindow).length,
     highIntent: rows.filter((r) => r.highIntent).length,
