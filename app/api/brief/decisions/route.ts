@@ -4,6 +4,8 @@ import { channelDb } from "@/lib/channels/store";
 import { briefFeedSecret } from "@/lib/env";
 import { summariseDecisions, WAITING_STATES, type DecisionRow } from "@/lib/brief/decisions-summary";
 import { readSnapshot } from "@/lib/alerts/reconcile-server";
+import { parseClientsSummary } from "@/lib/brief/clients-summary";
+import { AUTOREPLY_PILOT } from "@/lib/wasales/autoreply-pilot";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +50,13 @@ export async function GET(request: Request): Promise<NextResponse> {
           unownedWaiting: snap.waitingSummary.unowned,
         }
       : null;
-    return NextResponse.json({ ok: true, ...summariseDecisions(rows), live });
+    // The clients, counted (migration 035): who wrote, where from, what they want, how fast a
+    // person answered. The pilot's test phones are never clients. null = it could not be counted.
+    const { data: summary, error: summaryError } = await sb.rpc("brief_client_summary", {
+      p_exclude: AUTOREPLY_PILOT.chats.map((c) => c.peer),
+    });
+    const clients = summaryError ? null : parseClientsSummary(summary);
+    return NextResponse.json({ ok: true, ...summariseDecisions(rows), live, clients });
   } catch {
     return NextResponse.json({ ok: false }, { status: 503 });
   }
