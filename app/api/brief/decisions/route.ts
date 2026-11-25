@@ -3,6 +3,7 @@ import { isCronAuthorized } from "@/lib/channels/retention";
 import { channelDb } from "@/lib/channels/store";
 import { briefFeedSecret } from "@/lib/env";
 import { summariseDecisions, WAITING_STATES, type DecisionRow } from "@/lib/brief/decisions-summary";
+import { readSnapshot } from "@/lib/alerts/reconcile-server";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,22 @@ export async function GET(request: Request): Promise<NextResponse> {
       .in("state", [...WAITING_STATES])
       .limit(5000);
     if (error) throw error;
-    return NextResponse.json({ ok: true, ...summariseDecisions((data ?? []) as DecisionRow[]) });
+    const rows = (data ?? []) as DecisionRow[];
+    // The Decision Center is brought up to date only when somebody opens it: on 2026-11-25 its
+    // figures were 23 days old. `asOf` (decisions-summary.ts) says how old, so the Monza app can
+    // refuse a stale number; `live` is worked out NOW from the alerts and chats themselves
+    // (lib/alerts), and is what the phone line should use. Counts only, as everything here.
+    const snap = await readSnapshot().catch(() => null);
+    const live = snap
+      ? {
+          at: snap.at,
+          waiting: snap.waitingSummary,
+          alerts: { waiting: snap.counts.waiting, followUp: snap.counts.follow_up, unverified: snap.counts.unverified, historical: snap.counts.historical, answered: snap.counts.answered, duplicate: snap.counts.duplicate },
+          testDrives: snap.testDriveSummary,
+          unownedWaiting: snap.waitingSummary.unowned,
+        }
+      : null;
+    return NextResponse.json({ ok: true, ...summariseDecisions(rows), live });
   } catch {
     return NextResponse.json({ ok: false }, { status: 503 });
   }

@@ -270,14 +270,15 @@ export async function recordAlert(
   // ONE OPEN ALERT PER CHAT (2026-09-18): a chat that is already waiting for a person keeps its alert, and
   // what the customer asks next is ADDED to it — escalated when it is more urgent. Needs migration 018
   // (tags, urgency); until it is applied this read fails and the older per-kind rule below still runs.
-  const sinceAny = new Date(Date.now() - 24 * 3_600_000).toISOString();
+  // However old the open alert is (2026-11-25): this looked back only 24 hours, so a chat left open for
+  // a day grew a SECOND alert — 81 of the 537 open alerts audited that day were such duplicates. A closed
+  // alert is never reopened here: a customer who writes again after it was closed raises a new one.
   const { data: openAny, error: openAnyError } = await sb
     .from("sales_alerts")
     .select("id, kind, tags, urgency, models, customer_name, customer_phone, slot_at, reason")
     .eq("account_id", chat.accountId)
     .eq("conversation_ref", chat.conversationRef)
     .eq("status", "open")
-    .gte("created_at", sinceAny)
     .order("created_at", { ascending: false })
     .limit(1);
   if (!openAnyError && Array.isArray(openAny) && openAny.length > 0) {
@@ -296,7 +297,9 @@ export async function recordAlert(
     if (merged.changed) {
       const { error: mergeError } = await sb.from("sales_alerts").update(merged.row).eq("id", String(r.id));
       if (mergeError) console.error(`[sales/alert] could not merge (${mergeError.code ?? "?"})`);
-      else await notifySalesPhone(alertSummary({ kind: merged.row.kind, models: merged.row.models as ModelCode[], name: merged.row.customer_name, phone: merged.row.customer_phone, slot: merged.row.slot_at }));
+      // The audit trail (migration 033); best effort — before 033 this insert is refused and nothing else changes.
+      else await sb.from("sales_alert_events").insert({ alert_id: String(r.id), action: "merged", reason: "customer_wrote_last" }).then(() => undefined, () => undefined);
+      if (!mergeError) await notifySalesPhone(alertSummary({ kind: merged.row.kind, models: merged.row.models as ModelCode[], name: merged.row.customer_name, phone: merged.row.customer_phone, slot: merged.row.slot_at }));
     }
     return true;
   }
@@ -348,6 +351,7 @@ export async function recordAlert(
     console.error(`[sales/alert] could not record (${error?.code ?? "?"})`);
     return false;
   }
+  await sb.from("sales_alert_events").insert({ alert_id: (data as { id: string }).id, action: "raised", reason: "customer_wrote_last" }).then(() => undefined, () => undefined);
   if (urgency === "hot" || urgency === "overdue") {
     void notifyAll(alertNote({ threadId: chat.threadId, label: KIND_LABEL[a.kind], cars: a.models.map((m) => modelByCode(MONZA_KNOWLEDGE, m)?.displayName ?? m), who: name ?? (phone ? `+${phone}` : null), urgency }), 3_000).catch(() => 0);
   }

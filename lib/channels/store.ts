@@ -44,6 +44,7 @@
  * database enforces the same rule with composite foreign keys.
  */
 
+import type { EchoTurn } from "@/lib/channels/echoes";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { noStoreFetch } from "@/lib/supabase-fetch";
 import { aiServiceRoleKey, aiUrl } from "@/lib/env";
@@ -263,6 +264,36 @@ export async function ensureConversation(accountId: string, peerExternalId: stri
   if (!id) return null;
   await sb.from("channel_conversations").update({ meta_conversation_id: metaConversationId }).eq("id", id).is("meta_conversation_id", null);
   return id;
+}
+
+/**
+ * Our own Instagram / Facebook replies, as turns (lib/channels/echoes.ts): WHEN we wrote, never
+ * what. A reply sent from MONZA AI was already recorded at send time under the same message id, so
+ * this is a no-op for it; one typed in the Instagram app or Business Suite is recorded here for the
+ * first time. Best effort — it never fails a delivery. Needs migration 033 (source "echo"); before
+ * it, the insert is refused and nothing else changes.
+ */
+export async function recordEchoTurns(turns: readonly EchoTurn[]): Promise<number> {
+  const sb = client();
+  if (!sb || turns.length === 0) return 0;
+  let recorded = 0;
+  try {
+    const accounts = await listAccounts();
+    for (const t of turns) {
+      const account = accounts.find((a) => a.id === t.accountId);
+      if (!account) continue;
+      const conversationId = await upsertConversation(sb, account.id, account.brand, t.peerExternalId);
+      if (!conversationId) continue;
+      const { error } = await sb.from("channel_turns").upsert(
+        { conversation_id: conversationId, account_id: account.id, channel: t.channel, direction: "out", author: "staff", staff_id: null, external_message_id: t.externalMessageId, at: t.at, source: "echo" },
+        { onConflict: "account_id,external_message_id", ignoreDuplicates: true }
+      );
+      if (!error) recorded += 1;
+    }
+  } catch {
+    /* a turn is not worth failing a delivery over */
+  }
+  return recorded;
 }
 
 /**

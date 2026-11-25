@@ -884,6 +884,65 @@ about our clients." Until then the engine read every message and forgot it.
 - Seen while building: "how much is the courage in pearl black? بدي اعرف" loses PRICE to GENERAL_INFO
   (the Arabic "I want to know" wins in classify). Not fixed; the alert is still LEAD.
 
+## Alerts a person can trust (`lib/alerts/`, `/insights/alerts`, 2026-11-25 — migrations 033/034 NOT APPLIED)
+
+Samer: "every alert must represent a real issue that someone can take action on today … permanent solutions,
+not just a one-time cleanup … do not modify production data until I approve the review."
+
+**Audited that day — 537 open alerts, most not real, and why:**
+- **81 duplicates.** "One open alert per chat" (`recordAlert`, sales-ops.ts) merged only into an open alert
+  younger than 24 hours, so a chat left open for a day grew a second one. Fixed: it merges into the chat's
+  open alert however old. 034 adds the unique index — **only after the first reconciliation** (it cannot be
+  built over the duplicates).
+- **53 answered, 78 answered-with-outcome-open.** `closeAnswered` runs only when somebody opens the alert list
+  and only over its newest 100 rows; with 537 open the older 437 were never checked.
+- **132 Instagram / Facebook "unverified".** A reply typed in the Instagram app was invisible here.
+- **118 historical** (customer silent over 30 days, never answered) and **75 genuinely waiting** (6 inside
+  WhatsApp's 24-hour window), every one with no owner (1 of 303 WhatsApp chats had one).
+- The Decision Center's figures were **23 days old** (it refreshes only when looked at): the morning brief's
+  "13 buyers waiting" was a 2 November number.
+
+**The one meaning of an alert's state — `lib/alerts/reconcile.ts` (pure):** `waiting` · `follow_up` (answered,
+but a MANUAL_CLOSE kind still needs its outcome) · `answered` · `duplicate` · `unverified` (our side of the chat
+is not stored and no reply is visible) · `historical`. A verdict needs EVIDENCE: "answered" = a PERSON's message
+(author `staff`, never the bot) later than the alert, and we spoke last. **Only `answered` and `duplicate` close
+by themselves** (`AUTO_CLOSE`); nothing else is ever closed without a person and a reason from `CLOSE_REASONS`.
+An alert whose chat is unknown is left alone.
+
+- `reconcile-server.ts`: `readSnapshot()` reads everything as it is NOW (verdicts, who is waiting, classes, load
+  per salesperson, test drives) — the review screen, the brief's feed and the nightly job all start there, so
+  none depends on a page having been opened. `applyReconcile(by)` writes: every change is one UPDATE conditional
+  on `status = 'open'` (idempotent, race-safe) and one row in `sales_alert_events`. Facts come from
+  `alert_chat_facts()` (033), which reads when each side spoke — never a word.
+- **The nightly job closes nothing unless `ALERT_RECONCILE_MODE` is exactly `apply`** (lib/env.ts; unset = report
+  only, like CHANNELS_SEND_MODE). The manual "Apply" on `/insights/alerts` is a manager's own action.
+- `intent.ts`: nine classes (ready to buy · test drive · interested · general · existing customer · after-sales ·
+  supplier · spam · no action) from the alert kinds and the engine's intents — never from the words again. What the
+  customer is trying to DO beats who they are; a person's correction (`conversation_classes`, logged) beats all.
+  Limits: 0 of 1,740 leads are linked to a CRM customer, so "existing customer" comes only from owner intents or a
+  person; the engine drops suppliers and scams before labelling, so those two come from a person only.
+- `waiting.ts`: who is waiting, since the customer's FIRST unanswered message; the 24-hour window counts from their
+  LATEST. Spam / supplier / no-action are nobody's wait. `loadByOwner` keeps "Nobody" as a row of its own.
+- `assign.ts` + `lead_assignment_rules`: **no rule = nobody is assigned automatically.** Least open work for their
+  share; a brand / channel rule beats a general one. "An existing customer's own salesperson" is NOT possible: the
+  CRM is read only as a signed-in person, never in the background.
+- **Test-drive requests** (`lib/testdrives/`, `test_drive_requests`): requested → contacted → awaiting confirmation →
+  booked (time, car by workbook code, salesperson from the assignable list) → completed (next action from a closed
+  list) / no-show, or declined / cancelled / not interested / duplicate. 86 of the 89 open test-drive alerts had been
+  answered — nothing recorded what happened next: the CRM's `test_drives` logs a car physically out, and
+  `test_drive_bookings` holds slots the BOT booked (off since 2026-09-18). From the backlog an answered alert becomes
+  "contacted", an unanswered one "requested" — never "booked". The brief counts only `not_contacted` and a past
+  booking with no outcome.
+- **Instagram / Facebook replies are now kept as TURNS** (`lib/channels/echoes.ts`, `recordEchoTurns`, source
+  `echo`): Meta plays our outgoing messages back (`is_echo`), including ones typed in the Instagram app; the adapters
+  still drop them as MESSAGES (rule 19) and the words are never read, but WHEN we wrote is recorded — which is what
+  "has a person answered?" needs. 371 of 716 Instagram deliveries had been read as nothing; the delivery record now
+  names each `messaging` event (message / echo / read / reaction / postback) so that is answerable. **[Likely], not
+  proven: that those 371 are echoes** — the first deliveries after deploy will say. Nothing in Meta's settings changes.
+- The brief's feed (`/api/brief/decisions`) adds `live` — counts only — beside `asOf`, so the Monza app can refuse a
+  stale Decision Center number.
+- `tests/alert-trust.test.ts` (37): the audited cases are the fixtures.
+
 ## Team & access (`/admin`, 2026-10-13, migration 029 APPLIED)
 
 Samer: "give roles to all the accounts … pages access and everything control and full tracking to when online
