@@ -325,7 +325,8 @@ describe("what the webhook keeps holds no words", () => {
 
   test("the delivery is kept as its shape only", () => {
     const kept = redactDelivery(delivery);
-    assert.deepEqual(kept, { object: "instagram", entries: [{ id: VOYAH_IG_ID, events: 1 }] });
+    // 2026-11-25: each event is named by Meta's structure (message / echo / read…), still no word.
+    assert.deepEqual(kept, { object: "instagram", entries: [{ id: VOYAH_IG_ID, events: 1, kinds: ["message"] }] });
     const text = JSON.stringify(kept);
     assert.ok(!text.includes("Free") && !text.includes("70 123") && !text.includes("photo.jpg"));
   });

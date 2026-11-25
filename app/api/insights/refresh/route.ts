@@ -7,6 +7,8 @@ import { refreshInsightPeople } from "@/lib/insights/people-server";
 import { storeDemand } from "@/lib/insights/demand-server";
 import { rereadPending } from "@/lib/wasales/signal-server";
 import { startCatchup } from "@/lib/insights/catchup-server";
+import { applyReconcile } from "@/lib/alerts/reconcile-server";
+import { alertReconcileApplies } from "@/lib/env";
 
 /**
  * GET /api/insights/refresh — the nightly insights read (vercel.json, 02:00 UTC; Samer, 2026-10-12:
@@ -36,6 +38,13 @@ export async function GET(request: Request): Promise<NextResponse> {
   const deadline = Date.now() + 52_000;
   const sb = channelDb();
   if (!sb) return NextResponse.json({ ok: false, message: "The database is not reachable here." }, { status: 503, headers: NO_STORE });
+
+  // 0. The alerts, set right from the evidence (lib/alerts) — every night, so nothing depends on
+  //    somebody opening a list. Closes only what a person answered and second alerts in one chat,
+  //    and only when ALERT_RECONCILE_MODE is "apply"; otherwise this step changes nothing (the
+  //    review screen and the morning brief's feed work out the same verdicts live either way).
+  let alerts: Awaited<ReturnType<typeof applyReconcile>> | "report_only" = "report_only";
+  if (alertReconcileApplies()) alerts = await applyReconcile(null).catch(() => null);
 
   // 1. WhatsApp on an old reader version: the server-side re-read is started (or found already reading) and
   //    continues in its own steps (catchup-server.ts), so the night's minute stays for Meta.
@@ -71,5 +80,5 @@ export async function GET(request: Request): Promise<NextResponse> {
   const people = deadline - Date.now() > 4_000 ? await refreshInsightPeople() : null;
   // 4. The anonymous demand record (027) for recent months — kept permanently, no client data.
   const demand = deadline - Date.now() > 3_000 ? await storeDemand("recent") : null;
-  return NextResponse.json({ ok: true, whatsapp, accounts, people, demand }, { headers: NO_STORE });
+  return NextResponse.json({ ok: true, alerts, whatsapp, accounts, people, demand }, { headers: NO_STORE });
 }

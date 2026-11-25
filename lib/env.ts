@@ -143,6 +143,15 @@ export function cronSecret(): string | null {
   return read("CRON_SECRET");
 }
 
+/**
+ * May the nightly job CLOSE alerts it finds answered or duplicated (lib/alerts/reconcile-server.ts)?
+ * Only when this says exactly "apply". Unset, misspelt or empty all mean "report only": the job
+ * works out the verdicts and changes nothing — the same shape as CHANNELS_SEND_MODE.
+ */
+export function alertReconcileApplies(): boolean {
+  return read("ALERT_RECONCILE_MODE") === "apply";
+}
+
 /** The Monza S.A.L. app's morning brief reads /api/brief/decisions with this (never CRON_SECRET). */
 export function briefFeedSecret(): string | null {
   return read("BRIEF_FEED_SECRET");

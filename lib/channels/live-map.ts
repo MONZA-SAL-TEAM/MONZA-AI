@@ -16,6 +16,7 @@
  * shape Meta sends is testable from a fixture. The network half is live.ts.
  */
 
+import { messagingKinds } from "@/lib/channels/echoes";
 import type { ChannelKey } from "@/lib/domain/types";
 import type { Conversation, CustomerProfile, InboxAttachment, InboxMessage } from "@/lib/inbox/types";
 import { isNoContent, NO_TEXT, UNSHOWN_TEXT, UNSUPPORTED_TEXT } from "@/lib/inbox/no-content";
@@ -837,6 +838,9 @@ export function redactDelivery(body: unknown): Record<string, unknown> {
       // reply we could not read" from "a read receipt" (2026-09-15: one
       // delivery was read as nothing and nobody could say what it had been).
       // Still shape only: types and status words are Meta's, never a person's.
+      // Instagram and Messenger arrive as `messaging`: a message, our own echo, a postback, a read
+      // receipt (2026-11-25: 371 of 716 Instagram deliveries had been read as nothing, unnamed).
+      if (messaging > 0) kept.kinds = messagingKinds(e);
       if (changes.length > 0) {
         kept.fields = changes.map((c) => str(obj(c)?.field) ?? "?");
         kept.kinds = changes.flatMap((c) => changeKinds(obj(obj(c)?.value)));

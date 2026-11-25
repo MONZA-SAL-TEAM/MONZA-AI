@@ -10,6 +10,7 @@ import type { DemandLevels } from "@/lib/insights/decisions";
 
 const SECTIONS: ReadonlyArray<[string, string]> = [
   ["/insights/decisions", "Decision Center"],
+  ["/insights/alerts", "Alerts and waiting"],
   ["/insights", "Overview"],
   ["/insights/customers", "Customers & leads"],
   ["/insights/clients", "All clients"],

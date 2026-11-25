@@ -28,7 +28,8 @@ import { instagramAdapter } from "@/lib/channels/instagram";
 import { messengerAdapter } from "@/lib/channels/messenger";
 import { parseWhatsAppRevisions, parseWhatsAppStatuses, whatsappAdapter, type WhatsAppStatusUpdate } from "@/lib/channels/whatsapp";
 import type { ChannelAccount, InboundEvent } from "@/lib/channels/types";
-import { applyWhatsAppRevisions, applyWhatsAppStatuses, listAccounts, recordDelivery, storeInbound } from "@/lib/channels/store";
+import { applyWhatsAppRevisions, applyWhatsAppStatuses, listAccounts, recordDelivery, recordEchoTurns, storeInbound } from "@/lib/channels/store";
+import { parseMetaEchoes } from "@/lib/channels/echoes";
 import { captureMedia } from "@/lib/channels/wa-media-store";
 import { runAutoreply } from "@/lib/wasales/autoreply";
 import { notifyNewMessages } from "@/lib/push/server";
@@ -161,6 +162,19 @@ export async function POST(request: Request): Promise<Response> {
     }
   } catch (e) {
     console.error("[channels/meta] revisions failed:", e);
+  }
+
+  // Our own Instagram / Facebook replies, played back by Meta: kept as TURNS — when we wrote, never
+  // what (lib/channels/echoes.ts) — so an answered chat can be told from an ignored one. Still not
+  // stored as messages (rule 19). A failure here never fails the delivery.
+  try {
+    const echoes = parseMetaEchoes(body, accounts);
+    if (echoes.length > 0) {
+      const kept = await recordEchoTurns(echoes);
+      console.info(`[channels/meta] own replies seen ${echoes.length}, turns kept ${kept}`);
+    }
+  } catch (e) {
+    console.error("[channels/meta] echo turns failed:", e);
   }
 
   if (events.length === 0) {
