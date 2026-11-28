@@ -5,6 +5,8 @@ import { DEMO_CONVERSATIONS } from "@/lib/inbox/demo-conversations";
 import { listPeople } from "@/lib/leads/people-server";
 import { listCrmCustomers } from "@/lib/leads/people-crm";
 import { mergeCrm } from "@/lib/leads/people";
+import { linkSentence } from "@/lib/leads/link";
+import { linkLeadsByPhone } from "@/lib/leads/link-server";
 import CustomersClient from "./CustomersClient";
 import PeopleClient from "./PeopleClient";
 
@@ -36,11 +38,25 @@ export default async function CustomersPage() {
   // (their own CRM sign-in; a Lebanese mobile number is the only link; nothing is stored).
   const [people, crm] = await Promise.all([listPeople(), listCrmCustomers(user)]);
   if (people) {
+    // Keep what this page view just worked out: a chat and a CRM customer with the same mobile
+    // number are the same person. The customers were read with THIS person's CRM sign-in; only
+    // the customer's id is kept, in MONZA AI's own lead row, and only when LEAD_LINK_MODE is
+    // "apply" — otherwise it counts and writes nothing. Best effort: it can never fail the page.
+    let linkNote: string | null = null;
+    if (crm.state === "ok") {
+      try {
+        const linked = await linkLeadsByPhone(crm.customers.map((c) => ({ customerId: c.customerId, phone: c.phone })));
+        if (linked) linkNote = linkSentence(linked);
+      } catch (e) {
+        console.error("[people] linking leads to CRM customers failed:", e instanceof Error ? e.message : "unknown error");
+      }
+    }
     return (
       <PeopleClient
         people={crm.state === "ok" ? mergeCrm(people, crm.customers) : people}
         crm={crm.state}
         crmMissing={crm.state === "ok" ? crm.missing : []}
+        linkNote={linkNote}
       />
     );
   }

@@ -653,6 +653,35 @@ Two staff members can see different suggestions for the same lead. That is RLS
 working, not a bug — but it is why the candidate list is fetched per request and
 never cached.
 
+## Keeping the chat-to-customer link (`lib/leads/link*.ts`, 2026-11-28 — OFF until `LEAD_LINK_MODE=apply`)
+
+Audited that day: 0 of 1,784 leads carried a CRM customer, because `resolveLead` is called from nowhere and
+`/customers` matched by mobile for one page view and kept nothing. So "did this chat become a sale?" could not
+be asked. Matching the two databases by hand found 6 of 26 buyers since 11 Sept among the chat leads.
+
+- `link.ts` (pure) `planPhoneLinks`: a Lebanese MOBILE links; a landline never; a number two or more CRM
+  customers share links nobody; a lead already linked is never touched; a name is never read.
+- `link-server.ts` `linkLeadsByPhone`: called from `/customers` with the customers THAT PERSON's CRM sign-in
+  just read. It writes only MONZA AI's own `leads` row (the CRM customer's id, method `phone_exact`,
+  confirmer null), each write conditional on the lead still being unlinked, inside a 4 s budget. It never
+  reads the CRM and nothing runs in the background — the rule in `resolve.ts` holds.
+- **Nothing is written unless `LEAD_LINK_MODE` is exactly `apply`** (lib/env.ts `leadLinkApplies`). Unset, the
+  page says how many chats COULD be linked and that saving is switched off. Turning it on is Samer's decision.
+- Coverage follows who opens `/customers`: links are made for the customers that person may see.
+
+## Website taps and WhatsApp chats (`lib/leads/click-match.ts`, 2026-11-28 — NOT WIRED)
+
+The sites' WhatsApp buttons add no reference to the customer's message (Samer: no visible codes), so a chat
+from the site is filed `direct`. Measured 17 Sep – 27 Nov: of 233 distinct taps, 100 were followed within
+5 minutes by a first message from a new number (about 1 expected by chance); 32 ad chats also followed a tap.
+
+- `inferWebsiteTouches` (pure, tested): only a `direct` chat is considered — an ad, post or story source is
+  never overwritten; one tap explains at most one chat; the message must follow the tap; `certain` is always
+  false and the explanation says "not certain".
+- **Nothing calls it and nothing is stored.** Two things are missing: a way to read tap times from the CRM
+  project as the signed-in person (no such function exists there), and a label of its own on every screen
+  that shows a source — today `website` means "Meta named our site", a certainty.
+
 ## Customers: the real people (`/customers`, 2026-09-18)
 
 Samer: "all my customers need to be tracked — somewhat a database for my company, my clients

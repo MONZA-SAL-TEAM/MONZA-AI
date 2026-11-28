@@ -53,7 +53,7 @@ const ALERT_LABEL: Readonly<Record<string, string>> = {
 const day = (iso: string | null) => (iso ? longDate(iso.slice(0, 10)) : "—");
 const PAGE = 100;
 
-export default function PeopleClient({ people, crm, crmMissing = [] }: { people: Person[]; crm: CrmState; crmMissing?: string[] }) {
+export default function PeopleClient({ people, crm, crmMissing = [], linkNote = null }: { people: Person[]; crm: CrmState; crmMissing?: string[]; linkNote?: string | null }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [source, setSource] = useState<string | null>(null);
@@ -105,6 +105,7 @@ export default function PeopleClient({ people, crm, crmMissing = [] }: { people:
             : ". The CRM is not connected here, so cars and payment plans are absent — they are never invented."}{" "}
         Nothing here can be edited, and no message text is shown.
         {crmMissing.length > 0 && ` The CRM's ${crmMissing.join(" and ")} could not be read just now, so they are missing below — not zero.`}
+        {linkNote && ` ${linkNote}`}
       </p>
 
       <div className="rowcard-tags" role="group" aria-label="Totals">
