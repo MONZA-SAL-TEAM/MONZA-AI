@@ -152,6 +152,15 @@ export function alertReconcileApplies(): boolean {
   return read("ALERT_RECONCILE_MODE") === "apply";
 }
 
+/**
+ * May /customers KEEP the link between a chat lead and the CRM customer with the same mobile
+ * number (lib/leads/link-server.ts)? Only when this says exactly "apply". Unset, misspelt or
+ * empty all mean "report only": the page counts what could be linked and writes nothing.
+ */
+export function leadLinkApplies(): boolean {
+  return read("LEAD_LINK_MODE") === "apply";
+}
+
 /** The Monza S.A.L. app's morning brief reads /api/brief/decisions with this (never CRON_SECRET). */
 export function briefFeedSecret(): string | null {
   return read("BRIEF_FEED_SECRET");
