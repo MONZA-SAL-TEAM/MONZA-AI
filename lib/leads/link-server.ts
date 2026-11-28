@@ -23,7 +23,7 @@
 
 import { channelDb } from "@/lib/channels/store";
 import { leadLinkApplies } from "@/lib/env";
-import { planPhoneLinks, type LinkCustomer, type LinkLead } from "@/lib/leads/link";
+import { planPhoneLinks, type LinkCounts, type LinkCustomer, type LinkLead } from "@/lib/leads/link";
 
 const PAGE = 1000;
 const MAX = 20_000;
@@ -34,9 +34,10 @@ const BATCH = 20;
 export interface LinkOutcome {
   /** Did this run write? False in report-only mode. */
   applied: boolean;
-  toLink: number;
+  /** Rows this run actually wrote. */
   linked: number;
-  sharedNumber: number;
+  /** Where every lead stands. Adds up to `counts.leads`. */
+  counts: LinkCounts;
   /** True when the time budget ran out; the next page view carries on. */
   partial: boolean;
 }
@@ -59,7 +60,7 @@ export async function linkLeadsByPhone(customers: readonly LinkCustomer[]): Prom
   }
 
   const plan = planPhoneLinks(leads, customers);
-  const outcome: LinkOutcome = { applied: false, toLink: plan.counts.toLink, linked: 0, sharedNumber: plan.counts.sharedNumber, partial: false };
+  const outcome: LinkOutcome = { applied: false, linked: 0, counts: plan.counts, partial: false };
   if (!leadLinkApplies() || plan.links.length === 0) return outcome;
 
   outcome.applied = true;

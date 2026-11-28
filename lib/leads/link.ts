@@ -98,13 +98,27 @@ export function planPhoneLinks(leads: readonly LinkLead[], customers: readonly L
   return { links, counts };
 }
 
-/** One sentence for /customers. Says what was done, never who. */
-export function linkSentence(result: { applied: boolean; toLink: number; linked: number; sharedNumber: number }): string | null {
-  const shared = result.sharedNumber > 0 ? ` ${result.sharedNumber} more share a number with two CRM customers and are left for a person.` : "";
-  if (result.applied) {
-    if (result.linked === 0 && result.sharedNumber === 0) return null;
-    return `${result.linked} chat${result.linked === 1 ? " was" : "s were"} linked to a CRM customer by mobile number just now.${shared}`;
-  }
-  if (result.toLink === 0 && result.sharedNumber === 0) return null;
-  return `${result.toLink} chat${result.toLink === 1 ? "" : "s"} could be linked to a CRM customer by mobile number. Saving those links is switched off.${shared}`;
+export type LinkCounts = LinkPlan["counts"];
+
+/**
+ * What /customers says about linking. Counts only, never who.
+ *
+ * Every lead is in exactly one group, so the figures add up to the total and
+ * nobody has to wonder where the rest went.
+ */
+export function linkReport(result: { applied: boolean; linked: number; partial?: boolean; counts: LinkCounts }): string | null {
+  const c = result.counts;
+  if (c.leads === 0) return null;
+  const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
+  const head = result.applied
+    ? `${n(result.linked, "chat was", "chats were")} linked to a CRM customer by mobile number just now${result.partial ? " (more will follow on the next visit)" : ""}.`
+    : `Saving links to the CRM is switched off; nothing was changed.`;
+  return (
+    `${head} Of ${n(c.leads, "person who wrote", "people who wrote")}: ` +
+    `${c.alreadyLinked} already linked, ` +
+    `${c.toLink} ${result.applied ? "matched" : "could be linked"} to exactly one CRM customer, ` +
+    `${c.sharedNumber} share a number with two or more CRM customers and are left for a person, ` +
+    `${c.notInCrm} have a mobile number no CRM customer has, ` +
+    `${c.noMobile} have no usable mobile number.`
+  );
 }

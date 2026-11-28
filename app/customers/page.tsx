@@ -5,7 +5,7 @@ import { DEMO_CONVERSATIONS } from "@/lib/inbox/demo-conversations";
 import { listPeople } from "@/lib/leads/people-server";
 import { listCrmCustomers } from "@/lib/leads/people-crm";
 import { mergeCrm } from "@/lib/leads/people";
-import { linkSentence } from "@/lib/leads/link";
+import { linkReport } from "@/lib/leads/link";
 import { linkLeadsByPhone } from "@/lib/leads/link-server";
 import CustomersClient from "./CustomersClient";
 import PeopleClient from "./PeopleClient";
@@ -46,7 +46,7 @@ export default async function CustomersPage() {
     if (crm.state === "ok") {
       try {
         const linked = await linkLeadsByPhone(crm.customers.map((c) => ({ customerId: c.customerId, phone: c.phone })));
-        if (linked) linkNote = linkSentence(linked);
+        if (linked) linkNote = linkReport(linked);
       } catch (e) {
         console.error("[people] linking leads to CRM customers failed:", e instanceof Error ? e.message : "unknown error");
       }
