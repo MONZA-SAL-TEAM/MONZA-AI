@@ -6,7 +6,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { planPhoneLinks, linkSentence } from "@/lib/leads/link";
+import { planPhoneLinks, linkReport } from "@/lib/leads/link";
 
 const lead = (id: string, phone: string | null, crmCustomerId: string | null = null) => ({ id, phone, crmCustomerId });
 const cust = (customerId: string, phone: string | null) => ({ customerId, phone });
@@ -72,24 +72,29 @@ describe("planPhoneLinks", () => {
   });
 });
 
-describe("linkSentence", () => {
-  test("report only says it is switched off and never says it was done", () => {
-    const s = linkSentence({ applied: false, toLink: 4, linked: 0, sharedNumber: 0 });
-    assert.match(s ?? "", /4 chats could be linked/);
-    assert.match(s ?? "", /switched off/);
-    assert.doesNotMatch(s ?? "", /were linked/);
+describe("linkReport", () => {
+  const counts = { leads: 10, alreadyLinked: 1, noMobile: 2, notInCrm: 3, sharedNumber: 1, toLink: 3 };
+
+  test("switched off says so, and never says anything was linked", () => {
+    const s = linkReport({ applied: false, linked: 0, counts }) ?? "";
+    assert.match(s, /switched off; nothing was changed/);
+    assert.match(s, /3 could be linked to exactly one CRM customer/);
+    assert.doesNotMatch(s, /were linked|was linked/);
   });
 
-  test("applied reports what was written", () => {
-    assert.match(linkSentence({ applied: true, toLink: 3, linked: 1, sharedNumber: 0 }) ?? "", /1 chat was linked/);
+  test("every group is named, and the figures are the ones given", () => {
+    const s = linkReport({ applied: false, linked: 0, counts }) ?? "";
+    for (const part of ["Of 10 people who wrote", "1 already linked", "1 share a number", "3 have a mobile number no CRM customer has", "2 have no usable mobile number"]) {
+      assert.ok(s.includes(part), part);
+    }
   });
 
-  test("nothing to say is null, never a zero", () => {
-    assert.equal(linkSentence({ applied: false, toLink: 0, linked: 0, sharedNumber: 0 }), null);
-    assert.equal(linkSentence({ applied: true, toLink: 0, linked: 0, sharedNumber: 0 }), null);
+  test("applied reports what was written, and admits when the budget ran out", () => {
+    assert.match(linkReport({ applied: true, linked: 1, counts }) ?? "", /1 chat was linked/);
+    assert.match(linkReport({ applied: true, linked: 2, partial: true, counts }) ?? "", /2 chats were linked.*more will follow/);
   });
 
-  test("a shared number is mentioned on its own", () => {
-    assert.match(linkSentence({ applied: false, toLink: 0, linked: 0, sharedNumber: 2 }) ?? "", /2 more share a number/);
+  test("no leads is nothing to say, never a row of zeros", () => {
+    assert.equal(linkReport({ applied: false, linked: 0, counts: { leads: 0, alreadyLinked: 0, noMobile: 0, notInCrm: 0, sharedNumber: 0, toLink: 0 } }), null);
   });
 });

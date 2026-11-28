@@ -668,6 +668,8 @@ be asked. Matching the two databases by hand found 6 of 26 buyers since 11 Sept 
 - **Nothing is written unless `LEAD_LINK_MODE` is exactly `apply`** (lib/env.ts `leadLinkApplies`). Unset, the
   page says how many chats COULD be linked and that saving is switched off. Turning it on is Samer's decision.
 - Coverage follows who opens `/customers`: links are made for the customers that person may see.
+- `/customers` shows the whole report (`linkReport`): already linked, matched to exactly one customer, shared number,
+  mobile not in the CRM, no usable mobile — every lead in exactly one group, so the figures add up. Counts only.
 
 ## Website taps and WhatsApp chats (`lib/leads/click-match.ts`, 2026-11-28 — NOT WIRED)
 
@@ -676,8 +678,11 @@ from the site is filed `direct`. Measured 17 Sep – 27 Nov: of 233 distinct tap
 5 minutes by a first message from a new number (about 1 expected by chance); 32 ad chats also followed a tap.
 
 - `inferWebsiteTouches` (pure, tested): only a `direct` chat is considered — an ad, post or story source is
-  never overwritten; one tap explains at most one chat; the message must follow the tap; `certain` is always
-  false and the explanation says "not certain".
+  never overwritten; the message must follow the tap; `certain` is always false and the explanation says "not
+  certain". **Never forced (Samer, 2026-11-28):** a chat is attributed only when exactly ONE tap could explain it
+  and it is the ONLY first message (of any source) that tap could explain; two taps before one chat, or two chats
+  after one tap, attribute nobody. The car is a second witness (`carAgreement`): page car and asked-about car that
+  clearly differ → not attributed; `windowReport` compares 1 / 3 / 5 / 10 minutes beside what chance alone gives.
 - **Nothing calls it and nothing is stored.** Two things are missing: a way to read tap times from the CRM
   project as the signed-in person (no such function exists there), and a label of its own on every screen
   that shows a source — today `website` means "Meta named our site", a certainty.
