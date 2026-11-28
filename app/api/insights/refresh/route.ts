@@ -82,8 +82,11 @@ export async function GET(request: Request): Promise<NextResponse> {
   // 3. The per-person summaries the Research Lab reads (migration 023).
   const people = deadline - Date.now() > 4_000 ? await refreshInsightPeople() : null;
   // 3b. The quotes the team sent since last night (numbers only). Null = not run or the table is not there yet.
-  const quotes = deadline - Date.now() > 8_000 ? await captureQuotes(4_000) : null;
+  let quotes = deadline - Date.now() > 8_000 ? await captureQuotes(4_000) : null;
   // 4. The anonymous demand record (027) for recent months — kept permanently, no client data.
   const demand = deadline - Date.now() > 3_000 ? await storeDemand("recent") : null;
+  // The first read of the team's whole history is longer than its 4 seconds: it takes whatever the
+  // night has left, and continues from its cursor tomorrow.
+  if (quotes && !quotes.done && deadline - Date.now() > 4_000) quotes = (await captureQuotes(deadline - Date.now() - 1_500)) ?? quotes;
   return NextResponse.json({ ok: true, alerts, whatsapp, accounts, people, quotes, demand }, { headers: NO_STORE });
 }
