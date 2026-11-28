@@ -9,6 +9,7 @@ import { rereadPending } from "@/lib/wasales/signal-server";
 import { startCatchup } from "@/lib/insights/catchup-server";
 import { applyReconcile } from "@/lib/alerts/reconcile-server";
 import { alertReconcileApplies } from "@/lib/env";
+import { captureQuotes } from "@/lib/insights/quotes-server";
 
 /**
  * GET /api/insights/refresh — the nightly insights read (vercel.json, 02:00 UTC; Samer, 2026-10-12:
@@ -20,6 +21,8 @@ import { alertReconcileApplies } from "@/lib/env";
  *      done, the newest threads are read, stopping at the first one already read and unchanged.
  *      The account that starts rotates each night, so none is starved.
  *   3. The per-person summaries (insight_people) are rebuilt for the Research Lab.
+ *   3b. What the team quoted on WhatsApp since the last run, as numbers only (migration 036,
+ *      lib/insights/quotes-server.ts). Before that migration this step does nothing.
  *   4. The anonymous demand record (insight_demand_daily) is stored for recent months — not while a re-read
  *      is pending; the re-read stores it whole when it finishes.
  *
@@ -78,7 +81,9 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
   // 3. The per-person summaries the Research Lab reads (migration 023).
   const people = deadline - Date.now() > 4_000 ? await refreshInsightPeople() : null;
+  // 3b. The quotes the team sent since last night (numbers only). Null = not run or the table is not there yet.
+  const quotes = deadline - Date.now() > 8_000 ? await captureQuotes(4_000) : null;
   // 4. The anonymous demand record (027) for recent months — kept permanently, no client data.
   const demand = deadline - Date.now() > 3_000 ? await storeDemand("recent") : null;
-  return NextResponse.json({ ok: true, alerts, whatsapp, accounts, people, demand }, { headers: NO_STORE });
+  return NextResponse.json({ ok: true, alerts, whatsapp, accounts, people, quotes, demand }, { headers: NO_STORE });
 }

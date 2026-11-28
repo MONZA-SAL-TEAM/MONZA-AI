@@ -67,16 +67,21 @@ export function listenerState(next: SearchEngineState): SearchEngineState {
   };
 }
 
-/** A staff (or bot) message: the car it names becomes the car being discussed. Never a customer fact. */
-export function noteStaffWords(state: SearchEngineState, text: string, at: string, deps: EngineDeps): SearchEngineState {
-  if (!text.trim()) return state;
+/** The cars a staff (or bot) message plainly names, each once. Used for context and for quotes — never a customer fact. */
+export function staffCars(text: string, deps: EngineDeps): ModelCode[] {
+  if (!text.trim()) return [];
   const k = deps.knowledge;
   const found = resolveModels(text, engineCars(k, deps.catalog), { offeredCarIds: [], discussedCarIds: [], adCarId: null, intentWords: VOCABULARY.single, carTalkWords: VOCABULARY.carTalk });
   const codes = found.mentions
     .filter((m) => m.confidence === "strong")
     .map((m) => modelByCatalogueId(k, m.carId)?.code)
     .filter((c): c is ModelCode => Boolean(c));
-  const unique = codes.filter((c, i) => codes.indexOf(c) === i);
+  return codes.filter((c, i) => codes.indexOf(c) === i);
+}
+
+/** A staff (or bot) message: the car it names becomes the car being discussed. Never a customer fact. */
+export function noteStaffWords(state: SearchEngineState, text: string, at: string, deps: EngineDeps): SearchEngineState {
+  const unique = staffCars(text, deps);
   if (unique.length !== 1) return state; // a list of the whole range is not "the car being discussed"
   const code = unique[0];
   return { ...state, activeModel: code, recentModels: [code, ...state.recentModels.filter((m) => m !== code)].slice(0, 2), updatedAt: at };
