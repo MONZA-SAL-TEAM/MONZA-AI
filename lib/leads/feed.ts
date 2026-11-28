@@ -9,6 +9,21 @@
  * null for those). No owner / assignee: inquiries are shared among the Sales Team for now.
  */
 import type { Person, PersonChannel } from "@/lib/leads/people";
+import { scoreNumber, type NumberClass } from "@/lib/leads/number-score";
+
+/**
+ * What the insights reader has concluded about a person (insight_people): how far their questions
+ * went and the car they mean. Labels only. Absent for someone not profiled yet.
+ */
+export interface LeadFacts {
+  /** "buying" | "test_drive" | "pricing" | "interested" | "asking" | "wrote" */
+  stage: string;
+  stageLabel: string;
+  /** 5 = wants to buy … 0 = only wrote; for sorting. */
+  stageRank: number;
+  /** The car they mean, as Monza writes it; null when none stands out. */
+  mainCar: string | null;
+}
 
 export const LEADS_FEED_CAP = 2000;
 
@@ -32,11 +47,21 @@ export interface LeadFeedRow {
   alert: string | null;
   /** The chat to open in MONZA AI's inbox: the one with the newest activity. */
   threadId: string | null;
+  /** How far their questions went; null when the person is not profiled yet — never "wrote" by default. */
+  stage: string | null;
+  stageLabel: string | null;
+  stageRank: number | null;
+  mainCar: string | null;
+  /** How memorable the number is (lib/leads/number-score.ts). Null without a Lebanese mobile. A signal, never a judgment of the person. */
+  numberClass: NumberClass | null;
+  numberScore: number | null;
+  numberReasons: string[];
 }
 
 const ms = (iso: string | null): number => (iso ? Date.parse(iso) || 0 : 0);
 
-export function leadFeedRow(p: Person): LeadFeedRow {
+export function leadFeedRow(p: Person, facts: LeadFacts | null = null): LeadFeedRow {
+  const number = scoreNumber(p.phone);
   const threads = [...p.threads].sort((a, b) => ms(b.lastMessageAt) - ms(a.lastMessageAt));
   const newestAlert = [...p.alerts].sort((a, b) => ms(b.createdAt) - ms(a.createdAt))[0] ?? null;
   return {
@@ -54,6 +79,13 @@ export function leadFeedRow(p: Person): LeadFeedRow {
     waiting: threads.some((t) => t.lastInboundAt !== null && ms(t.lastInboundAt) >= ms(t.lastMessageAt)),
     alert: newestAlert?.kind ?? null,
     threadId: newestAlert?.threadId ?? threads[0]?.threadId ?? null,
+    stage: facts?.stage ?? null,
+    stageLabel: facts?.stageLabel ?? null,
+    stageRank: facts?.stageRank ?? null,
+    mainCar: facts?.mainCar ?? null,
+    numberClass: number?.cls ?? null,
+    numberScore: number?.score ?? null,
+    numberReasons: number?.reasons ?? [],
   };
 }
 
@@ -61,7 +93,7 @@ export function leadFeedRow(p: Person): LeadFeedRow {
  * Newest activity first, at most LEADS_FEED_CAP. `total` is everybody, so a cut list says so
  * instead of passing for the whole.
  */
-export function leadsFeed(people: readonly Person[]): { total: number; leads: LeadFeedRow[] } {
+export function leadsFeed(people: readonly Person[], facts: ReadonlyMap<string, LeadFacts> = new Map()): { total: number; leads: LeadFeedRow[] } {
   const sorted = [...people].sort((a, b) => ms(b.lastSeenAt) - ms(a.lastSeenAt));
-  return { total: people.length, leads: sorted.slice(0, LEADS_FEED_CAP).map(leadFeedRow) };
+  return { total: people.length, leads: sorted.slice(0, LEADS_FEED_CAP).map((p) => leadFeedRow(p, facts.get(p.id) ?? null)) };
 }
