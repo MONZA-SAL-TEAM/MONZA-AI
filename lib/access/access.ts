@@ -134,6 +134,8 @@ export function apiRuleOf(pathname: string, method: string): ApiRule | null {
   if (is("/api/conversations/owner")) return write ? { page: "inbox", action: "take_leads", event: "lead_owner_changed" } : { page: "inbox" };
   if (is("/api/conversations")) return { page: "inbox" };
   if (is("/api/insights")) return write ? { page: "insights", action: "edit_insights", event: `insights_${p.split("/")[3] ?? "change"}`.slice(0, 40) } : { page: "insights" };
+  // The leads for the Monza S.A.L. app's Leads page: the people who may open Customers here.
+  if (is("/api/leads")) return { page: "customers" };
   if (is("/api/sales/alerts")) return write ? { page: "inbox", action: "close_alerts", event: "alert_closed" } : { page: "inbox" };
   if (is("/api/sales/suggestion/send")) return { page: "inbox", action: "send_messages", event: "suggestion_sent" };
   if (is("/api/sales/suggestion") || is("/api/suggest")) return { page: "inbox" };
