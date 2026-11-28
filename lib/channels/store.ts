@@ -62,6 +62,7 @@ import {
 import { WA_MEDIA_BUCKET, readAttachments, type StoredAttachment } from "@/lib/channels/wa-media";
 import { noteInboundLead } from "@/lib/leads/store";
 import { recordSignal } from "@/lib/wasales/signal-server";
+import { mayHoldQuote } from "@/lib/wasales/quote";
 
 export interface StoredAccount {
   id: string;
@@ -392,6 +393,10 @@ export async function storeInbound(events: readonly InboundEvent[]): Promise<Sto
     // not unread, it does not reopen the reply window, and it is not a lead.
     if (outgoing) {
       await sb.rpc("channel_note_outbound", { p_conversation: conversationId, p_at: event.at });
+      // A price typed in the WhatsApp app is on record at once (numbers only, 036). Best effort.
+      if (mayHoldQuote(event.text ?? "")) {
+        await import("@/lib/insights/quotes-server").then((q) => q.reconcileQuoteOf(account.id, event.externalMessageId)).catch(() => undefined);
+      }
       continue;
     }
 
@@ -479,11 +484,15 @@ export async function applyWhatsAppRevisions(revisions: readonly WhatsAppRevisio
       }
       const { error } = await sb.from("channel_messages").update({ body: "", attachments: [], deleted_at: r.at }).eq("id", row.id);
       if (!error) out.deleted++;
+      // A deleted offer is no longer an offer on record (036). Best effort.
+      if (!error && row.direction !== "in") await import("@/lib/insights/quotes-server").then((q) => q.reconcileQuoteOf(r.accountId, r.originalMessageId)).catch(() => undefined);
       continue;
     }
     const { error } = await sb.from("channel_messages").update({ body: r.text ?? "", edited_at: r.at }).eq("id", row.id);
     if (error) continue;
     out.edited++;
+    // An edited offer: the figures on record become the corrected ones (036). Best effort.
+    if (row.direction !== "in") await import("@/lib/insights/quotes-server").then((q) => q.reconcileQuoteOf(r.accountId, r.originalMessageId)).catch(() => undefined);
     if (row.direction === "in" && r.text) {
       const { data: conv } = await sb.from("channel_conversations").select("account_id, brand, peer_external_id").eq("id", row.conversation_id).maybeSingle();
       const c = conv as { account_id: string; brand: string; peer_external_id: string } | null;
@@ -646,6 +655,11 @@ export async function recordWhatsAppSent(input: {
     });
   if (error) return false;
   await sb.rpc("channel_note_outbound", { p_conversation: input.conversationId, p_at: input.at });
+  // A price a person just sent is on record at once (numbers only, lib/insights/quotes-server.ts).
+  // Imported here, not at the top: that module reads this one. Best effort, never fails a send.
+  if (input.author !== "automation" && mayHoldQuote(input.text)) {
+    await import("@/lib/insights/quotes-server").then((q) => q.reconcileQuoteOf(input.accountId, input.externalMessageId)).catch(() => undefined);
+  }
   return true;
 }
 
